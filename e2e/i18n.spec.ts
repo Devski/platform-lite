@@ -6,6 +6,7 @@ test.describe("Polish browser", () => {
   test("/ renders Polish without a locale prefix", async ({ page }) => {
     await page.goto("/");
     await expect(page).toHaveURL("/");
+    await expect(page).toHaveTitle("platform-lite");
     await expect(page.locator("html")).toHaveAttribute("lang", "pl");
     await expect(
       page.getByRole("heading", { level: 1, name: "platform-lite" }),

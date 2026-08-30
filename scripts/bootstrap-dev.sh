@@ -6,14 +6,17 @@
 set -euo pipefail
 
 GITHUB_HANDLE="${GITHUB_HANDLE:?Set GITHUB_HANDLE (your GitHub handle, e.g. devski)}"
-# Hex/alphanumeric only — the value is injected into the cloud-init template with sed.
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD (e.g. openssl rand -hex 32)}"
+# The value is rendered into the cloud-init template with sed — enforce a sed-safe charset.
+[[ "$POSTGRES_PASSWORD" =~ ^[A-Za-z0-9]+$ ]] ||
+  { echo "POSTGRES_PASSWORD must be alphanumeric (e.g. openssl rand -hex 32)"; exit 1; }
 SSH_PUBLIC_KEY_FILE="${SSH_PUBLIC_KEY_FILE:-$HOME/.ssh/id_ed25519.pub}"
 INSTANCE_NAME="${INSTANCE_NAME:-platform-dev}"
 FLAVOR="${FLAVOR:-d2-2}"                                        # SPEC.md §8
 IMAGE_NAME="${IMAGE_NAME:-Ubuntu 24.04}"
 BUCKET="${BUCKET:-platform-dev}"                                # SPEC.md §4
 S3_ENDPOINT="${S3_ENDPOINT:-https://s3.waw.io.cloud.ovh.net}"
+EXPECTED_REGION="${EXPECTED_REGION:-WAW1}"                      # SPEC.md §8: dev lives in waw
 export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-waw}"
 
 # Per-developer database suffix: lowercase, "-" -> "_" (SPEC.md §4).
@@ -23,6 +26,10 @@ command -v openstack >/dev/null || { echo "openstack CLI missing (pip install py
 command -v aws >/dev/null || { echo "aws CLI missing"; exit 1; }
 : "${OS_AUTH_URL:?Source your OpenRC file first (docs/dev-environment.md, part 1)}"
 : "${AWS_ACCESS_KEY_ID:?Export the S3 access key (docs/dev-environment.md, part 1)}"
+# The S3 endpoint above is pinned to waw — a mismatched OpenStack region would split
+# the infrastructure across regions without any error.
+[ "${OS_REGION_NAME:-}" = "$EXPECTED_REGION" ] ||
+  { echo "OS_REGION_NAME='${OS_REGION_NAME:-<unset>}' but the dev region is $EXPECTED_REGION (SPEC.md §8); export EXPECTED_REGION to override deliberately"; exit 1; }
 [ -f "$SSH_PUBLIC_KEY_FILE" ] || { echo "SSH public key not found: $SSH_PUBLIC_KEY_FILE (override with SSH_PUBLIC_KEY_FILE)"; exit 1; }
 
 echo "==> Preflight: flavor and image in region ${OS_REGION_NAME:-<unset>}"
