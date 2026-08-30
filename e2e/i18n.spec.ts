@@ -8,6 +8,9 @@ test.describe("Polish browser", () => {
     await expect(page).toHaveURL("/");
     await expect(page.locator("html")).toHaveAttribute("lang", "pl");
     await expect(
+      page.getByRole("heading", { level: 1, name: "platform-lite" }),
+    ).toBeVisible();
+    await expect(
       page.getByText(
         "Publiczne profile dla studiów architektury i artystów 3D",
       ),
