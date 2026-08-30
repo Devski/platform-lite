@@ -7,3 +7,7 @@ export const routing = defineRouting({
   defaultLocale: "pl",
   localePrefix: "as-needed",
 });
+
+// The one shared alias for a supported locale — import it instead of
+// re-deriving (typeof routing.locales)[number] in every consumer.
+export type Locale = (typeof routing.locales)[number];

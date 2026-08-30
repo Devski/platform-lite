@@ -41,7 +41,7 @@ working public link with their name and photo in under 5 minutes.
 | A7  | Profile page `/handle`: server-rendered, correct `<title>`, description, Open Graph (image = avatar), canonical. Indexed **only in production** — dev and PR previews send `X-Robots-Tag: noindex`.                                                              |
 | A8  | Interface in Polish and English, architecture open to further languages: all texts via dictionaries, no strings in components. Polish unprefixed (`/handle`), English prefixed (`/en/...`); selection: `Accept-Language` header + a switcher stored in a cookie. |
 | A9  | 1 GB limit per user, free of charge (the MVP has no payments). Usage computed in the database from file sizes; an upload over the limit is rejected with a clear message.                                                                                        |
-| A10 | Six transactional e-mails (verification, re-verification, reset, password-change confirmation, address change ×2, handle change) via Scaleway TEM. SPF, DKIM and DMARC configured before the first real message goes out. Zero marketing e-mail.                 |
+| A10 | Seven transactional e-mails (verification, re-verification, reset, password-change confirmation, address change ×2, handle change) via Scaleway TEM. SPF, DKIM and DMARC configured before the first real message goes out. Zero marketing e-mail.               |
 | A11 | Homepage for signed-out visitors: full-screen photo + entry to sign-up/sign-in. Visual design — open (§12); the MVP ships a style-consistent placeholder.                                                                                                        |
 
 ---

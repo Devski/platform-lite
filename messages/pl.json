@@ -3,6 +3,36 @@
     "title": "platform-lite",
     "description": "Publiczne profile dla studiów architektury i artystów 3D."
   },
+  "Email": {
+    "accountVerification": {
+      "subject": "Potwierdź swój adres e-mail",
+      "body": "Cześć!\n\nAby aktywować konto, kliknij poniższy link:\n{verifyUrl}\n\nLink jest ważny przez 24 godziny.\n\nJeśli to nie Ty — zignoruj tę wiadomość, a konto pozostanie nieaktywne."
+    },
+    "accountReverification": {
+      "subject": "Nowy link weryfikacyjny",
+      "body": "Cześć!\n\nOtrzymaliśmy prośbę o ponowne wysłanie linku weryfikacyjnego:\n{verifyUrl}\n\nLink jest ważny przez 24 godziny.\n\nJeśli to nie Ty — zignoruj tę wiadomość."
+    },
+    "passwordReset": {
+      "subject": "Reset hasła",
+      "body": "Cześć!\n\nOtrzymaliśmy prośbę o reset hasła. Nowe hasło ustawisz tutaj:\n{resetUrl}\n\nLink działa jednorazowo i jest ważny przez 60 minut.\n\nJeśli to nie Ty — zignoruj tę wiadomość, a hasło pozostanie bez zmian."
+    },
+    "passwordChanged": {
+      "subject": "Twoje hasło zostało zmienione",
+      "body": "Cześć!\n\nHasło do Twojego konta zostało właśnie zmienione.\n\nJeśli to nie Ty — jak najszybciej użyj opcji resetu hasła i zabezpiecz swoją skrzynkę e-mail."
+    },
+    "emailChangeNotice": {
+      "subject": "Zgłoszono zmianę adresu e-mail konta",
+      "body": "Cześć!\n\nOtrzymaliśmy prośbę o zmianę adresu e-mail Twojego konta na: {newEmail}\n\nZmiana wejdzie w życie dopiero po potwierdzeniu na nowym adresie — do tego czasu nic się nie zmienia.\n\nJeśli to nie Ty — jak najszybciej użyj opcji resetu hasła (wiadomość trafi na Twój obecny adres)."
+    },
+    "emailChangeConfirmation": {
+      "subject": "Potwierdź nowy adres e-mail",
+      "body": "Cześć!\n\nAby potwierdzić nowy adres e-mail dla Twojego konta, kliknij:\n{confirmUrl}\n\nJeśli to nie Ty — zignoruj tę wiadomość."
+    },
+    "handleChanged": {
+      "subject": "Adres Twojego profilu się zmienił",
+      "body": "Cześć!\n\nAdres Twojego profilu został zmieniony z {oldHandle} na {newHandle}.\n\nNowy adres profilu:\n{profileUrl}\n\nStary adres przekierowuje na nowy, dopóki nazwa {oldHandle} nie zostanie zajęta przez kogoś innego."
+    }
+  },
   "HomePage": {
     "brand": "platform-lite",
     "tagline": "Publiczne profile dla studiów architektury i artystów 3D"
