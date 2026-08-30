@@ -1,0 +1,14 @@
+{
+  "Metadata": {
+    "description": "Public profiles for architecture studios and 3D artists."
+  },
+  "HomePage": {
+    "brand": "platform-lite",
+    "tagline": "Public profiles for architecture studios and 3D artists"
+  },
+  "LanguageSwitcher": {
+    "label": "Language selection",
+    "pl": "Polski",
+    "en": "English"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "Metadata": {
+    "description": "Publiczne profile dla studiów architektury i artystów 3D."
+  },
+  "HomePage": {
+    "brand": "platform-lite",
+    "tagline": "Publiczne profile dla studiów architektury i artystów 3D"
+  },
+  "LanguageSwitcher": {
+    "label": "Wybór języka",
+    "pl": "Polski",
+    "en": "English"
+  }
+}

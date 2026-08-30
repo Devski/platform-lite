@@ -112,11 +112,12 @@ The production image is built by Coolify from the `Dockerfile` in the repo root 
 ```
 src/
   app/
-    (public)/
-      page.tsx              # homepage for signed-out visitors (A11)
-      [handle]/page.tsx     # public profile page (A7)
-    (auth)/                 # sign-up, login, verification, reset
-    (app)/settings/         # profile, handle, account
+    [locale]/               # pl unprefixed, /en/... prefixed (A8)
+      (public)/
+        page.tsx            # homepage for signed-out visitors (A11)
+        [handle]/page.tsx   # public profile page (A7)
+      (auth)/               # sign-up, login, verification, reset
+      (app)/settings/       # profile, handle, account
     api/                    # route handlers (upload confirm etc.)
   lib/
     storage.ts              # G1: the ONLY place touching S3
@@ -126,6 +127,7 @@ src/
   db/
     schema.ts               # source of truth for drizzle-kit
   i18n/                     # next-intl configuration
+  proxy.ts                  # locale detection: prefix → cookie → Accept-Language (A8)
 messages/
   pl.json  en.json          # ALL interface texts
 drizzle/                    # generated SQL migrations — committed

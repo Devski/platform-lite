@@ -13,6 +13,14 @@ const eslintConfig = defineConfig([
       "@typescript-eslint/no-explicit-any": "error",
     },
   },
+  {
+    files: ["src/app/**/*.tsx", "src/components/**/*.tsx"],
+    rules: {
+      // A8: every UI text goes through the dictionaries — no literal strings
+      // rendered from components.
+      "react/jsx-no-literals": "error",
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:
