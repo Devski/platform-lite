@@ -1,93 +1,95 @@
-# Plan implementacji MVP — indeks zadań
+# Implementation plan — MVP task index
 
-**Zadania śledzone w GitHub Issues:** https://github.com/3dbdg/platform-lite/issues
-(jedno issue = jedno zadanie z kryteriami akceptacji i weryfikacją; ten plik to indeks
-i kontekst, nie druga lista — nie prowadzimy `tasks/todo.md`).
+**Tasks are tracked in GitHub Issues:** https://github.com/3dbdg/platform-lite/issues
+(one issue = one task with acceptance criteria and verification; this file is the index
+and context, not a second list — there is no `tasks/todo.md`).
 
-Źródłem wymagań jest [SPEC.md](../SPEC.md). Plan utworzony 30.08.2026, zatwierdzony przez Dawida.
+Requirements come from [SPEC.md](../SPEC.md). Plan created on 30.08.2026, approved by Dawid.
 
-## Decyzje strukturalne
+## Structural decisions
 
-- Wszystko na GitHubie (issues, PR-y, milestone'y, labele, commity) — **po angielsku**;
-  dokumenty decyzyjne w repo — po polsku (SPEC.md §5).
-- Milestone = faza; kryteria checkpointu w opisie milestone'u i poniżej.
-- Zależności w treści issue („Depends on #N"). Kolejność numerów = zalecana kolejność pracy.
-- Labele: `infra` (konsole OVH/Scaleway/Coolify), `decision` (pytania otwarte §12),
-  `blocked` (czeka na decyzję o domenie — #25).
-- Brama jakości dla każdego zadania z kodem: **`pnpm check` zielony przed każdym commitem** (§7);
-  wpisana w sekcję Verification każdego issue.
-- Transport poczty w dev = log (#6), więc brak domeny (#25) nie blokuje żadnego kodu aplikacji —
-  blokuje wyłącznie #21 (adresy docelowe), #22 i #24.
+- Everything in the repository and on GitHub — documents, issues, PRs, milestones, labels —
+  always in English (SPEC.md §5). Chat communication stays in Polish.
+- Milestone = phase; checkpoint criteria live in the milestone description and below.
+- Dependencies in the issue body ("Depends on #N"). Issue-number order = recommended work order.
+- Labels: `infra` (console work at OVH/Scaleway/Coolify), `decision` (open questions from §12),
+  `blocked` (waiting on the domain decision — #25).
+- Quality gate for every code task: **`pnpm check` green before every commit** (§7);
+  written into the Verification section of every issue.
+- The dev e-mail transport is a logger (#6), so the missing domain (#25) blocks no
+  application code — it only blocks #21 (final addresses), #22 and #24.
 
-## Fazy i checkpointy
+## Phases and checkpoints
 
-### [Phase 0 — Foundation](https://github.com/3dbdg/platform-lite/milestone/1)
+### [Phase 0 - Foundation](https://github.com/3dbdg/platform-lite/milestone/1)
 
-1. [#1](https://github.com/3dbdg/platform-lite/issues/1) Bootstrap: Next.js 16 + TS strict + Tailwind 4 + narzędzia
-2. [#2](https://github.com/3dbdg/platform-lite/issues/2) Infrastruktura dev na OVH `waw` (`infra`)
-3. [#3](https://github.com/3dbdg/platform-lite/issues/3) i18n: next-intl, `pl` bez prefiksu, `/en/`, cookie
-4. [#4](https://github.com/3dbdg/platform-lite/issues/4) Schemat bazy + Drizzle + pierwsza migracja
-5. [#5](https://github.com/3dbdg/platform-lite/issues/5) CI: `pnpm check` + build na każdym PR
-6. [#6](https://github.com/3dbdg/platform-lite/issues/6) Warstwa e-mail: `lib/email.ts`, szablony pl/en, transport dev
+1. [#1](https://github.com/3dbdg/platform-lite/issues/1) Project bootstrap: Next.js 16 + TypeScript strict + Tailwind 4 + tooling
+2. [#2](https://github.com/3dbdg/platform-lite/issues/2) Dev infrastructure on OVH waw: d2-2 instance, Postgres, platform-dev bucket (`infra`)
+3. [#3](https://github.com/3dbdg/platform-lite/issues/3) i18n: next-intl, pl unprefixed, /en/ prefix, Accept-Language + cookie switcher
+4. [#4](https://github.com/3dbdg/platform-lite/issues/4) Database schema + Drizzle + first migration
+5. [#5](https://github.com/3dbdg/platform-lite/issues/5) CI: GitHub Actions - pnpm check + build on every PR
+6. [#6](https://github.com/3dbdg/platform-lite/issues/6) Transactional email layer: lib/email.ts, templates (pl/en), dev log transport
 
-**Checkpoint:** CI zielone na PR; `pnpm dev` renderuje stronę pl i en; baza dev po migracjach.
+**Checkpoint:** CI green on PRs; `pnpm dev` renders pl and en pages; dev database migrated.
 
-### [Phase 1 — Accounts](https://github.com/3dbdg/platform-lite/milestone/2)
+### [Phase 1 - Accounts](https://github.com/3dbdg/platform-lite/milestone/2)
 
-7. [#7](https://github.com/3dbdg/platform-lite/issues/7) Rejestracja z weryfikacją e-mail (A1)
-8. [#8](https://github.com/3dbdg/platform-lite/issues/8) Logowanie, wylogowanie, sesje (A2)
-9. [#9](https://github.com/3dbdg/platform-lite/issues/9) Reset hasła (A3)
-10. [#10](https://github.com/3dbdg/platform-lite/issues/10) Ustawienia konta: zmiana hasła i adresu (A10)
+7. [#7](https://github.com/3dbdg/platform-lite/issues/7) Registration: e-mail + password with account verification
+8. [#8](https://github.com/3dbdg/platform-lite/issues/8) Login, logout, sessions
+9. [#9](https://github.com/3dbdg/platform-lite/issues/9) Password reset
+10. [#10](https://github.com/3dbdg/platform-lite/issues/10) Account settings: change password and change e-mail
 
-**Checkpoint:** pełny cykl konta na dev bez pomocy; testy integracyjne auth zielone.
+**Checkpoint:** full account lifecycle works on dev without assistance; auth integration tests green.
 
-### [Phase 2 — Profile and files](https://github.com/3dbdg/platform-lite/milestone/3)
+### [Phase 2 - Profile and files](https://github.com/3dbdg/platform-lite/milestone/3)
 
-11. [#11](https://github.com/3dbdg/platform-lite/issues/11) `lib/storage.ts`: `FileStorage` + S3 + `contentKey` (G1–G3)
-12. [#12](https://github.com/3dbdg/platform-lite/issues/12) Upload awatara: presigned URL + warianty sharp (A4, G3–G5)
-13. [#13](https://github.com/3dbdg/platform-lite/issues/13) Limit 1 GB: `lib/quota.ts` (A9)
-14. [#14](https://github.com/3dbdg/platform-lite/issues/14) Ustawienia profilu: nazwa + awatar (A4)
-15. [#15](https://github.com/3dbdg/platform-lite/issues/15) Handle: walidacja, słowa zarezerwowane (A5)
-16. [#16](https://github.com/3dbdg/platform-lite/issues/16) Zmiana handle: cooldown, 301, zwalnianie (A6)
-17. [#17](https://github.com/3dbdg/platform-lite/issues/17) Seed: `pnpm db:seed` (G7)
+11. [#11](https://github.com/3dbdg/platform-lite/issues/11) Storage layer: FileStorage interface, S3 implementation, contentKey
+12. [#12](https://github.com/3dbdg/platform-lite/issues/12) Avatar upload: presigned URL + sharp WebP 512/128 variants
+13. [#13](https://github.com/3dbdg/platform-lite/issues/13) 1 GB quota: lib/quota.ts
+14. [#14](https://github.com/3dbdg/platform-lite/issues/14) Profile settings: display name + avatar
+15. [#15](https://github.com/3dbdg/platform-lite/issues/15) Handle: validation, reserved words, initial assignment
+16. [#16](https://github.com/3dbdg/platform-lite/issues/16) Handle change: 30-day cooldown, redirects with 301, immediate release
+17. [#17](https://github.com/3dbdg/platform-lite/issues/17) Seed: pnpm db:seed with sample profiles and photos
 
-**Checkpoint:** nazwa, zdjęcie (warianty WebP) i handle ustawialne z UI; quota egzekwowana;
-pokrycie `src/lib/` ≥ 80 %.
+**Checkpoint:** display name, photo (WebP variants) and handle settable from the UI;
+quota enforced; `src/lib/` coverage at 80% or higher.
 
-### [Phase 3 — Public pages](https://github.com/3dbdg/platform-lite/milestone/4)
+### [Phase 3 - Public pages](https://github.com/3dbdg/platform-lite/milestone/4)
 
-18. [#18](https://github.com/3dbdg/platform-lite/issues/18) Wizytówka `/[handle]`: SSR, meta/OG/canonical, 301/404 (A7)
-19. [#19](https://github.com/3dbdg/platform-lite/issues/19) Strona główna niezalogowanego (A11)
-20. [#20](https://github.com/3dbdg/platform-lite/issues/20) E2E: happy path, smoke, axe
+18. [#18](https://github.com/3dbdg/platform-lite/issues/18) Public profile page /[handle]: SSR, meta/OG/canonical, resolution to 301/404
+19. [#19](https://github.com/3dbdg/platform-lite/issues/19) Landing page for signed-out users
+20. [#20](https://github.com/3dbdg/platform-lite/issues/20) E2E: happy path, login/reset smoke, axe on public pages
 
-**Checkpoint = kryterium sukcesu MVP:** od strony głównej do publicznego linku ze zdjęciem
-w < 5 minut (przejście ręczne); e2e zielone.
+**Checkpoint = the MVP success criterion:** from the homepage to a public link with a photo
+in under 5 minutes (manual walkthrough); e2e green.
 
-### [Phase 4 — Deployments and transactional email](https://github.com/3dbdg/platform-lite/milestone/5)
+### [Phase 4 - Deployments and transactional email](https://github.com/3dbdg/platform-lite/milestone/5)
 
-21. [#21](https://github.com/3dbdg/platform-lite/issues/21) Dockerfile + Coolify dev: auto-deploy, podglądy PR, G9 (`infra`)
-22. [#22](https://github.com/3dbdg/platform-lite/issues/22) Scaleway TEM + SPF/DKIM/DMARC (G8) (`infra`, `blocked`)
-23. [#23](https://github.com/3dbdg/platform-lite/issues/23) Test dostarczalności: Gmail/Onet/WP/Interia (`infra`)
-24. [#24](https://github.com/3dbdg/platform-lite/issues/24) Prod: instancja, Managed Postgres, kubełek, CDN, ćwiczenie G10 (`infra`, `blocked`)
+21. [#21](https://github.com/3dbdg/platform-lite/issues/21) Dockerfile (standalone) + Coolify on dev: auto-deploy, PR previews, G9 (`infra`)
+22. [#22](https://github.com/3dbdg/platform-lite/issues/22) Scaleway TEM + SPF/DKIM/DMARC + switch email.ts to TEM (`infra`, `blocked`)
+23. [#23](https://github.com/3dbdg/platform-lite/issues/23) Deliverability test: Gmail / Onet / WP / Interia (`infra`)
+24. [#24](https://github.com/3dbdg/platform-lite/issues/24) Production environment: instance, managed Postgres, prod bucket, CDN, G10 drill (`infra`, `blocked`)
 
-**Checkpoint:** dev auto-deploy z `main` + podglądy PR; poczta przechodzi testy dostarczalności;
-procedura G10 przećwiczona; prod gotowy do ręcznego wdrożenia (każde — za zgodą, §7).
+**Checkpoint:** dev auto-deploys from `main` + PR previews; e-mail passes deliverability
+tests; G10 restore procedure drilled; prod ready for manual deployment (each one — with
+approval, §7).
 
-### Decyzje otwarte (label `decision`, §12)
+### Open decisions (label `decision`, §12)
 
-- [#25](https://github.com/3dbdg/platform-lite/issues/25) Nazwa produktu i domena — **blokuje #21 (adresy), #22, #24**; przed pierwszym wdrożeniem dev
-- [#26](https://github.com/3dbdg/platform-lite/issues/26) Projekt strony głównej (zdjęcie, licencja) — placeholder w #19 nie czeka
-- [#27](https://github.com/3dbdg/platform-lite/issues/27) Domyślny obraz OG bez awatara — #18 startuje z placeholderem
+- [#25](https://github.com/3dbdg/platform-lite/issues/25) Decision: product name and domain — **blocks #21 (addresses), #22, #24**; before the first dev deployment
+- [#26](https://github.com/3dbdg/platform-lite/issues/26) Decision: landing page design (photo, source, license) — the placeholder in #19 does not wait for it
+- [#27](https://github.com/3dbdg/platform-lite/issues/27) Decision: default OG image for profiles without avatar — #18 starts with a placeholder
 
-## Pokrycie wymagań
+## Requirements coverage
 
-Każde kryterium A1–A11 i każda granica G1–G10 ma swoje zadanie (A11 — wizualne, bez wymogu
-testu). Ryzyka §10 ujęte w #23 (dostarczalność) i treściach #16/#24. Pytania §12 = #25–#27.
+Every criterion A1–A11 and every boundary G1–G10 has its task (A11 — visual, no test
+requirement). §10 risks are covered by #23 (deliverability) and inside #16/#24. §12 open
+questions = #25–#27.
 
-## Ryzyka planu
+## Plan risks
 
-| Ryzyko | Mitygacja |
+| Risk | Mitigation |
 |---|---|
-| Brak decyzji o domenie zatrzymuje fazę 4 | #25 oznaczone jako blokujące; fazy 0–3 w całości niezależne od domeny (transport log w #6) |
-| Better Auth: API/wersja niezweryfikowane | W #4/#7 jawny krok weryfikacji z oficjalną dokumentacją przed implementacją (§2, source-driven) |
-| Infrastruktura (#2) ręczna, po stronie Dawida | #2 bez zależności — można zrobić równolegle z #1; kroki dokumentowane w `docs/` pod G10 |
+| No domain decision stalls Phase 4 | #25 marked as blocking; Phases 0–3 fully independent of the domain (log transport in #6) |
+| Better Auth: API/version unverified | #4/#7 include an explicit verification step against official docs before implementation (§2, source-driven) |
+| Infrastructure (#2) is manual, on Dawid's side | #2 has no dependencies — can run in parallel with #1; steps documented in `docs/` toward G10 |

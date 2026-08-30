@@ -1,85 +1,85 @@
 # Spec: platform-lite — MVP
 
-Repozytorium: https://github.com/3dbdg/platform-lite
-Status: **do zatwierdzenia** · 30 sierpnia 2026 · nic nie jest jeszcze zaimplementowane.
-Nazwa robocza: *platform-lite* (nazwa produktu i domena — otwarte, patrz §12).
+Repository: https://github.com/3dbdg/platform-lite
+Status: **awaiting approval** · 30 August 2026 · nothing is implemented yet.
+Working name: *platform-lite* (product name and domain — open, see §12).
 
-Dokumenty źródłowe z pełnym uzasadnieniem decyzji:
-- Karta decyzji: https://claude.ai/code/artifact/e08d7ff7-26e1-4b7c-8ead-260200b040d1
-- Koszty plików i transferu (14 dostawców): https://claude.ai/code/artifact/931d4f6c-1676-44dc-8076-023883402d74
-- Koszty poczty transakcyjnej (8 dostawców): https://claude.ai/code/artifact/70cbb3dd-5d94-42a4-90b1-2bc7f34b637a
+Source documents with the full rationale behind the decisions (in Polish):
+- Decision card: https://claude.ai/code/artifact/e08d7ff7-26e1-4b7c-8ead-260200b040d1
+- File storage and transfer costs (14 providers): https://claude.ai/code/artifact/931d4f6c-1676-44dc-8076-023883402d74
+- Transactional e-mail costs (8 providers): https://claude.ai/code/artifact/70cbb3dd-5d94-42a4-90b1-2bc7f34b637a
 
-Rodowód: MVP odpowiada modułom `foundation → identity → profiles` z zatwierdzonej mapy
-zdolności repozytorium `3dbdg/platform` (CAPABILITY-MAP.md). Świadomie scalone tu w jedną
-aplikację i jeden spec — to jest sedno „lite".
+Lineage: the MVP corresponds to the `foundation → identity → profiles` modules of the approved
+capability map in the `3dbdg/platform` repository (CAPABILITY-MAP.md). Deliberately merged here
+into a single application and a single spec — that is the essence of "lite".
 
 ---
 
-## 1. Cel
+## 1. Goal
 
-Pracownia architektoniczna albo artysta 3D wchodzi na platformę i w kilka minut ma
-publiczną wizytówkę pod adresem `/nazwa` — wygląd inspirowany stroną firmową LinkedIn
-(sam styl wizualny: niebieski akcent, gęstsza typografia, karty z cienkimi obramowaniami;
-bez struktury strony firmowej — bez zdjęcia w tle, zakładek i sekcji „O nas").
+An architecture studio or a 3D artist enters the platform and within a few minutes has a
+public profile page at `/handle` — look inspired by a LinkedIn company page (the visual
+style only: blue accent, denser typography, cards with thin borders; without the
+company-page structure — no cover photo, tabs or "About us" section).
 
-**Jedna persona:** dostawca — pracownia albo solowy twórca. Rynek: Polska, potem Europa.
+**One persona:** the provider — a studio or a solo creator. Market: Poland, then Europe.
 
-**Sukces MVP:** nowy użytkownik bez żadnej pomocy przechodzi od wejścia na stronę główną
-do działającego publicznego linku ze swoją nazwą i zdjęciem w mniej niż 5 minut.
+**MVP success:** a new user, with no assistance, goes from landing on the homepage to a
+working public link with their name and photo in under 5 minutes.
 
-### Kryteria akceptacyjne
+### Acceptance criteria
 
-| # | Kryterium |
+| # | Criterion |
 |---|---|
-| A1 | Rejestracja e-mail + hasło (8–128 znaków, bez reguł kompozycji, limitowanie prób). Konto nieaktywne do kliknięcia linku weryfikacyjnego (ważny 24 h, ponowna wysyłka maks. 3/h). |
-| A2 | Logowanie i wylogowanie. Sesja: cookie `httpOnly` + `secure` + `sameSite=lax`, 30 dni, odnawialna. Hashe haseł wyłącznie w naszym Postgresie. |
-| A3 | Reset hasła: link jednorazowy ważny 60 min; po udanej zmianie powiadomienie na adres konta. |
-| A4 | Profil: nazwa wyświetlana (1–80 znaków) i zdjęcie (JPEG/PNG/WebP ≤ 10 MB), z którego powstają warianty WebP 512 px i 128 px. |
-| A5 | Handle: 3–30 znaków, `^[a-z0-9](?:[a-z0-9-]{1,28}[a-z0-9])$`, unikalność bez rozróżniania wielkości liter, lista słów zarezerwowanych (m.in. `pl`, `en`, `api`, `admin`, `login`, `settings`, `assets`). |
-| A6 | Zmiana handle: nie częściej niż raz na 30 dni. Stary adres odpowiada 301 na nowy, **dopóki ktoś nie zajmie starej nazwy — stare handle wracają do obiegu natychmiast** (decyzja 30.08.2026; ryzyko podszycia przyjęte świadomie, patrz §10). |
-| A7 | Wizytówka `/nazwa`: renderowana serwerowo, poprawne `<title>`, opis, Open Graph (obraz = awatar), canonical. Indeksowana **wyłącznie na produkcji** — dev i podglądy PR wysyłają `X-Robots-Tag: noindex`. |
-| A8 | Interfejs po polsku i angielsku, architektura otwarta na kolejne języki: wszystkie teksty przez słowniki, żadnych napisów w komponentach. Polski bez prefiksu (`/nazwa`), angielski z prefiksem (`/en/...`), wybór: nagłówek `Accept-Language` + przełącznik zapisywany w cookie. |
-| A9 | Limit 1 GB na użytkownika, za darmo (MVP nie ma płatności). Zużycie liczone w bazie z rozmiarów plików; upload ponad limit odrzucony z czytelnym komunikatem. |
-| A10 | Sześć e-maili transakcyjnych (weryfikacja, ponowna weryfikacja, reset, potwierdzenie zmiany hasła, zmiana adresu ×2, zmiana handle) przez Scaleway TEM. SPF, DKIM i DMARC skonfigurowane, zanim wyjdzie pierwszy prawdziwy list. Zero e-maili marketingowych. |
-| A11 | Strona główna dla niezalogowanego: pełnoekranowe zdjęcie + wejście do rejestracji/logowania. Projekt graficzny — otwarty (§12); w MVP placeholder zgodny ze stylem. |
+| A1 | Registration with e-mail + password (8–128 characters, no composition rules, attempt rate limiting). Account inactive until the verification link is clicked (valid 24 h, resend max 3/h). |
+| A2 | Login and logout. Session: `httpOnly` + `secure` + `sameSite=lax` cookie, 30 days, renewable. Password hashes exclusively in our Postgres. |
+| A3 | Password reset: single-use link valid 60 min; after a successful change, a notification to the account address. |
+| A4 | Profile: display name (1–80 characters) and photo (JPEG/PNG/WebP ≤ 10 MB), from which WebP variants at 512 px and 128 px are produced. |
+| A5 | Handle: 3–30 characters, `^[a-z0-9](?:[a-z0-9-]{1,28}[a-z0-9])$`, case-insensitive uniqueness, reserved-word list (incl. `pl`, `en`, `api`, `admin`, `login`, `settings`, `assets`). |
+| A6 | Handle change: no more than once per 30 days. The old address responds 301 to the new one, **until someone claims the old name — old handles return to circulation immediately** (decision of 30.08.2026; impersonation risk accepted consciously, see §10). |
+| A7 | Profile page `/handle`: server-rendered, correct `<title>`, description, Open Graph (image = avatar), canonical. Indexed **only in production** — dev and PR previews send `X-Robots-Tag: noindex`. |
+| A8 | Interface in Polish and English, architecture open to further languages: all texts via dictionaries, no strings in components. Polish unprefixed (`/handle`), English prefixed (`/en/...`); selection: `Accept-Language` header + a switcher stored in a cookie. |
+| A9 | 1 GB limit per user, free of charge (the MVP has no payments). Usage computed in the database from file sizes; an upload over the limit is rejected with a clear message. |
+| A10 | Six transactional e-mails (verification, re-verification, reset, password-change confirmation, address change ×2, handle change) via Scaleway TEM. SPF, DKIM and DMARC configured before the first real message goes out. Zero marketing e-mail. |
+| A11 | Homepage for signed-out visitors: full-screen photo + entry to sign-up/sign-in. Visual design — open (§12); the MVP ships a style-consistent placeholder. |
 
 ---
 
 ## 2. Stack
 
-Wersje sprawdzone w sierpniu 2026 — przy starcie implementacji zweryfikować bieżące
-wydania w oficjalnej dokumentacji (zasada source-driven).
+Versions checked in August 2026 — at implementation start, verify current releases against
+official documentation (source-driven rule).
 
-| Warstwa | Wybór | Uzasadnienie skrótowe |
+| Layer | Choice | Rationale in short |
 |---|---|---|
-| Framework | **Next.js 16 (LTS, App Router)** + TypeScript strict | SSR dla SEO wizytówek; największy korpus dobrego kodu = mniej błędów przy pracy z Claude Code. |
+| Framework | **Next.js 16 (LTS, App Router)** + TypeScript strict | SSR for profile-page SEO; the largest corpus of good code = fewer mistakes when working with Claude Code. |
 | Runtime | Node.js 24 LTS, pnpm ≥ 11 | |
-| Baza | **PostgreSQL 17** + **Drizzle ORM** | Prod: OVH Managed (1 węzeł + backupy). Dev: kontener na instancji dev. Migracje w plikach (G6). |
-| Auth | **Better Auth** — e-mail + hasło, sesje cookie | Hashe u nas → zerowy lock-in na najwrażliwszej warstwie. Wersję i API zweryfikować przy starcie. |
-| i18n | **next-intl** | `messages/pl.json`, `messages/en.json`; strategia prefiksów jak w A8. |
-| Pliki | **OVHcloud Object Storage (S3)** za własnym interfejsem (G1) | Najtańszy w UE, **zerowy egress** (zniesiony I 2026; fair use potwierdzone u OVH 30.08.2026). |
-| Obrazy | **sharp** przy uploadzie | Warianty WebP 512/128, nazwy = skrót treści (G2). |
-| CDN | OVHcloud CDN | Włączany dopiero przy starcie produkcyjnym. |
-| Poczta | **Scaleway TEM** | Bez opłaty stałej, 300 listów gratis, €0,25/1000; spółka FR, DC Warszawa. |
-| Style | **Tailwind CSS 4** + własne prymitywy | Mały design system, pełna kontrola nad stylem LinkedIn-like. |
-| Walidacja | **Zod** — te same schematy klient/serwer | |
-| Testy | **Vitest** + **Playwright** (+ @axe-core/playwright) | |
-| Wdrożenia | **Docker + Coolify** | `git push` = deploy, podgląd każdego PR, cofnięcie = poprzedni obraz. |
-| Serwery | **OVHcloud Public Cloud** | Prod: `eu-west-par` (3-AZ). Dev: `waw` (najniższe opóźnienie z PL). |
+| Database | **PostgreSQL 17** + **Drizzle ORM** | Prod: OVH Managed (1 node + backups). Dev: a container on the dev instance. Migrations in files (G6). |
+| Auth | **Better Auth** — e-mail + password, cookie sessions | Hashes with us → zero lock-in on the most sensitive layer. Verify version and API at start. |
+| i18n | **next-intl** | `messages/pl.json`, `messages/en.json`; prefix strategy per A8. |
+| Files | **OVHcloud Object Storage (S3)** behind our own interface (G1) | Cheapest in the EU, **zero egress** (abolished Jan 2026; fair use confirmed with OVH on 30.08.2026). |
+| Images | **sharp** at upload | WebP 512/128 variants, names = content hash (G2). |
+| CDN | OVHcloud CDN | Enabled only at production launch. |
+| E-mail | **Scaleway TEM** | No fixed fee, 300 messages free, €0.25/1000; French company, Warsaw data center. |
+| Styling | **Tailwind CSS 4** + our own primitives | Small design system, full control over the LinkedIn-like style. |
+| Validation | **Zod** — the same schemas client/server | |
+| Tests | **Vitest** + **Playwright** (+ @axe-core/playwright) | |
+| Deployments | **Docker + Coolify** | `git push` = deploy, a preview for every PR, rollback = previous image. |
+| Servers | **OVHcloud Public Cloud** | Prod: `eu-west-par` (3-AZ). Dev: `waw` (lowest latency from Poland). |
 
-Reguła nadrzędna, która rządziła wyborami: **żadna warstwa nie może mieć kosztu wyjścia
-większego niż tydzień pracy.** Stąd czysty Postgres, standard S3, obraz Dockera, własne auth.
+The overriding rule behind these choices: **no layer may have an exit cost greater than one
+week of work.** Hence plain Postgres, standard S3, a Docker image, self-hosted auth.
 
-Koszty: ~€9/mies. w fazie budowy, ~€105/mies. po starcie (rozbicie w karcie decyzji).
+Costs: ~€9/month during build, ~€105/month after launch (breakdown in the decision card).
 
 ---
 
-## 3. Komendy
+## 3. Commands
 
 ```
-pnpm dev              # serwer deweloperski
-pnpm build            # build produkcyjny
-pnpm start            # uruchomienie builda
+pnpm dev              # dev server
+pnpm build            # production build
+pnpm start            # run the production build
 
 pnpm lint             # eslint . --max-warnings 0
 pnpm lint:fix
@@ -91,70 +91,70 @@ pnpm test:watch
 pnpm test:coverage    # vitest run --coverage
 pnpm test:e2e         # playwright test
 
-pnpm db:generate      # drizzle-kit generate (schemat → migracja SQL)
-pnpm db:migrate       # zastosuj migracje na bazie z DATABASE_URL
-pnpm db:seed          # dane testowe: kilkanaście profili ze zdjęciami (G7)
+pnpm db:generate      # drizzle-kit generate (schema → SQL migration)
+pnpm db:migrate       # apply migrations to the DATABASE_URL database
+pnpm db:seed          # test data: a dozen-plus profiles with photos (G7)
 pnpm db:studio        # drizzle-kit studio
 
-pnpm check            # typecheck && lint && test  ← brama przed każdym commitem
+pnpm check            # typecheck && lint && test  ← the gate before every commit
 ```
 
-Lokalnie **bez Dockera** — praca na zdalnej bazie i zdalnym S3 (region `waw`).
-Obraz produkcyjny buduje Coolify z `Dockerfile` w korzeniu repo (Next.js `standalone`).
+Locally **without Docker** — work against the remote database and remote S3 (region `waw`).
+The production image is built by Coolify from the `Dockerfile` in the repo root (Next.js `standalone`).
 
 ---
 
-## 4. Struktura projektu
+## 4. Project structure
 
 ```
 src/
   app/
     (public)/
-      page.tsx              # strona główna niezalogowanego (A11)
-      [handle]/page.tsx     # wizytówka (A7)
-    (auth)/                 # rejestracja, logowanie, weryfikacja, reset
-    (app)/settings/         # profil, handle, konto
-    api/                    # route handlers (upload confirm itd.)
+      page.tsx              # homepage for signed-out visitors (A11)
+      [handle]/page.tsx     # public profile page (A7)
+    (auth)/                 # sign-up, login, verification, reset
+    (app)/settings/         # profile, handle, account
+    api/                    # route handlers (upload confirm etc.)
   lib/
-    storage.ts              # G1: JEDYNE miejsce dotykające S3
-    email.ts                # jedyne miejsce dotykające Scaleway TEM
-    handle.ts               # walidacja, słowa zarezerwowane, cooldown
-    quota.ts                # liczenie zużycia (A9)
+    storage.ts              # G1: the ONLY place touching S3
+    email.ts                # the only place touching Scaleway TEM
+    handle.ts               # validation, reserved words, cooldown
+    quota.ts                # usage counting (A9)
   db/
-    schema.ts               # źródło prawdy dla drizzle-kit
-  i18n/                     # konfiguracja next-intl
+    schema.ts               # source of truth for drizzle-kit
+  i18n/                     # next-intl configuration
 messages/
-  pl.json  en.json          # WSZYSTKIE teksty interfejsu
-drizzle/                    # wygenerowane migracje SQL — commitowane
-e2e/                        # testy Playwright
-docs/                       # decyzje, archiwum
+  pl.json  en.json          # ALL interface texts
+drizzle/                    # generated SQL migrations — committed
+e2e/                        # Playwright tests
+docs/                       # decisions, archive
 Dockerfile
 .env.example                # DATABASE_URL, S3_ENDPOINT/REGION/BUCKET/KEY/SECRET,
-                            # EMAIL_* (TEM), APP_URL, AUTH_SECRET — bez wartości
+                            # EMAIL_* (TEM), APP_URL, AUTH_SECRET — no values
 ```
 
-Środowiska plikowe: kubełek `platform-dev` (prefiksy per deweloper i per PR, np.
-`devski/`, `pr-7/`) i **osobny** kubełek `platform-prod` z osobnymi kluczami — klucz
-deweloperski fizycznie nie może dotknąć plików produkcyjnych.
+File environments: the `platform-dev` bucket (per-developer and per-PR prefixes, e.g.
+`devski/`, `pr-7/`) and a **separate** `platform-prod` bucket with separate keys — a
+developer key physically cannot touch production files.
 
-**Konwencja nazw per deweloper:** sufiksem jest handle z GitHuba, znormalizowany do
-identyfikatora Postgresa (małe litery, `-` → `_`): baza `platform_devski`, baza testowa
-`platform_test_devski`, prefiks S3 `devski/`.
+**Per-developer naming convention:** the suffix is the GitHub handle, normalized to a
+Postgres identifier (lowercase, `-` → `_`): database `platform_devski`, test database
+`platform_test_devski`, S3 prefix `devski/`.
 
 ---
 
-## 5. Styl kodu
+## 5. Code style
 
-- TypeScript strict; `any` zakazane (wyjątki tylko z komentarzem uzasadniającym).
-- Identyfikatory, komentarze i commity kodu — po angielsku. Teksty UI — tylko przez
-  słowniki (A8). Komunikacja i dokumenty decyzyjne — po polsku.
-- Wszystko na GitHubie — issues, pull requesty, milestone'y, labele — zawsze po angielsku
-  (decyzja 30.08.2026).
-- Server Components domyślnie; `"use client"` tylko tam, gdzie jest interakcja.
-- Walidacja wejścia na brzegu (Zod), typy wyprowadzane ze schematów.
-- Formatowanie: Prettier (domyślne) + ESLint bez warningów.
+- TypeScript strict; `any` banned (exceptions only with a justifying comment).
+- Identifiers, comments and code commits — in English. UI texts — only via dictionaries (A8).
+- Everything in the repository and on GitHub — documents, issues, pull requests, milestones,
+  labels — always in English (decision of 30.08.2026). Chat communication — in Polish;
+  the decision artifacts linked in the header remain in Polish.
+- Server Components by default; `"use client"` only where there is interaction.
+- Input validation at the edge (Zod), types derived from the schemas.
+- Formatting: Prettier (defaults) + ESLint with zero warnings.
 
-Wzorzec — cienki interfejs storage (G1) i styl nazewnictwa:
+Pattern — the thin storage interface (G1) and naming style:
 
 ```ts
 // src/lib/storage.ts — the ONLY file that talks to S3.
@@ -174,119 +174,121 @@ export function contentKey(hash: string, ext: string, prefix = ""): string {
 
 ---
 
-## 6. Strategia testów
+## 6. Test strategy
 
-| Poziom | Narzędzie | Zakres | Gdzie |
+| Level | Tool | Scope | Where |
 |---|---|---|---|
-| Jednostkowe | Vitest | `lib/handle` (regex, słowa zarezerwowane, cooldown), `lib/quota`, `contentKey`, warianty obrazów | `src/**/*.test.ts` obok kodu |
-| Integracyjne | Vitest + testowa baza | przepływy auth, zmiana handle z 301, licznik zużycia | `DATABASE_URL_TEST` → osobna baza `platform_test_<github-handle>` na serwerze dev |
-| E2E | Playwright | ścieżka szczęśliwa: rejestracja → weryfikacja → profil → publiczna wizytówka; smoke logowania i resetu; axe na stronach publicznych | `e2e/` |
+| Unit | Vitest | `lib/handle` (regex, reserved words, cooldown), `lib/quota`, `contentKey`, image variants | `src/**/*.test.ts` next to the code |
+| Integration | Vitest + test database | auth flows, handle change with 301, usage counter | `DATABASE_URL_TEST` → a separate `platform_test_<github-handle>` database on the dev server |
+| E2E | Playwright | happy path: sign-up → verification → profile → public profile page; login and reset smoke; axe on public pages | `e2e/` |
 
-- Pokrycie: bez fetyszu procentów; twarde minimum **80 % dla `src/lib/`** oraz test dla
-  każdego kryterium A1–A10 (A11 — wizualne, bez wymogu).
-- CI (GitHub Actions): `pnpm check` + build na każdym PR; Postgres jako service container;
-  e2e smoke na PR, pełne e2e przed wdrożeniem prod.
-- Naprawa błędu zaczyna się od testu, który go odtwarza.
-
----
-
-## 7. Granice
-
-**Zawsze (G1–G10 — numeracja wspólna z kartą decyzji):**
-
-- **G1** Storage za cienkim interfejsem — S3 wołane wyłącznie z `lib/storage.ts`.
-- **G2** Nazwa pliku = skrót zawartości; serwowane z `max-age=31536000, immutable`.
-- **G3** Publiczne zdjęcia mają stałe, niepodpisane adresy; podpisy tylko dla uploadu.
-- **G4** Pliki użytkowników nigdy nie przechodzą przez serwer aplikacji (upload przez
-  presigned URL; warianty generowane po stronie serwera z kopii pobranej siecią wewnętrzną).
-- **G5** Warianty rozmiarów + format nowej generacji dla każdego obrazu serwowanego publicznie.
-- **G6** Zmiany schematu bazy wyłącznie przez migracje w plikach.
-- **G7** `pnpm db:seed` utrzymywany na bieżąco — świeże środowisko w minutę.
-- **G8** SPF, DKIM, DMARC skonfigurowane przed pierwszym prawdziwym e-mailem.
-- **G9** Panel Coolify: 2FA + ograniczenie IP; nigdy otwarty na świat.
-- **G10** Procedura odtworzenia instancji zapisana w `docs/` i raz przećwiczona.
-- Ponadto: `pnpm check` przed każdym commitem; wszystkie teksty przez słowniki;
-  commity opisowe; sekrety tylko w zmiennych środowiskowych.
-
-**Zapytaj najpierw:**
-
-- nowa zależność produkcyjna; zmiana wersji major frameworka/bazy;
-- zmiany w schemacie auth/sesji;
-- wszystko, co tworzy nową usługę albo koszt u dostawcy;
-- każde wdrożenie na prod; zmiany konfiguracji CI.
-
-**Nigdy:**
-
-- sekrety w repozytorium (`.env` w `.gitignore`; `.env.example` bez wartości);
-- podpisane URL-e na publicznych zdjęciach (G3) ani pliki przez aplikację (G4);
-- usuwanie lub pomijanie czerwonych testów bez zgody;
-- usługi spoza UE/EOG w ścieżce danych osobowych;
-- e-mail marketingowy z infrastruktury transakcyjnej;
-- `git push --force` na `main`.
+- Coverage: no percentage fetish; a hard minimum of **80% for `src/lib/`** and a test for
+  every criterion A1–A10 (A11 — visual, no requirement).
+- CI (GitHub Actions): `pnpm check` + build on every PR; Postgres as a service container;
+  e2e smoke on PRs, full e2e before a prod deployment.
+- A bug fix starts with a test that reproduces the bug.
 
 ---
 
-## 8. Środowiska i wdrożenia
+## 7. Boundaries
 
-| Środowisko | Gdzie | Baza | Wdrożenie |
+**Always (G1–G10 — numbering shared with the decision card):**
+
+- **G1** Storage behind a thin interface — S3 called exclusively from `lib/storage.ts`.
+- **G2** File name = content hash; served with `max-age=31536000, immutable`.
+- **G3** Public photos have stable, unsigned addresses; signatures only for uploads.
+- **G4** User files never pass through the application server (upload via presigned URL;
+  variants generated server-side from a copy fetched over the internal network).
+- **G5** Size variants + a new-generation format for every publicly served image.
+- **G6** Database schema changes exclusively via migrations in files.
+- **G7** `pnpm db:seed` kept current — a fresh environment in a minute.
+- **G8** SPF, DKIM, DMARC configured before the first real e-mail.
+- **G9** Coolify panel: 2FA + IP restriction; never open to the world.
+- **G10** Instance restore procedure written down in `docs/` and drilled once.
+- Additionally: `pnpm check` before every commit; all texts via dictionaries;
+  descriptive commits; secrets only in environment variables.
+
+**Ask first:**
+
+- a new production dependency; a major version change of the framework/database;
+- changes to the auth/session schema;
+- anything that creates a new service or a new cost at a provider;
+- every production deployment; CI configuration changes.
+
+**Never:**
+
+- secrets in the repository (`.env` in `.gitignore`; `.env.example` without values);
+- signed URLs on public photos (G3) or files passing through the application (G4);
+- deleting or skipping red tests without approval;
+- services outside the EU/EEA in the personal-data path;
+- marketing e-mail from the transactional infrastructure;
+- `git push --force` on `main`.
+
+---
+
+## 8. Environments and deployments
+
+| Environment | Where | Database | Deployment |
 |---|---|---|---|
-| Lokalne | komputer dewelopera | zdalna `waw` (per deweloper: `platform_<github-handle>`, u Dawida `platform_devski`) | — |
-| Podgląd PR | instancja dev | wspólna dev | automatycznie przy otwarciu PR, kasowane po scaleniu |
-| Dev | OVH `waw`, d2-2 (€7) | Postgres w kontenerze | automatycznie z `main` |
-| Prod | OVH `eu-west-par`, b3-8 (€35) | Managed PostgreSQL (€59) | **ręcznie**: przycisk w Coolify albo tag `vX.Y.Z` |
+| Local | developer machine | remote `waw` (per developer: `platform_<github-handle>`, for Dawid `platform_devski`) | — |
+| PR preview | dev instance | shared dev | automatic on PR open, deleted after merge |
+| Dev | OVH `waw`, d2-2 (€7) | Postgres in a container | automatic from `main` |
+| Prod | OVH `eu-west-par`, b3-8 (€35) | Managed PostgreSQL (€59) | **manual**: a button in Coolify or a `vX.Y.Z` tag |
 
-- Nic nie „przenosi się" z dev na prod — oba budują się z Gita; struktura bazy podróżuje
-  migracjami, dane nigdy.
-- Poza prod: `X-Robots-Tag: noindex` (A7).
-- Odporność: zimna rezerwa (migawka + procedura G10). Świadomie bez load balancera
-  i drugiego węzła bazy — potroiłyby koszt, chroniąc ruch bliski zeru.
+- Nothing "moves" from dev to prod — both are built from Git; database structure travels
+  via migrations, data never does.
+- Outside prod: `X-Robots-Tag: noindex` (A7).
+- Resilience: cold standby (snapshot + the G10 procedure). Deliberately no load balancer
+  and no second database node — they would triple the cost while protecting near-zero traffic.
 
 ---
 
-## 9. Model danych (zarys — źródłem prawdy są migracje)
+## 9. Data model (outline — migrations are the source of truth)
 
-- `users`, `sessions`, `verifications` — tabele Better Auth (hasła: scrypt/argon2 wg biblioteki).
-  `users.id`: UUID generowany **w bazie** (`gen_random_uuid()`); bibliotekę auth konfigurujemy
-  tak, by nie generowała id po stronie aplikacji (dokładną opcję zweryfikować przy starcie).
-- `profiles`: `user_id PK/FK`, `display_name`, `handle` (unikalny po `lower()`),
+- `users`, `sessions`, `verifications` — Better Auth tables (passwords: scrypt/argon2 per
+  the library). `users.id`: UUID generated **in the database** (`gen_random_uuid()`); the auth
+  library is configured not to generate ids on the application side (verify the exact option
+  at start).
+- `profiles`: `user_id PK/FK`, `display_name`, `handle` (unique on `lower()`),
   `handle_changed_at`, `avatar_file_id`.
-  **Handle to atrybut, nie identyfikator**: mimo unikalności nigdy nie jest celem klucza
-  obcego — wszystkie relacje wskazują `users.id`, więc zmiana handle nie dotyka żadnej relacji.
+  **A handle is an attribute, not an identifier**: despite its uniqueness it is never the
+  target of a foreign key — all relations point at `users.id`, so a handle change touches
+  no relation.
 - `handle_redirects`: `old_handle PK`, `target_user_id`, `created_at`.
-  Rozwiązywanie `/X`: profil → przekierowanie (301 na aktualny handle celu) → 404.
-  Rejestracja handle `X` przez kogokolwiek **usuwa** wiersz przekierowania (A6).
+  Resolving `/X`: profile → redirect (301 to the target's current handle) → 404.
+  Registration of handle `X` by anyone **deletes** the redirect row (A6).
 - `files`: `id`, `user_id`, `sha256`, `size_bytes`, `kind` (`avatar-original|avatar-512|avatar-128`),
-  `created_at`. Suma `size_bytes` per user = zużycie limitu (A9).
+  `created_at`. The per-user sum of `size_bytes` = quota usage (A9).
 
 ---
 
-## 10. Ryzyka przyjęte świadomie
+## 10. Risks accepted consciously
 
-| Ryzyko | Decyzja |
+| Risk | Decision |
 |---|---|
-| Natychmiastowy powrót starych handle do obiegu → możliwość podszycia się pod porzucony adres | Decyzja z 30.08.2026. Do rewizji, gdy pojawią się realne profile z reputacją. |
-| Jedna instancja aplikacji, jeden węzeł bazy | Zimna rezerwa + backupy. HA dopiero, gdy przerwa zacznie kosztować więcej niż €56/mies. |
-| Darmowy 1 GB dla każdego | Bezpieczne dzięki zerowemu egressowi OVH; próg bólu ~10 000 kont (~€75/mies.) — wtedy rozmowa o modelu płatnym. |
-| Dostarczalność Scaleway TEM na polskie skrzynki niezweryfikowana | Test na Gmail/Onet/WP/Interia przed startem; plan B: EmailLabs (zmiana konfiguracji SMTP). |
-| 100 MB/odsłonę to szacunek, nie pomiar | Zweryfikować telemetrią po starcie. |
+| Old handles returning to circulation immediately → possible impersonation at an abandoned address | Decision of 30.08.2026. To revisit once real profiles with reputation exist. |
+| A single app instance, a single database node | Cold standby + backups. HA only once downtime starts costing more than €56/month. |
+| A free 1 GB for everyone | Safe thanks to OVH's zero egress; pain threshold ~10,000 accounts (~€75/month) — then a conversation about a paid model. |
+| Scaleway TEM deliverability to Polish mailboxes unverified | Test on Gmail/Onet/WP/Interia before launch; plan B: EmailLabs (an SMTP configuration change). |
+| 100 MB/page-view is an estimate, not a measurement | Verify with telemetry after launch. |
 
 ---
 
-## 11. Świadomie poza zakresem
+## 11. Consciously out of scope
 
-Płatności i plany · katalog/wyszukiwarka dostawców · persona dewelopera (druga strona
-rynku) · silnik makiet 3D i marketplace · zdjęcie w tle profilu, zakładki, sekcja „O nas",
-aktualności, zespół · przełącznik szkic/opublikowany · wiadomości i formularz kontaktowy ·
-obserwowanie · konta zespołowe · własna domena użytkownika · panel administratora ·
-analityka produktowa · compliance ponad minimum (dane osobowe trzymamy rozdzielnie, żeby
-dało się dołożyć bez przebudowy) · HA/multicloud/Terraform · Docker i MinIO lokalnie.
+Payments and plans · provider catalog/search · the developer persona (the other side of the
+market) · the 3D-mockup engine and marketplace · profile cover photo, tabs, "About us"
+section, news, team · draft/published toggle · messages and a contact form · following ·
+team accounts · user custom domains · an admin panel · product analytics · compliance beyond
+the minimum (personal data kept separate so more can be added without a rebuild) ·
+HA/multicloud/Terraform · Docker and MinIO locally.
 
 ---
 
-## 12. Otwarte pytania
+## 12. Open questions
 
-- [ ] **Nazwa produktu i domena** — blokuje adres nadawcy poczty (G8), adres panelu
-      i wizytówek. Do rozstrzygnięcia przed pierwszym wdrożeniem dev.
-- [ ] Projekt strony głównej niezalogowanego (A11): pełnoekranowe zdjęcie — jakie, skąd,
-      na jakiej licencji.
-- [ ] Wybór konkretnego zdjęcia OG dla wizytówek bez awatara.
+- [ ] **Product name and domain** — blocks the e-mail sender address (G8), the panel and
+      profile-page addresses. To resolve before the first dev deployment.
+- [ ] Design of the signed-out homepage (A11): the full-screen photo — which one, from
+      where, under what license.
+- [ ] Choice of the specific OG image for profile pages without an avatar.
