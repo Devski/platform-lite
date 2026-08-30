@@ -2,9 +2,10 @@
 
 Repository: https://github.com/3dbdg/platform-lite
 Status: **awaiting approval** · 30 August 2026 · nothing is implemented yet.
-Working name: *platform-lite* (product name and domain — open, see §12).
+Working name: _platform-lite_ (product name and domain — open, see §12).
 
 Source documents with the full rationale behind the decisions (in Polish):
+
 - Decision card: https://claude.ai/code/artifact/e08d7ff7-26e1-4b7c-8ead-260200b040d1
 - File storage and transfer costs (14 providers): https://claude.ai/code/artifact/931d4f6c-1676-44dc-8076-023883402d74
 - Transactional e-mail costs (8 providers): https://claude.ai/code/artifact/70cbb3dd-5d94-42a4-90b1-2bc7f34b637a
@@ -29,19 +30,19 @@ working public link with their name and photo in under 5 minutes.
 
 ### Acceptance criteria
 
-| # | Criterion |
-|---|---|
-| A1 | Registration with e-mail + password (8–128 characters, no composition rules, attempt rate limiting). Account inactive until the verification link is clicked (valid 24 h, resend max 3/h). |
-| A2 | Login and logout. Session: `httpOnly` + `secure` + `sameSite=lax` cookie, 30 days, renewable. Password hashes exclusively in our Postgres. |
-| A3 | Password reset: single-use link valid 60 min; after a successful change, a notification to the account address. |
-| A4 | Profile: display name (1–80 characters) and photo (JPEG/PNG/WebP ≤ 10 MB), from which WebP variants at 512 px and 128 px are produced. |
-| A5 | Handle: 3–30 characters, `^[a-z0-9](?:[a-z0-9-]{1,28}[a-z0-9])$`, case-insensitive uniqueness, reserved-word list (incl. `pl`, `en`, `api`, `admin`, `login`, `settings`, `assets`). |
-| A6 | Handle change: no more than once per 30 days. The old address responds 301 to the new one, **until someone claims the old name — old handles return to circulation immediately** (decision of 30.08.2026; impersonation risk accepted consciously, see §10). |
-| A7 | Profile page `/handle`: server-rendered, correct `<title>`, description, Open Graph (image = avatar), canonical. Indexed **only in production** — dev and PR previews send `X-Robots-Tag: noindex`. |
-| A8 | Interface in Polish and English, architecture open to further languages: all texts via dictionaries, no strings in components. Polish unprefixed (`/handle`), English prefixed (`/en/...`); selection: `Accept-Language` header + a switcher stored in a cookie. |
-| A9 | 1 GB limit per user, free of charge (the MVP has no payments). Usage computed in the database from file sizes; an upload over the limit is rejected with a clear message. |
-| A10 | Six transactional e-mails (verification, re-verification, reset, password-change confirmation, address change ×2, handle change) via Scaleway TEM. SPF, DKIM and DMARC configured before the first real message goes out. Zero marketing e-mail. |
-| A11 | Homepage for signed-out visitors: full-screen photo + entry to sign-up/sign-in. Visual design — open (§12); the MVP ships a style-consistent placeholder. |
+| #   | Criterion                                                                                                                                                                                                                                                        |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A1  | Registration with e-mail + password (8–128 characters, no composition rules, attempt rate limiting). Account inactive until the verification link is clicked (valid 24 h, resend max 3/h).                                                                       |
+| A2  | Login and logout. Session: `httpOnly` + `secure` + `sameSite=lax` cookie, 30 days, renewable. Password hashes exclusively in our Postgres.                                                                                                                       |
+| A3  | Password reset: single-use link valid 60 min; after a successful change, a notification to the account address.                                                                                                                                                  |
+| A4  | Profile: display name (1–80 characters) and photo (JPEG/PNG/WebP ≤ 10 MB), from which WebP variants at 512 px and 128 px are produced.                                                                                                                           |
+| A5  | Handle: 3–30 characters, `^[a-z0-9](?:[a-z0-9-]{1,28}[a-z0-9])$`, case-insensitive uniqueness, reserved-word list (incl. `pl`, `en`, `api`, `admin`, `login`, `settings`, `assets`).                                                                             |
+| A6  | Handle change: no more than once per 30 days. The old address responds 301 to the new one, **until someone claims the old name — old handles return to circulation immediately** (decision of 30.08.2026; impersonation risk accepted consciously, see §10).     |
+| A7  | Profile page `/handle`: server-rendered, correct `<title>`, description, Open Graph (image = avatar), canonical. Indexed **only in production** — dev and PR previews send `X-Robots-Tag: noindex`.                                                              |
+| A8  | Interface in Polish and English, architecture open to further languages: all texts via dictionaries, no strings in components. Polish unprefixed (`/handle`), English prefixed (`/en/...`); selection: `Accept-Language` header + a switcher stored in a cookie. |
+| A9  | 1 GB limit per user, free of charge (the MVP has no payments). Usage computed in the database from file sizes; an upload over the limit is rejected with a clear message.                                                                                        |
+| A10 | Six transactional e-mails (verification, re-verification, reset, password-change confirmation, address change ×2, handle change) via Scaleway TEM. SPF, DKIM and DMARC configured before the first real message goes out. Zero marketing e-mail.                 |
+| A11 | Homepage for signed-out visitors: full-screen photo + entry to sign-up/sign-in. Visual design — open (§12); the MVP ships a style-consistent placeholder.                                                                                                        |
 
 ---
 
@@ -50,22 +51,22 @@ working public link with their name and photo in under 5 minutes.
 Versions checked in August 2026 — at implementation start, verify current releases against
 official documentation (source-driven rule).
 
-| Layer | Choice | Rationale in short |
-|---|---|---|
-| Framework | **Next.js 16 (LTS, App Router)** + TypeScript strict | SSR for profile-page SEO; the largest corpus of good code = fewer mistakes when working with Claude Code. |
-| Runtime | Node.js 24 LTS, pnpm ≥ 11 | |
-| Database | **PostgreSQL 17** + **Drizzle ORM** | Prod: OVH Managed (1 node + backups). Dev: a container on the dev instance. Migrations in files (G6). |
-| Auth | **Better Auth** — e-mail + password, cookie sessions | Hashes with us → zero lock-in on the most sensitive layer. Verify version and API at start. |
-| i18n | **next-intl** | `messages/pl.json`, `messages/en.json`; prefix strategy per A8. |
-| Files | **OVHcloud Object Storage (S3)** behind our own interface (G1) | Cheapest in the EU, **zero egress** (abolished Jan 2026; fair use confirmed with OVH on 30.08.2026). |
-| Images | **sharp** at upload | WebP 512/128 variants, names = content hash (G2). |
-| CDN | OVHcloud CDN | Enabled only at production launch. |
-| E-mail | **Scaleway TEM** | No fixed fee, 300 messages free, €0.25/1000; French company, Warsaw data center. |
-| Styling | **Tailwind CSS 4** + our own primitives | Small design system, full control over the LinkedIn-like style. |
-| Validation | **Zod** — the same schemas client/server | |
-| Tests | **Vitest** + **Playwright** (+ @axe-core/playwright) | |
-| Deployments | **Docker + Coolify** | `git push` = deploy, a preview for every PR, rollback = previous image. |
-| Servers | **OVHcloud Public Cloud** | Prod: `eu-west-par` (3-AZ). Dev: `waw` (lowest latency from Poland). |
+| Layer       | Choice                                                         | Rationale in short                                                                                        |
+| ----------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Framework   | **Next.js 16 (LTS, App Router)** + TypeScript strict           | SSR for profile-page SEO; the largest corpus of good code = fewer mistakes when working with Claude Code. |
+| Runtime     | Node.js 24 LTS, pnpm ≥ 11                                      |                                                                                                           |
+| Database    | **PostgreSQL 17** + **Drizzle ORM**                            | Prod: OVH Managed (1 node + backups). Dev: a container on the dev instance. Migrations in files (G6).     |
+| Auth        | **Better Auth** — e-mail + password, cookie sessions           | Hashes with us → zero lock-in on the most sensitive layer. Verify version and API at start.               |
+| i18n        | **next-intl**                                                  | `messages/pl.json`, `messages/en.json`; prefix strategy per A8.                                           |
+| Files       | **OVHcloud Object Storage (S3)** behind our own interface (G1) | Cheapest in the EU, **zero egress** (abolished Jan 2026; fair use confirmed with OVH on 30.08.2026).      |
+| Images      | **sharp** at upload                                            | WebP 512/128 variants, names = content hash (G2).                                                         |
+| CDN         | OVHcloud CDN                                                   | Enabled only at production launch.                                                                        |
+| E-mail      | **Scaleway TEM**                                               | No fixed fee, 300 messages free, €0.25/1000; French company, Warsaw data center.                          |
+| Styling     | **Tailwind CSS 4** + our own primitives                        | Small design system, full control over the LinkedIn-like style.                                           |
+| Validation  | **Zod** — the same schemas client/server                       |                                                                                                           |
+| Tests       | **Vitest** + **Playwright** (+ @axe-core/playwright)           |                                                                                                           |
+| Deployments | **Docker + Coolify**                                           | `git push` = deploy, a preview for every PR, rollback = previous image.                                   |
+| Servers     | **OVHcloud Public Cloud**                                      | Prod: `eu-west-par` (3-AZ). Dev: `waw` (lowest latency from Poland).                                      |
 
 The overriding rule behind these choices: **no layer may have an exit cost greater than one
 week of work.** Hence plain Postgres, standard S3, a Docker image, self-hosted auth.
@@ -159,7 +160,10 @@ Pattern — the thin storage interface (G1) and naming style:
 ```ts
 // src/lib/storage.ts — the ONLY file that talks to S3.
 export interface FileStorage {
-  presignUpload(key: string, opts: { maxBytes: number; contentType: string }): Promise<string>;
+  presignUpload(
+    key: string,
+    opts: { maxBytes: number; contentType: string },
+  ): Promise<string>;
   putObject(key: string, body: Buffer, contentType: string): Promise<void>;
   getObject(key: string): Promise<Buffer>;
   deleteObject(key: string): Promise<void>;
@@ -176,11 +180,11 @@ export function contentKey(hash: string, ext: string, prefix = ""): string {
 
 ## 6. Test strategy
 
-| Level | Tool | Scope | Where |
-|---|---|---|---|
-| Unit | Vitest | `lib/handle` (regex, reserved words, cooldown), `lib/quota`, `contentKey`, image variants | `src/**/*.test.ts` next to the code |
-| Integration | Vitest + test database | auth flows, handle change with 301, usage counter | `DATABASE_URL_TEST` → a separate `platform_test_<github-handle>` database on the dev server |
-| E2E | Playwright | happy path: sign-up → verification → profile → public profile page; login and reset smoke; axe on public pages | `e2e/` |
+| Level       | Tool                   | Scope                                                                                                          | Where                                                                                       |
+| ----------- | ---------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Unit        | Vitest                 | `lib/handle` (regex, reserved words, cooldown), `lib/quota`, `contentKey`, image variants                      | `src/**/*.test.ts` next to the code                                                         |
+| Integration | Vitest + test database | auth flows, handle change with 301, usage counter                                                              | `DATABASE_URL_TEST` → a separate `platform_test_<github-handle>` database on the dev server |
+| E2E         | Playwright             | happy path: sign-up → verification → profile → public profile page; login and reset smoke; axe on public pages | `e2e/`                                                                                      |
 
 - Coverage: no percentage fetish; a hard minimum of **80% for `src/lib/`** and a test for
   every criterion A1–A10 (A11 — visual, no requirement).
@@ -228,12 +232,12 @@ export function contentKey(hash: string, ext: string, prefix = ""): string {
 
 ## 8. Environments and deployments
 
-| Environment | Where | Database | Deployment |
-|---|---|---|---|
-| Local | developer machine | remote `waw` (per developer: `platform_<github-handle>`, for Dawid `platform_devski`) | — |
-| PR preview | dev instance | shared dev | automatic on PR open, deleted after merge |
-| Dev | OVH `waw`, d2-2 (€7) | Postgres in a container | automatic from `main` |
-| Prod | OVH `eu-west-par`, b3-8 (€35) | Managed PostgreSQL (€59) | **manual**: a button in Coolify or a `vX.Y.Z` tag |
+| Environment | Where                         | Database                                                                              | Deployment                                        |
+| ----------- | ----------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| Local       | developer machine             | remote `waw` (per developer: `platform_<github-handle>`, for Dawid `platform_devski`) | —                                                 |
+| PR preview  | dev instance                  | shared dev                                                                            | automatic on PR open, deleted after merge         |
+| Dev         | OVH `waw`, d2-2 (€7)          | Postgres in a container                                                               | automatic from `main`                             |
+| Prod        | OVH `eu-west-par`, b3-8 (€35) | Managed PostgreSQL (€59)                                                              | **manual**: a button in Coolify or a `vX.Y.Z` tag |
 
 - Nothing "moves" from dev to prod — both are built from Git; database structure travels
   via migrations, data never does.
@@ -264,13 +268,13 @@ export function contentKey(hash: string, ext: string, prefix = ""): string {
 
 ## 10. Risks accepted consciously
 
-| Risk | Decision |
-|---|---|
-| Old handles returning to circulation immediately → possible impersonation at an abandoned address | Decision of 30.08.2026. To revisit once real profiles with reputation exist. |
-| A single app instance, a single database node | Cold standby + backups. HA only once downtime starts costing more than €56/month. |
-| A free 1 GB for everyone | Safe thanks to OVH's zero egress; pain threshold ~10,000 accounts (~€75/month) — then a conversation about a paid model. |
-| Scaleway TEM deliverability to Polish mailboxes unverified | Test on Gmail/Onet/WP/Interia before launch; plan B: EmailLabs (an SMTP configuration change). |
-| 100 MB/page-view is an estimate, not a measurement | Verify with telemetry after launch. |
+| Risk                                                                                              | Decision                                                                                                                   |
+| ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Old handles returning to circulation immediately → possible impersonation at an abandoned address | Decision of 30.08.2026. To revisit once real profiles with reputation exist.                                               |
+| A single app instance, a single database node                                                     | Cold standby + backups. HA only once downtime starts costing more than €56/month.                                          |
+| A free 1 GB for everyone                                                                          | Safe thanks to OVH's zero egress; pain threshold ~~10,000 accounts (~~€75/month) — then a conversation about a paid model. |
+| Scaleway TEM deliverability to Polish mailboxes unverified                                        | Test on Gmail/Onet/WP/Interia before launch; plan B: EmailLabs (an SMTP configuration change).                             |
+| 100 MB/page-view is an estimate, not a measurement                                                | Verify with telemetry after launch.                                                                                        |
 
 ---
 
