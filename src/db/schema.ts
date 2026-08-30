@@ -37,14 +37,19 @@ function lower(column: AnyPgColumn): SQL {
   return sql`lower(${column})`;
 }
 
-const authTimestamps = {
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-};
+// The stored value must already be lowercase — inserting a case-variant
+// handle fails instead of creating a look-alike row (SPEC.md §9, A5).
+function lowercaseCheck(name: string, column: AnyPgColumn) {
+  return check(name, sql`${column} = lower(${column})`);
+}
+
+const createdAt = timestamp("created_at", { withTimezone: true })
+  .defaultNow()
+  .notNull();
+const updatedAt = timestamp("updated_at", { withTimezone: true })
+  .defaultNow()
+  .notNull();
+const authTimestamps = { createdAt, updatedAt };
 
 export const users = pgTable(
   "users",
@@ -141,10 +146,7 @@ export const profiles = pgTable(
   },
   (table) => [
     uniqueIndex("profiles_handle_unique").on(table.handle),
-    check(
-      "profiles_handle_lowercase",
-      sql`${table.handle} = lower(${table.handle})`,
-    ),
+    lowercaseCheck("profiles_handle_lowercase", table.handle),
     index("profiles_avatar_file_id_idx").on(table.avatarFileId),
   ],
 );
@@ -156,15 +158,10 @@ export const handleRedirects = pgTable(
     targetUserId: uuid("target_user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
+    createdAt,
   },
   (table) => [
-    check(
-      "handle_redirects_old_handle_lowercase",
-      sql`${table.oldHandle} = lower(${table.oldHandle})`,
-    ),
+    lowercaseCheck("handle_redirects_old_handle_lowercase", table.oldHandle),
     index("handle_redirects_target_user_id_idx").on(table.targetUserId),
   ],
 );
@@ -189,9 +186,7 @@ export const files = pgTable(
     // A9: per-user quota = sum of size_bytes; number mode is safe far beyond 1 GB.
     sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
     kind: fileKind("kind").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
+    createdAt,
   },
   (table) => [
     // Covering index: the A9 quota SUM(size_bytes) per user is index-only.
