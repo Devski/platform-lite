@@ -304,8 +304,11 @@ HA/multicloud/Terraform · Docker and MinIO locally.
 
 - [ ] **Product name and domain** — blocks the e-mail sender address (G8), the panel and
       profile-page addresses. To resolve before the first dev deployment.
-      Update 30.08.2026: domains **architektorium.pl** and **architektorium.com**
-      purchased (candidate "Architektorium"); the decision itself remains open.
+      Update 30.08.2026: naming structure decided — product **"Architektów 3D"**
+      (architektów3d.pl; ASCII twin architektow3d.pl also registered), company
+      **"Architectorium"** (architectorium.com); architektorium.pl/.com (with "k") =
+      typo fallbacks, 301 → product. Before ticking: pick the canonical form
+      (recommendation: ASCII architektow3d.pl serves and sends e-mail — G8; IDN 301s).
 - [ ] Design of the signed-out homepage (A11): the full-screen photo — which one, from
       where, under what license.
 - [ ] Choice of the specific OG image for profile pages without an avatar.
