@@ -134,8 +134,12 @@ Dockerfile
 ```
 
 Środowiska plikowe: kubełek `platform-dev` (prefiksy per deweloper i per PR, np.
-`dawid/`, `pr-7/`) i **osobny** kubełek `platform-prod` z osobnymi kluczami — klucz
+`devski/`, `pr-7/`) i **osobny** kubełek `platform-prod` z osobnymi kluczami — klucz
 deweloperski fizycznie nie może dotknąć plików produkcyjnych.
+
+**Konwencja nazw per deweloper:** sufiksem jest handle z GitHuba, znormalizowany do
+identyfikatora Postgresa (małe litery, `-` → `_`): baza `platform_devski`, baza testowa
+`platform_test_devski`, prefiks S3 `devski/`.
 
 ---
 
@@ -173,7 +177,7 @@ export function contentKey(hash: string, ext: string, prefix = ""): string {
 | Poziom | Narzędzie | Zakres | Gdzie |
 |---|---|---|---|
 | Jednostkowe | Vitest | `lib/handle` (regex, słowa zarezerwowane, cooldown), `lib/quota`, `contentKey`, warianty obrazów | `src/**/*.test.ts` obok kodu |
-| Integracyjne | Vitest + testowa baza | przepływy auth, zmiana handle z 301, licznik zużycia | `DATABASE_URL_TEST` → osobna baza `platform_test_<dev>` na serwerze dev |
+| Integracyjne | Vitest + testowa baza | przepływy auth, zmiana handle z 301, licznik zużycia | `DATABASE_URL_TEST` → osobna baza `platform_test_<github-handle>` na serwerze dev |
 | E2E | Playwright | ścieżka szczęśliwa: rejestracja → weryfikacja → profil → publiczna wizytówka; smoke logowania i resetu; axe na stronach publicznych | `e2e/` |
 
 - Pokrycie: bez fetyszu procentów; twarde minimum **80 % dla `src/lib/`** oraz test dla
@@ -224,7 +228,7 @@ export function contentKey(hash: string, ext: string, prefix = ""): string {
 
 | Środowisko | Gdzie | Baza | Wdrożenie |
 |---|---|---|---|
-| Lokalne | komputer dewelopera | zdalna `waw` (per deweloper: `platform_<imię>`) | — |
+| Lokalne | komputer dewelopera | zdalna `waw` (per deweloper: `platform_<github-handle>`, u Dawida `platform_devski`) | — |
 | Podgląd PR | instancja dev | wspólna dev | automatycznie przy otwarciu PR, kasowane po scaleniu |
 | Dev | OVH `waw`, d2-2 (€7) | Postgres w kontenerze | automatycznie z `main` |
 | Prod | OVH `eu-west-par`, b3-8 (€35) | Managed PostgreSQL (€59) | **ręcznie**: przycisk w Coolify albo tag `vX.Y.Z` |
@@ -240,8 +244,12 @@ export function contentKey(hash: string, ext: string, prefix = ""): string {
 ## 9. Model danych (zarys — źródłem prawdy są migracje)
 
 - `users`, `sessions`, `verifications` — tabele Better Auth (hasła: scrypt/argon2 wg biblioteki).
+  `users.id`: UUID generowany **w bazie** (`gen_random_uuid()`); bibliotekę auth konfigurujemy
+  tak, by nie generowała id po stronie aplikacji (dokładną opcję zweryfikować przy starcie).
 - `profiles`: `user_id PK/FK`, `display_name`, `handle` (unikalny po `lower()`),
   `handle_changed_at`, `avatar_file_id`.
+  **Handle to atrybut, nie identyfikator**: mimo unikalności nigdy nie jest celem klucza
+  obcego — wszystkie relacje wskazują `users.id`, więc zmiana handle nie dotyka żadnej relacji.
 - `handle_redirects`: `old_handle PK`, `target_user_id`, `created_at`.
   Rozwiązywanie `/X`: profil → przekierowanie (301 na aktualny handle celu) → 404.
   Rejestracja handle `X` przez kogokolwiek **usuwa** wiersz przekierowania (A6).
