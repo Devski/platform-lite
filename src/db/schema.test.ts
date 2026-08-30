@@ -8,7 +8,7 @@ import * as schema from "./schema";
 // Type-filtered, not try/catch-filtered: a genuine getTableConfig failure
 // (e.g. after a drizzle upgrade) must fail the suite, not shrink the table set.
 const pgTables = Object.values(schema)
-  .filter((value): value is PgTable => is(value, PgTable))
+  .filter((value) => is(value, PgTable))
   .map((table) => getTableConfig(table));
 
 function tableByName(name: string) {
