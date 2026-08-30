@@ -1,16 +1,15 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { getTableConfig } from "drizzle-orm/pg-core";
+import { is } from "drizzle-orm";
+import { PgTable, getTableConfig } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 import * as schema from "./schema";
 
-const pgTables = Object.values(schema).flatMap((value) => {
-  try {
-    return [getTableConfig(value as Parameters<typeof getTableConfig>[0])];
-  } catch {
-    return [];
-  }
-});
+// Type-filtered, not try/catch-filtered: a genuine getTableConfig failure
+// (e.g. after a drizzle upgrade) must fail the suite, not shrink the table set.
+const pgTables = Object.values(schema)
+  .filter((value): value is PgTable => is(value, PgTable))
+  .map((table) => getTableConfig(table));
 
 function tableByName(name: string) {
   const table = pgTables.find((t) => t.name === name);
@@ -19,21 +18,19 @@ function tableByName(name: string) {
 }
 
 describe("schema tables (SPEC §9)", () => {
-  it("defines every table from the outline", () => {
-    const names = pgTables.map((t) => t.name);
-    for (const required of [
-      "users",
-      "sessions",
-      "verifications",
-      "profiles",
-      "handle_redirects",
+  it("defines exactly the §9 tables plus Better Auth's accounts", () => {
+    expect(pgTables.map((t) => t.name).sort()).toEqual([
+      "accounts",
       "files",
-    ]) {
-      expect(names).toContain(required);
-    }
+      "handle_redirects",
+      "profiles",
+      "sessions",
+      "users",
+      "verifications",
+    ]);
   });
 
-  it("profiles carries exactly the §9 columns, keyed by user_id pointing at users", () => {
+  it("profiles carries exactly the §9 columns, keyed by user_id pointing at users.id", () => {
     const profiles = tableByName("profiles");
     expect(profiles.columns.map((c) => c.name).sort()).toEqual(
       [
@@ -49,7 +46,8 @@ describe("schema tables (SPEC §9)", () => {
       fk.some(
         (r) =>
           getTableConfig(r.foreignTable).name === "users" &&
-          r.columns.some((c) => c.name === "user_id"),
+          r.columns.some((c) => c.name === "user_id") &&
+          r.foreignColumns.some((c) => c.name === "id"),
       ),
     ).toBe(true);
     const pkColumns = profiles.primaryKeys
@@ -70,28 +68,30 @@ describe("schema tables (SPEC §9)", () => {
     }
   });
 
-  it("handle_redirects resolves to users, with old_handle as the primary key", () => {
+  it("handle_redirects resolves to users.id, with old_handle as the primary key", () => {
     const redirects = tableByName("handle_redirects");
-    const references = redirects.foreignKeys.map(
-      (k) => getTableConfig(k.reference().foreignTable).name,
-    );
-    expect(references).toEqual(["users"]);
+    const targets = redirects.foreignKeys.map((k) => k.reference());
+    expect(targets.map((r) => getTableConfig(r.foreignTable).name)).toEqual([
+      "users",
+    ]);
+    expect(targets[0].foreignColumns.map((c) => c.name)).toEqual(["id"]);
     const pkColumns = redirects.columns
       .filter((c) => c.primary)
       .map((c) => c.name);
     expect(pkColumns).toEqual(["old_handle"]);
   });
 
-  it("files carries exactly the §9 columns and points at users", () => {
+  it("files carries exactly the §9 columns and points at users.id", () => {
     const files = tableByName("files");
     const columnNames = files.columns.map((c) => c.name).sort();
     expect(columnNames).toEqual(
       ["created_at", "id", "kind", "sha256", "size_bytes", "user_id"].sort(),
     );
-    const references = files.foreignKeys.map(
-      (k) => getTableConfig(k.reference().foreignTable).name,
-    );
-    expect(references).toEqual(["users"]);
+    const targets = files.foreignKeys.map((k) => k.reference());
+    expect(targets.map((r) => getTableConfig(r.foreignTable).name)).toEqual([
+      "users",
+    ]);
+    expect(targets[0].foreignColumns.map((c) => c.name)).toEqual(["id"]);
   });
 
   it("file kind is restricted to the three avatar variants", () => {
@@ -121,26 +121,33 @@ describe("generated migration SQL (G6 — migrations are the source of truth)", 
     expect(sql).toContain(
       '"handle_redirects"."old_handle" = lower("handle_redirects"."old_handle")',
     );
-    expect(sql).toMatch(/CREATE UNIQUE INDEX "profiles_handle_unique"/);
   });
 
   it("emails are guarded unique case-insensitively at the database", () => {
-    expect(sql).toMatch(
-      /CREATE UNIQUE INDEX "users_email_lower_unique".*lower\("email"\)/,
+    expect(sql).toContain(
+      'CREATE UNIQUE INDEX "users_email_lower_unique" ON "users" USING btree (lower("email"))',
     );
   });
 
-  it("hot query paths are indexed (A9 quota, auth lookups, FK delete paths)", () => {
-    for (const indexName of [
-      "files_user_id_size_bytes_idx",
-      "sessions_user_id_idx",
-      "accounts_user_id_idx",
-      "verifications_identifier_idx",
-      "profiles_avatar_file_id_idx",
-      "handle_redirects_target_user_id_idx",
+  it("every guarded index exists with its exact table and columns", () => {
+    for (const ddl of [
+      'CREATE UNIQUE INDEX "accounts_issuer_account_id_unique" ON "accounts" USING btree ("issuer","account_id")',
+      'CREATE INDEX "accounts_user_id_idx" ON "accounts" USING btree ("user_id")',
+      'CREATE INDEX "files_user_id_size_bytes_idx" ON "files" USING btree ("user_id","size_bytes")',
+      'CREATE INDEX "handle_redirects_target_user_id_idx" ON "handle_redirects" USING btree ("target_user_id")',
+      'CREATE UNIQUE INDEX "profiles_handle_unique" ON "profiles" USING btree ("handle")',
+      'CREATE INDEX "profiles_avatar_file_id_idx" ON "profiles" USING btree ("avatar_file_id")',
+      'CREATE INDEX "sessions_user_id_idx" ON "sessions" USING btree ("user_id")',
+      'CREATE INDEX "verifications_identifier_idx" ON "verifications" USING btree ("identifier")',
     ]) {
-      expect(sql).toContain(`"${indexName}"`);
+      expect(sql).toContain(ddl);
     }
+  });
+
+  it("file_kind in SQL matches the three variants exactly", () => {
+    expect(sql).toContain(
+      "CREATE TYPE \"public\".\"file_kind\" AS ENUM('avatar-original', 'avatar-512', 'avatar-128')",
+    );
   });
 
   it("deleting a user cannot silently cascade away file rows (S3 cleanup is app-mediated)", () => {
@@ -148,9 +155,24 @@ describe("generated migration SQL (G6 — migrations are the source of truth)", 
   });
 
   it("no REFERENCES clause targets a handle column", () => {
-    const references = sql.match(/references[^;\n]*/gi) ?? [];
-    for (const clause of references) {
-      expect(clause).not.toMatch(/"handle"|"old_handle"/);
+    const statements = sql.split(/;|--> statement-breakpoint/);
+    const withReferences = statements.filter((s) => /REFERENCES/i.test(s));
+    // Non-vacuity: migration 0000 already ships six foreign keys.
+    expect(withReferences.length).toBeGreaterThanOrEqual(6);
+    for (const statement of withReferences) {
+      expect(statement).not.toMatch(
+        /REFERENCES[\s\S]*?\(\s*"?(old_)?handle"?\s*\)/i,
+      );
     }
+  });
+
+  it("canary: no migration weakens a guarded object without conscious review", () => {
+    // The SQL assertions above check the joined history, so a later migration
+    // could drop a guarded object while they stay green. When a future
+    // migration legitimately drops or alters one, update the guarded
+    // assertions in this file in the same change — this canary forces that.
+    expect(sql).not.toMatch(
+      /DROP INDEX|DROP CONSTRAINT|DROP DEFAULT|DROP TABLE|ALTER TYPE/i,
+    );
   });
 });

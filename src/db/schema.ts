@@ -43,13 +43,17 @@ function lowercaseCheck(name: string, column: AnyPgColumn) {
   return check(name, sql`${column} = lower(${column})`);
 }
 
-const createdAt = timestamp("created_at", { withTimezone: true })
-  .defaultNow()
-  .notNull();
-const updatedAt = timestamp("updated_at", { withTimezone: true })
-  .defaultNow()
-  .notNull();
-const authTimestamps = { createdAt, updatedAt };
+// Factories, not shared instances: drizzle column builders are one-shot
+// mutable configs — a shared instance aliases metadata across tables, and a
+// future .unique() or .references() chained on one would silently bind them all.
+const createdAt = () =>
+  timestamp("created_at", { withTimezone: true }).defaultNow().notNull();
+const updatedAt = () =>
+  timestamp("updated_at", { withTimezone: true }).defaultNow().notNull();
+const authTimestamps = () => ({
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
 
 export const users = pgTable(
   "users",
@@ -59,7 +63,7 @@ export const users = pgTable(
     email: text("email").notNull().unique(),
     emailVerified: boolean("email_verified").notNull().default(false),
     image: text("image"),
-    ...authTimestamps,
+    ...authTimestamps(),
   },
   (table) => [uniqueIndex("users_email_lower_unique").on(lower(table.email))],
 );
@@ -75,7 +79,7 @@ export const sessions = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     ipAddress: text("ip_address"),
     userAgent: text("user_agent"),
-    ...authTimestamps,
+    ...authTimestamps(),
   },
   (table) => [index("sessions_user_id_idx").on(table.userId)],
 );
@@ -102,7 +106,7 @@ export const accounts = pgTable(
     idToken: text("id_token"),
     // scrypt hash for provider_id = 'credential' (A2: hashes only in our Postgres)
     password: text("password"),
-    ...authTimestamps,
+    ...authTimestamps(),
   },
   (table) => [
     uniqueIndex("accounts_issuer_account_id_unique").on(
@@ -120,7 +124,7 @@ export const verifications = pgTable(
     identifier: text("identifier").notNull(),
     value: text("value").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-    ...authTimestamps,
+    ...authTimestamps(),
   },
   (table) => [index("verifications_identifier_idx").on(table.identifier)],
 );
@@ -158,7 +162,7 @@ export const handleRedirects = pgTable(
     targetUserId: uuid("target_user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    createdAt,
+    createdAt: createdAt(),
   },
   (table) => [
     lowercaseCheck("handle_redirects_old_handle_lowercase", table.oldHandle),
@@ -186,7 +190,7 @@ export const files = pgTable(
     // A9: per-user quota = sum of size_bytes; number mode is safe far beyond 1 GB.
     sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
     kind: fileKind("kind").notNull(),
-    createdAt,
+    createdAt: createdAt(),
   },
   (table) => [
     // Covering index: the A9 quota SUM(size_bytes) per user is index-only.
