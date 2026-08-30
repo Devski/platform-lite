@@ -11,8 +11,7 @@ Dokumenty źródłowe z pełnym uzasadnieniem decyzji:
 
 Rodowód: MVP odpowiada modułom `foundation → identity → profiles` z zatwierdzonej mapy
 zdolności repozytorium `3dbdg/platform` (CAPABILITY-MAP.md). Świadomie scalone tu w jedną
-aplikację i jeden spec — to jest sedno „lite". Odrzucona alternatywa stackowa:
-`docs/archiwum-spec-cloudflare.md`.
+aplikację i jeden spec — to jest sedno „lite".
 
 ---
 
