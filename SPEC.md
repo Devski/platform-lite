@@ -148,6 +148,8 @@ identyfikatora Postgresa (małe litery, `-` → `_`): baza `platform_devski`, ba
 - TypeScript strict; `any` zakazane (wyjątki tylko z komentarzem uzasadniającym).
 - Identyfikatory, komentarze i commity kodu — po angielsku. Teksty UI — tylko przez
   słowniki (A8). Komunikacja i dokumenty decyzyjne — po polsku.
+- Wszystko na GitHubie — issues, pull requesty, milestone'y, labele — zawsze po angielsku
+  (decyzja 30.08.2026).
 - Server Components domyślnie; `"use client"` tylko tam, gdzie jest interakcja.
 - Walidacja wejścia na brzegu (Zod), typy wyprowadzane ze schematów.
 - Formatowanie: Prettier (domyślne) + ESLint bez warningów.
