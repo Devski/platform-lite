@@ -1,0 +1,5 @@
+# Shell scripts and cloud-init templates execute on Linux — always LF,
+# regardless of the developer's core.autocrlf.
+* text=auto
+*.sh text eol=lf
+*.tmpl text eol=lf

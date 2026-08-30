@@ -92,6 +92,7 @@ pnpm test:watch
 pnpm test:coverage    # vitest run --coverage
 pnpm test:e2e         # playwright test
 
+pnpm db:tunnel        # SSH tunnel to the dev database (docs/dev-environment.md)
 pnpm db:generate      # drizzle-kit generate (schema → SQL migration)
 pnpm db:migrate       # apply migrations to the DATABASE_URL database
 pnpm db:seed          # test data: a dozen-plus profiles with photos (G7)
@@ -100,7 +101,8 @@ pnpm db:studio        # drizzle-kit studio
 pnpm check            # typecheck && lint && test  ← the gate before every commit
 ```
 
-Locally **without Docker** — work against the remote database and remote S3 (region `waw`).
+Locally **without Docker** — work against the remote database (through the SSH tunnel,
+`pnpm db:tunnel`) and remote S3 (region `waw`).
 The production image is built by Coolify from the `Dockerfile` in the repo root (Next.js `standalone`).
 
 ---
@@ -129,9 +131,12 @@ messages/
 drizzle/                    # generated SQL migrations — committed
 e2e/                        # Playwright tests
 docs/                       # decisions, archive
+  dev-environment.md        # dev infrastructure: manual console steps + scripted bootstrap
+scripts/                    # bootstrap-dev.sh, cloud-init template, db-tunnel helper
+README.md                   # developer onboarding: quick start, pointers to SPEC and docs
 Dockerfile
-.env.example                # DATABASE_URL, S3_ENDPOINT/REGION/BUCKET/KEY/SECRET,
-                            # EMAIL_* (TEM), APP_URL, AUTH_SECRET — no values
+.env.example                # DATABASE_URL(_TEST), S3_ENDPOINT/REGION/BUCKET/KEY/SECRET,
+                            # EMAIL_* (TEM), APP_URL, AUTH_SECRET, DEV_SSH_HOST — no values
 ```
 
 File environments: the `platform-dev` bucket (per-developer and per-PR prefixes, e.g.
@@ -232,13 +237,17 @@ export function contentKey(hash: string, ext: string, prefix = ""): string {
 
 ## 8. Environments and deployments
 
-| Environment | Where                         | Database                                                                              | Deployment                                        |
-| ----------- | ----------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| Local       | developer machine             | remote `waw` (per developer: `platform_<github-handle>`, for Dawid `platform_devski`) | —                                                 |
-| PR preview  | dev instance                  | shared dev                                                                            | automatic on PR open, deleted after merge         |
-| Dev         | OVH `waw`, d2-2 (€7)          | Postgres in a container                                                               | automatic from `main`                             |
-| Prod        | OVH `eu-west-par`, b3-8 (€35) | Managed PostgreSQL (€59)                                                              | **manual**: a button in Coolify or a `vX.Y.Z` tag |
+| Environment | Where                         | Database                                                                                                 | Deployment                                        |
+| ----------- | ----------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| Local       | developer machine             | remote `waw` over an SSH tunnel (per developer: `platform_<github-handle>`, for Dawid `platform_devski`) | —                                                 |
+| PR preview  | dev instance                  | shared dev                                                                                               | automatic on PR open, deleted after merge         |
+| Dev         | OVH `waw`, d2-2 (€7)          | Postgres in a container                                                                                  | automatic from `main`                             |
+| Prod        | OVH `eu-west-par`, b3-8 (€35) | Managed PostgreSQL (€59)                                                                                 | **manual**: a button in Coolify or a `vX.Y.Z` tag |
 
+- Dev infrastructure is bootstrapped by script (`scripts/bootstrap-dev.sh`; manual console
+  prerequisites and the full procedure in `docs/dev-environment.md`) — executing that
+  document verbatim doubles as the G10 drill for dev. The database container binds to
+  `127.0.0.1` and is reachable only through the SSH tunnel — never exposed publicly.
 - Nothing "moves" from dev to prod — both are built from Git; database structure travels
   via migrations, data never does.
 - Outside prod: `X-Robots-Tag: noindex` (A7).

@@ -88,8 +88,8 @@ questions = #25–#27.
 
 ## Plan risks
 
-| Risk                                           | Mitigation                                                                                                  |
-| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| No domain decision stalls Phase 4              | #25 marked as blocking; Phases 0–3 fully independent of the domain (log transport in #6)                    |
-| Better Auth: API/version unverified            | #4/#7 include an explicit verification step against official docs before implementation (§2, source-driven) |
-| Infrastructure (#2) is manual, on Dawid's side | #2 has no dependencies — can run in parallel with #1; steps documented in `docs/` toward G10                |
+| Risk                                                     | Mitigation                                                                                                                                                                                       |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| No domain decision stalls Phase 4                        | #25 marked as blocking; Phases 0–3 fully independent of the domain (log transport in #6)                                                                                                         |
+| Better Auth: API/version unverified                      | #4/#7 include an explicit verification step against official docs before implementation (§2, source-driven)                                                                                      |
+| Infrastructure (#2) needs console access on Dawid's side | Manual part reduced to console prerequisites (project, credentials); the rest is scripted (`scripts/bootstrap-dev.sh`) with the procedure in `docs/dev-environment.md`, doubling as the G10 seed |

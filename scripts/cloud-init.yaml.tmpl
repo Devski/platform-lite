@@ -1,0 +1,19 @@
+#cloud-config
+# Template rendered by scripts/bootstrap-dev.sh (@PLACEHOLDERS@ substituted with sed).
+# Docker + PostgreSQL 17 bound to 127.0.0.1 only: the database is reachable
+# exclusively through the SSH tunnel (docs/dev-environment.md).
+package_update: true
+packages:
+  - docker.io
+runcmd:
+  - systemctl enable --now docker
+  - docker volume create pgdata
+  - >
+    docker run -d --name postgres --restart unless-stopped
+    -e POSTGRES_PASSWORD=@POSTGRES_PASSWORD@
+    -p 127.0.0.1:5432:5432
+    -v pgdata:/var/lib/postgresql/data
+    postgres:17
+  - timeout 180 sh -c 'until docker exec postgres pg_isready -U postgres; do sleep 3; done'
+  - docker exec postgres createdb -U postgres platform_@DB_SUFFIX@
+  - docker exec postgres createdb -U postgres platform_test_@DB_SUFFIX@
