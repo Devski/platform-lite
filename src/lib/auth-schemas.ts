@@ -12,8 +12,11 @@ export const PASSWORD_MAX = 128;
 // own where only an address is collected (e.g. resending the verification).
 export const emailSchema = z.string().trim().toLowerCase().pipe(z.email());
 
+// Never trim passwords — leading/trailing spaces are legal characters.
+// Shared by sign-up and the new-password form of the A3 reset flow.
+export const passwordSchema = z.string().min(PASSWORD_MIN).max(PASSWORD_MAX);
+
 export const signUpSchema = z.object({
   email: emailSchema,
-  // Never trim passwords — leading/trailing spaces are legal characters.
-  password: z.string().min(PASSWORD_MIN).max(PASSWORD_MAX),
+  password: passwordSchema,
 });

@@ -58,7 +58,8 @@
     "resendLimited": "Limit 3 wysyłek na godzinę został wykorzystany. Spróbuj później.",
     "resendFailed": "Wysyłka nie powiodła się. Spróbuj ponownie.",
     "registerPrompt": "Nie masz konta?",
-    "registerLink": "Zarejestruj się"
+    "registerLink": "Zarejestruj się",
+    "forgotPassword": "Nie pamiętasz hasła?"
   },
   "Session": {
     "logIn": "Zaloguj się",
@@ -107,6 +108,50 @@
       "resendDone": "Wysłane — sprawdź skrzynkę.",
       "resendLimited": "Limit 3 wysyłek na godzinę został wykorzystany. Spróbuj później.",
       "resendFailed": "Wysyłka nie powiodła się. Spróbuj ponownie."
+    }
+  },
+  "ResetPassword": {
+    "title": "Reset hasła",
+    "request": {
+      "heading": "Zresetuj hasło",
+      "body": "Podaj adres e-mail swojego konta, a wyślemy link do ustawienia nowego hasła.",
+      "emailLabel": "Adres e-mail",
+      "submit": "Wyślij link",
+      "submitting": "Wysyłanie…",
+      "errors": {
+        "emailInvalid": "Podaj poprawny adres e-mail.",
+        "rateLimited": "Limit 3 żądań na godzinę został wykorzystany. Spróbuj później.",
+        "generic": "Wysyłka nie powiodła się. Spróbuj ponownie."
+      },
+      "sent": {
+        "heading": "Sprawdź skrzynkę",
+        "body": "Jeśli konto o adresie {email} istnieje, wysłaliśmy wiadomość z linkiem do zmiany hasła. Link działa raz i jest ważny przez 60 minut."
+      },
+      "loginPrompt": "Pamiętasz hasło?",
+      "loginLink": "Zaloguj się"
+    },
+    "new": {
+      "heading": "Ustaw nowe hasło",
+      "passwordLabel": "Nowe hasło",
+      "passwordHint": "Od {min} do {max} znaków — bez żadnych dodatkowych wymagań.",
+      "submit": "Zmień hasło",
+      "submitting": "Zapisywanie…",
+      "errors": {
+        "passwordTooShort": "Hasło musi mieć co najmniej {min} znaków.",
+        "passwordTooLong": "Hasło może mieć najwyżej {max} znaków.",
+        "rateLimited": "Zbyt wiele prób. Odczekaj chwilę i spróbuj ponownie.",
+        "generic": "Zmiana hasła nie powiodła się. Spróbuj ponownie."
+      },
+      "success": {
+        "heading": "Hasło zmienione",
+        "body": "Możesz teraz zalogować się nowym hasłem.",
+        "loginLink": "Zaloguj się"
+      },
+      "invalid": {
+        "heading": "Nieprawidłowy link",
+        "body": "Ten link jest niepoprawny, wygasł albo został już użyty. Poproś o nowy.",
+        "requestLink": "Wyślij nowy link"
+      }
     }
   },
   "LanguageSwitcher": {

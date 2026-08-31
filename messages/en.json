@@ -58,7 +58,8 @@
     "resendLimited": "The limit of 3 e-mails per hour is used up. Try again later.",
     "resendFailed": "Sending failed. Try again.",
     "registerPrompt": "No account yet?",
-    "registerLink": "Sign up"
+    "registerLink": "Sign up",
+    "forgotPassword": "Forgot your password?"
   },
   "Session": {
     "logIn": "Log in",
@@ -107,6 +108,50 @@
       "resendDone": "Sent — check your inbox.",
       "resendLimited": "The limit of 3 e-mails per hour is used up. Try again later.",
       "resendFailed": "Sending failed. Try again."
+    }
+  },
+  "ResetPassword": {
+    "title": "Password reset",
+    "request": {
+      "heading": "Reset your password",
+      "body": "Enter your account's e-mail address and we will send a link to set a new password.",
+      "emailLabel": "E-mail address",
+      "submit": "Send the link",
+      "submitting": "Sending…",
+      "errors": {
+        "emailInvalid": "Enter a valid e-mail address.",
+        "rateLimited": "The limit of 3 requests per hour is used up. Try again later.",
+        "generic": "Sending failed. Try again."
+      },
+      "sent": {
+        "heading": "Check your inbox",
+        "body": "If an account exists for {email}, we sent a message with a password reset link. The link works once and is valid for 60 minutes."
+      },
+      "loginPrompt": "Remembered your password?",
+      "loginLink": "Log in"
+    },
+    "new": {
+      "heading": "Set a new password",
+      "passwordLabel": "New password",
+      "passwordHint": "{min} to {max} characters — no other requirements.",
+      "submit": "Change the password",
+      "submitting": "Saving…",
+      "errors": {
+        "passwordTooShort": "The password needs at least {min} characters.",
+        "passwordTooLong": "The password can have at most {max} characters.",
+        "rateLimited": "Too many attempts. Wait a moment and try again.",
+        "generic": "Changing the password failed. Try again."
+      },
+      "success": {
+        "heading": "Password changed",
+        "body": "You can now log in with your new password.",
+        "loginLink": "Log in"
+      },
+      "invalid": {
+        "heading": "Invalid link",
+        "body": "This link is invalid, has expired or has already been used. Request a new one.",
+        "requestLink": "Send a new link"
+      }
     }
   },
   "LanguageSwitcher": {
