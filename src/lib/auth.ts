@@ -49,9 +49,33 @@ export function createAuth(options: {
       // verification link is clicked.
       requireEmailVerification: true,
       // A1: 8-128 characters, no composition rules — the same constants the
-      // client-side signUpSchema validates with (auth-schemas.ts).
+      // client-side signUpSchema validates with (auth-schemas.ts). The reset
+      // endpoint enforces the same bounds on the new password.
       minPasswordLength: PASSWORD_MIN,
       maxPasswordLength: PASSWORD_MAX,
+      // A3: the link is valid for 60 minutes (and single-use — the token is
+      // consumed on submit). Explicit even though it equals the 1.7.2 default,
+      // so the criterion cannot drift with a library upgrade.
+      resetPasswordTokenExpiresIn: 60 * 60,
+      async sendResetPassword({ user, url }, request) {
+        await sendEmail({
+          to: user.email,
+          locale: localeFromRequest(request),
+          template: { kind: "passwordReset", params: { resetUrl: url } },
+        });
+      },
+      // A3: after a successful change, a notification to the account address.
+      async onPasswordReset({ user }, request) {
+        await sendEmail({
+          to: user.email,
+          locale: localeFromRequest(request),
+          template: { kind: "passwordChanged", params: {} },
+        });
+      },
+      // A completed reset implies the old password may be in someone else's
+      // hands — no live session survives it (decision of 01.09.2026, OWASP
+      // recommendation; A3 itself is silent on sessions).
+      revokeSessionsOnPasswordReset: true,
     },
     emailVerification: {
       sendOnSignUp: true,
@@ -86,6 +110,10 @@ export function createAuth(options: {
         // A1: resend at most 3 per hour. The built-in special rule for this
         // path is 3 per minute — far looser than the criterion.
         "/send-verification-email": { window: 60 * 60, max: 3 },
+        // A3 asks for rate limiting without a number; mirror the A1 cap
+        // (decision of 01.09.2026) — the built-in 3 per minute would still
+        // let one IP flood a mailbox with 180 messages an hour.
+        "/request-password-reset": { window: 60 * 60, max: 3 },
       },
     },
   });
