@@ -98,7 +98,7 @@ pnpm db:migrate       # apply migrations to the DATABASE_URL database
 pnpm db:seed          # test data: a dozen-plus profiles with photos (G7)
 pnpm db:studio        # drizzle-kit studio
 
-pnpm check            # typecheck && lint && test  ← the gate before every commit
+pnpm check            # typecheck && lint && test:coverage  ← the gate before every commit
 ```
 
 Locally **without Docker** — work against the remote database (through the SSH tunnel,

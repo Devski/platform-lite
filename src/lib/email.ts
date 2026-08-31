@@ -54,7 +54,9 @@ export function renderEmail(
       throw new Error(`email message failed to render: ${key}`);
     },
   });
-  const params = template.params as Record<string, string>;
+  // ?? {} forces the ICU path even for an untyped caller passing undefined —
+  // next-intl's no-values fast path would return unfilled {placeholders}.
+  const params = (template.params ?? {}) as Record<string, string>;
   return {
     subject: t(`${template.kind}.subject`, params),
     body: t(`${template.kind}.body`, params),
