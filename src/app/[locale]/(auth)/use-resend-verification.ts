@@ -15,6 +15,13 @@ export function useResendVerification() {
   const locale = useLocale();
   const [state, setState] = useState<ResendState>("idle");
 
+  // Callers MUST reset when the context changes (a new submit, a new target
+  // address) — a terminal state would otherwise leak into the next attempt
+  // and claim "sent" for an e-mail that never went out.
+  function reset(): void {
+    setState("idle");
+  }
+
   async function resend(email: string): Promise<void> {
     setState("sending");
     try {
@@ -33,5 +40,5 @@ export function useResendVerification() {
     }
   }
 
-  return { state, resend };
+  return { state, resend, reset };
 }

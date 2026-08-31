@@ -18,12 +18,17 @@ export function LoginForm() {
   const [formError, setFormError] = useState<string | null>(null);
   const [notVerifiedFor, setNotVerifiedFor] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const { state: resendState, resend } = useResendVerification();
+  const {
+    state: resendState,
+    resend,
+    reset: resetResend,
+  } = useResendVerification();
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError(null);
     setNotVerifiedFor(null);
+    resetResend();
 
     const parsedEmail = emailSchema.safeParse(email);
     const errors: FieldErrors = {};

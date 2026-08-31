@@ -343,4 +343,14 @@ describe("getAuth environment wiring", () => {
       expect(() => getAuth()).toThrow(name);
     },
   );
+
+  it("refuses a non-https APP_URL in production (A2: Secure cookie)", async () => {
+    vi.stubEnv("DATABASE_URL", "postgresql://postgres:x@localhost:5432/x");
+    vi.stubEnv("APP_URL", "http://plaintext.example.com");
+    vi.stubEnv("AUTH_SECRET", SECRET);
+    vi.stubEnv("NODE_ENV", "production");
+    vi.resetModules();
+    const { getAuth } = await import("./auth");
+    expect(() => getAuth()).toThrow(/https/);
+  });
 });

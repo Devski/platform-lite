@@ -14,12 +14,15 @@ export function ResendForm() {
   const tRegister = useTranslations("Register");
   const [email, setEmail] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
-  const { state, resend } = useResendVerification();
+  const { state, resend, reset } = useResendVerification();
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const parsed = emailSchema.safeParse(email);
     if (!parsed.success) {
+      // Also drop any previous outcome — a stale "sent" next to a fresh
+      // validation error would talk about a different address.
+      reset();
       setValidationError(tErrors("emailInvalid"));
       return;
     }

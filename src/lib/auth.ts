@@ -76,6 +76,13 @@ export function createAuth(options: {
     rateLimit: {
       // Defaults to production-only; A1 demands the same behavior everywhere
       // (and the integration tests exercise it).
+      //
+      // TRUST CONTRACT: limits are keyed by the client IP taken from
+      // x-forwarded-for. That is only meaningful when the reverse proxy
+      // OVERWRITES the header and the Node port is never published directly
+      // (recorded on the deployment issues #21/#24; a second appending hop,
+      // e.g. a CDN, needs advanced.ipAddress.trustedProxies or every visitor
+      // collapses into one shared bucket).
       enabled: true,
       customRules: {
         // A1: resend at most 3 per hour. The built-in special rule for this
@@ -90,9 +97,18 @@ let instance: ReturnType<typeof createAuth> | undefined;
 
 export function getAuth(): ReturnType<typeof createAuth> {
   if (!instance) {
+    const baseURL = requireEnv("APP_URL");
+    // A2 requires the Secure cookie attribute, and Better Auth derives it
+    // from the base URL scheme — a production deployment behind plain http
+    // would silently ship non-Secure session cookies. Fail at startup instead.
+    if (process.env.NODE_ENV === "production" && !baseURL.startsWith("https://")) {
+      throw new Error(
+        "APP_URL must be https:// in production — the session cookie's Secure attribute depends on it (A2)",
+      );
+    }
     instance = createAuth({
       db: getDb(),
-      baseURL: requireEnv("APP_URL"),
+      baseURL,
       secret: requireEnv("AUTH_SECRET"),
     });
   }

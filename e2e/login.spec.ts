@@ -26,11 +26,95 @@ test.describe("Polish browser", () => {
     ).toBeVisible();
   });
 
-  test("client-side validation blocks an empty submit", async ({ page }) => {
+  test("client-side validation blocks an empty submit without calling the API", async ({
+    page,
+  }) => {
+    let signInRequests = 0;
+    await page.route("**/api/auth/sign-in/email", (route) => {
+      signInRequests++;
+      return route.abort();
+    });
     await page.goto("/login");
     await page.getByRole("button", { name: "Zaloguj się" }).click();
     await expect(page.getByText("Podaj poprawny adres e-mail.")).toBeVisible();
     await expect(page.getByText("Podaj hasło.")).toBeVisible();
+    expect(signInRequests).toBe(0);
+  });
+
+  test("maps 401 and 429 responses to their dictionary messages", async ({
+    page,
+  }) => {
+    await page.goto("/login");
+    await page.route("**/api/auth/sign-in/email", (route) =>
+      route.fulfill({
+        status: 401,
+        contentType: "application/json",
+        body: JSON.stringify({
+          code: "INVALID_EMAIL_OR_PASSWORD",
+          message: "Invalid email or password",
+        }),
+      }),
+    );
+    await page.getByLabel("Adres e-mail").fill("user@example.com");
+    await page.getByLabel("Hasło").fill("wrong-password");
+    await page.getByRole("button", { name: "Zaloguj się" }).click();
+    await expect(page.getByText("Nieprawidłowy e-mail lub hasło.")).toBeVisible();
+
+    await page.route("**/api/auth/sign-in/email", (route) =>
+      route.fulfill({
+        status: 429,
+        contentType: "application/json",
+        body: JSON.stringify({ message: "Too many requests" }),
+      }),
+    );
+    await page.getByRole("button", { name: "Zaloguj się" }).click();
+    await expect(
+      page.getByText("Zbyt wiele prób. Odczekaj chwilę i spróbuj ponownie."),
+    ).toBeVisible();
+  });
+
+  test("an unverified account offers the resend flow, and its state resets on resubmit", async ({
+    page,
+  }) => {
+    await page.goto("/login");
+    await page.route("**/api/auth/sign-in/email", (route) =>
+      route.fulfill({
+        status: 403,
+        contentType: "application/json",
+        body: JSON.stringify({
+          code: "EMAIL_NOT_VERIFIED",
+          message: "Email not verified",
+        }),
+      }),
+    );
+    await page.route("**/api/auth/send-verification-email", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ status: true }),
+      }),
+    );
+    await page.getByLabel("Adres e-mail").fill("unverified@example.com");
+    await page.getByLabel("Hasło").fill("correct-password");
+    await page.getByRole("button", { name: "Zaloguj się" }).click();
+    await expect(
+      page.getByText("Konto nie zostało jeszcze aktywowane", { exact: false }),
+    ).toBeVisible();
+
+    await page
+      .getByRole("button", { name: "Wyślij link aktywacyjny ponownie" })
+      .click();
+    await expect(page.getByText("Wysłane — sprawdź skrzynkę.")).toBeVisible();
+
+    // A new submit is a new context: the stale "sent" confirmation must not
+    // survive into the next not-verified block.
+    await page.getByRole("button", { name: "Zaloguj się" }).click();
+    await expect(
+      page.getByText("Konto nie zostało jeszcze aktywowane", { exact: false }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Wysłane — sprawdź skrzynkę."),
+    ).not.toBeVisible();
   });
 
   test("a network failure shows a generic error and re-enables the form", async ({
@@ -75,6 +159,32 @@ test.describe("English browser", () => {
     await expect(
       page.getByRole("heading", { level: 1, name: "Log in" }),
     ).toBeVisible();
+    await expect(page.getByLabel("E-mail address")).toBeVisible();
+    await expect(page.getByLabel("Password")).toBeVisible();
     await expect(page.getByRole("button", { name: "Log in" })).toBeVisible();
+  });
+
+  test("validation and error messages come from the English dictionary", async ({
+    page,
+  }) => {
+    await page.goto("/en/login");
+    await page.getByRole("button", { name: "Log in" }).click();
+    await expect(page.getByText("Enter a valid e-mail address.")).toBeVisible();
+    await expect(page.getByText("Enter your password.")).toBeVisible();
+
+    await page.route("**/api/auth/sign-in/email", (route) =>
+      route.fulfill({
+        status: 401,
+        contentType: "application/json",
+        body: JSON.stringify({
+          code: "INVALID_EMAIL_OR_PASSWORD",
+          message: "Invalid email or password",
+        }),
+      }),
+    );
+    await page.getByLabel("E-mail address").fill("user@example.com");
+    await page.getByLabel("Password").fill("wrong-password");
+    await page.getByRole("button", { name: "Log in" }).click();
+    await expect(page.getByText("Invalid e-mail or password.")).toBeVisible();
   });
 });
