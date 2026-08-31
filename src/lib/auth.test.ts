@@ -315,17 +315,27 @@ describe("resending the verification e-mail (A1)", () => {
 });
 
 describe("getAuth environment wiring", () => {
+  // A valid environment is the baseline; each test states only its deviation
+  // (a later stubEnv overrides the beforeEach one). The dynamic import after
+  // resetModules yields a fresh module with an empty memoization slot.
+  beforeEach(() => {
+    vi.stubEnv("DATABASE_URL", "postgresql://postgres:x@localhost:5432/x");
+    vi.stubEnv("APP_URL", BASE_URL);
+    vi.stubEnv("AUTH_SECRET", SECRET);
+  });
+
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.resetModules();
   });
 
-  it("builds a memoized instance from DATABASE_URL, APP_URL and AUTH_SECRET", async () => {
-    vi.stubEnv("DATABASE_URL", "postgresql://postgres:x@localhost:5432/x");
-    vi.stubEnv("APP_URL", BASE_URL);
-    vi.stubEnv("AUTH_SECRET", SECRET);
+  async function loadGetAuth() {
     vi.resetModules();
-    const { getAuth } = await import("./auth");
+    return (await import("./auth")).getAuth;
+  }
+
+  it("builds a memoized instance from DATABASE_URL, APP_URL and AUTH_SECRET", async () => {
+    const getAuth = await loadGetAuth();
     const first = getAuth();
     expect(typeof first.handler).toBe("function");
     expect(getAuth()).toBe(first);
@@ -334,23 +344,16 @@ describe("getAuth environment wiring", () => {
   it.each(["APP_URL", "AUTH_SECRET", "DATABASE_URL"])(
     "fails loudly when %s is missing",
     async (name) => {
-      vi.stubEnv("DATABASE_URL", "postgresql://postgres:x@localhost:5432/x");
-      vi.stubEnv("APP_URL", BASE_URL);
-      vi.stubEnv("AUTH_SECRET", SECRET);
       vi.stubEnv(name, "");
-      vi.resetModules();
-      const { getAuth } = await import("./auth");
+      const getAuth = await loadGetAuth();
       expect(() => getAuth()).toThrow(name);
     },
   );
 
   it("refuses a non-https APP_URL in production (A2: Secure cookie)", async () => {
-    vi.stubEnv("DATABASE_URL", "postgresql://postgres:x@localhost:5432/x");
     vi.stubEnv("APP_URL", "http://plaintext.example.com");
-    vi.stubEnv("AUTH_SECRET", SECRET);
     vi.stubEnv("NODE_ENV", "production");
-    vi.resetModules();
-    const { getAuth } = await import("./auth");
+    const getAuth = await loadGetAuth();
     expect(() => getAuth()).toThrow(/https/);
   });
 });

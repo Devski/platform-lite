@@ -55,19 +55,21 @@ afterEach(() => {
   setEmailTransport(logTransport);
 });
 
+// Helpers target the module-level `auth`; a test needing a different
+// configuration (https base URL, seconds-scale session windows) reassigns it
+// at its top — beforeEach restores the default. The URL and origin come from
+// the instance's own configuration, so they can never disagree with it.
 function post(
-  instance: ReturnType<typeof createAuth>,
-  baseURL: string,
   path: string,
   body: Record<string, unknown>,
   headers: Record<string, string> = {},
 ): Promise<Response> {
-  return instance.handler(
-    new Request(`${baseURL}/api/auth${path}`, {
+  return auth.handler(
+    new Request(`${auth.options.baseURL}/api/auth${path}`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        origin: baseURL,
+        origin: auth.options.baseURL,
         "x-forwarded-for": testIp,
         ...headers,
       },
@@ -77,30 +79,21 @@ function post(
 }
 
 /** Register the address and click the verification link from the e-mail. */
-async function registerVerified(
-  email: string,
-  instance = auth,
-  baseURL = BASE_URL,
-): Promise<void> {
+async function registerVerified(email: string): Promise<void> {
   const before = delivered.length;
-  const signUp = await post(instance, baseURL, "/sign-up/email", {
+  const signUp = await post("/sign-up/email", {
     name: email.split("@")[0],
     email,
     password: PASSWORD,
   });
   expect(signUp.status).toBe(200);
   const url = delivered[before].body.match(/https?:\/\/\S*\/verify-email\?\S+/);
-  const verify = await instance.handler(new Request(url![0]));
+  const verify = await auth.handler(new Request(url![0]));
   expect([200, 302]).toContain(verify.status);
 }
 
-function signIn(
-  email: string,
-  password = PASSWORD,
-  instance = auth,
-  baseURL = BASE_URL,
-): Promise<Response> {
-  return post(instance, baseURL, "/sign-in/email", { email, password });
+function signIn(email: string, password = PASSWORD): Promise<Response> {
+  return post("/sign-in/email", { email, password });
 }
 
 /** The session_token Set-Cookie line (any name suffix), or null. */
@@ -120,13 +113,9 @@ function sessionCookiePair(response: Response): string {
   return nameAndValue;
 }
 
-function getSession(
-  cookie: string | null,
-  instance = auth,
-  baseURL = BASE_URL,
-): Promise<Response> {
-  return instance.handler(
-    new Request(`${baseURL}/api/auth/get-session`, {
+function getSession(cookie: string | null): Promise<Response> {
+  return auth.handler(
+    new Request(`${auth.options.baseURL}/api/auth/get-session`, {
       headers: {
         "x-forwarded-for": testIp,
         ...(cookie ? { cookie } : {}),
@@ -160,18 +149,9 @@ describe("login (A2)", () => {
   });
 
   it("marks the cookie Secure (and __Secure- prefixed) on an https base URL", async () => {
-    const httpsAuth = createAuth({
-      db: testDb.db,
-      baseURL: HTTPS_URL,
-      secret: SECRET,
-    });
-    await registerVerified("secure@example.com", httpsAuth, HTTPS_URL);
-    const response = await signIn(
-      "secure@example.com",
-      PASSWORD,
-      httpsAuth,
-      HTTPS_URL,
-    );
+    auth = createAuth({ db: testDb.db, baseURL: HTTPS_URL, secret: SECRET });
+    await registerVerified("secure@example.com");
+    const response = await signIn("secure@example.com");
     expect(response.status).toBe(200);
     const cookie = sessionSetCookie(response)!;
     expect(cookie.startsWith("__Secure-better-auth.session_token=")).toBe(true);
@@ -197,7 +177,7 @@ describe("login (A2)", () => {
   });
 
   it("refuses an unverified account with 403 and sends no e-mail (A1/A2)", async () => {
-    await post(auth, BASE_URL, "/sign-up/email", {
+    await post("/sign-up/email", {
       name: "unverified",
       email: "unverified@example.com",
       password: PASSWORD,
@@ -233,13 +213,7 @@ describe("logout (A2)", () => {
     const login = await signIn("logout@example.com");
     const cookiePair = sessionCookiePair(login);
 
-    const response = await post(
-      auth,
-      BASE_URL,
-      "/sign-out",
-      {},
-      { cookie: cookiePair },
-    );
+    const response = await post("/sign-out", {}, { cookie: cookiePair });
     expect(response.status).toBe(200);
     expect(((await response.json()) as { success: boolean }).success).toBe(
       true,
@@ -253,7 +227,7 @@ describe("logout (A2)", () => {
   });
 
   it("is idempotent: signing out without a session still succeeds", async () => {
-    const response = await post(auth, BASE_URL, "/sign-out", {});
+    const response = await post("/sign-out", {});
     expect(response.status).toBe(200);
   });
 });
@@ -280,28 +254,28 @@ describe("session lifecycle (A2: 30 days, renewable)", () => {
 
   it("renews the session past updateAge: expiresAt slides, cookie re-issued", async () => {
     // Seconds-scale window so the test can cross updateAge in real time.
-    const shortAuth = createAuth({
+    auth = createAuth({
       db: testDb.db,
       baseURL: BASE_URL,
       secret: SECRET,
       session: { expiresIn: 8, updateAge: 2 },
     });
-    await registerVerified("renew@example.com", shortAuth);
-    const login = await signIn("renew@example.com", PASSWORD, shortAuth);
+    await registerVerified("renew@example.com");
+    const login = await signIn("renew@example.com");
     const cookiePair = sessionCookiePair(login);
     const [{ expiresAt: initialExpiry }] = await testDb.db
       .select()
       .from(sessions);
 
     // Inside updateAge: no write happens.
-    const early = await getSession(cookiePair, shortAuth);
+    const early = await getSession(cookiePair);
     expect(sessionSetCookie(early)).toBeNull();
     const [{ expiresAt: unchanged }] = await testDb.db.select().from(sessions);
     expect(unchanged.getTime()).toBe(initialExpiry.getTime());
 
     await new Promise((resolve) => setTimeout(resolve, 2_300));
 
-    const renewed = await getSession(cookiePair, shortAuth);
+    const renewed = await getSession(cookiePair);
     expect(renewed.status).toBe(200);
     const [{ expiresAt: extended }] = await testDb.db.select().from(sessions);
     expect(extended.getTime()).toBeGreaterThan(initialExpiry.getTime());
@@ -311,19 +285,19 @@ describe("session lifecycle (A2: 30 days, renewable)", () => {
   }, 15_000);
 
   it("treats an expired session as gone and clears it", async () => {
-    const shortAuth = createAuth({
+    auth = createAuth({
       db: testDb.db,
       baseURL: BASE_URL,
       secret: SECRET,
       session: { expiresIn: 1, updateAge: 1 },
     });
-    await registerVerified("expired@example.com", shortAuth);
-    const login = await signIn("expired@example.com", PASSWORD, shortAuth);
+    await registerVerified("expired@example.com");
+    const login = await signIn("expired@example.com");
     const cookiePair = sessionCookiePair(login);
 
     await new Promise((resolve) => setTimeout(resolve, 1_200));
 
-    const response = await getSession(cookiePair, shortAuth);
+    const response = await getSession(cookiePair);
     expect(response.status).toBe(200);
     expect(await response.json()).toBeNull();
     // The reset database held exactly this one session; expiry removed it.
