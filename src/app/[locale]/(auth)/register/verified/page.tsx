@@ -5,6 +5,14 @@ import { ResendForm } from "./resend-form";
 // Landing page for the e-mail verification link (A1). Better Auth redirects
 // here: plain on success, with ?error=TOKEN_EXPIRED / INVALID_TOKEN / ... when
 // the token was rejected.
+function verificationState(
+  error: string | undefined,
+): "success" | "expired" | "invalid" {
+  if (!error) return "success";
+  if (error === "TOKEN_EXPIRED") return "expired";
+  return "invalid";
+}
+
 export default async function VerifiedPage({
   params,
   searchParams,
@@ -16,12 +24,7 @@ export default async function VerifiedPage({
   setRequestLocale(locale);
   const { error } = await searchParams;
   const t = await getTranslations("Register.verified");
-
-  const state = !error
-    ? ("success" as const)
-    : error === "TOKEN_EXPIRED"
-      ? ("expired" as const)
-      : ("invalid" as const);
+  const state = verificationState(error);
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-gray-50 px-4">

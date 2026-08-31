@@ -4,7 +4,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { getPathname } from "@/i18n/navigation";
 import { authClient } from "@/lib/auth-client";
-import { signUpSchema } from "@/lib/auth-schemas";
+import { emailSchema } from "@/lib/auth-schemas";
 
 // Requests a fresh verification link when the one from the e-mail was
 // rejected. The endpoint answers 200 whether or not the address exists
@@ -24,7 +24,7 @@ export function ResendForm() {
     event.preventDefault();
     setError(null);
 
-    const parsed = signUpSchema.shape.email.safeParse(email);
+    const parsed = emailSchema.safeParse(email);
     if (!parsed.success) {
       setError(tErrors("emailInvalid"));
       return;
@@ -35,14 +35,16 @@ export function ResendForm() {
       email: parsed.data,
       callbackURL: getPathname({ locale, href: "/register/verified" }),
     });
-    if (response.error) {
-      setState(response.error.status === 429 ? "limited" : "idle");
-      if (response.error.status !== 429) {
-        setError(tErrors("generic"));
-      }
+    if (!response.error) {
+      setState("done");
       return;
     }
-    setState("done");
+    if (response.error.status === 429) {
+      setState("limited");
+      return;
+    }
+    setState("idle");
+    setError(tErrors("generic"));
   }
 
   return (

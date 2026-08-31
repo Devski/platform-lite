@@ -50,8 +50,8 @@ export function createAuth(options: {
         // One callback serves both flows; the request path tells them apart
         // (A10 keeps first verification and re-verification as two messages).
         const kind = request?.url.includes("/send-verification-email")
-          ? ("accountReverification" as const)
-          : ("accountVerification" as const);
+          ? "accountReverification"
+          : "accountVerification";
         await sendEmail({
           to: user.email,
           locale: localeFromRequest(request),

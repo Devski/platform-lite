@@ -2,12 +2,12 @@ import { fileURLToPath } from "node:url";
 import { getTableName, is, sql } from "drizzle-orm";
 import { drizzle as drizzleNodePg } from "drizzle-orm/node-postgres";
 import { migrate as migrateNodePg } from "drizzle-orm/node-postgres/migrator";
-import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { PgTable } from "drizzle-orm/pg-core";
 import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
 import { migrate as migratePglite } from "drizzle-orm/pglite/migrator";
 import { PGlite } from "@electric-sql/pglite";
 import { Pool } from "pg";
+import type { Database } from "./client";
 import * as schema from "./schema";
 
 // Integration-test database (SPEC.md §6). Two backends behind one shape:
@@ -25,11 +25,8 @@ import * as schema from "./schema";
 
 const MIGRATIONS_FOLDER = fileURLToPath(new URL("../../drizzle", import.meta.url));
 
-export type TestDatabase = PgDatabase<PgQueryResultHKT, typeof schema>;
-
 export interface TestDb {
-  db: TestDatabase;
-  backend: "postgres" | "pglite";
+  db: Database;
   /** TRUNCATE every application table (identities restart, cascades on). */
   reset(): Promise<void>;
   close(): Promise<void>;
@@ -62,8 +59,7 @@ export async function createTestDb(): Promise<TestDb> {
     // running after CI's `pnpm db:migrate` pre-step is a cheap no-op.
     await migrateNodePg(db, { migrationsFolder: MIGRATIONS_FOLDER });
     return {
-      db: db as TestDatabase,
-      backend: "postgres",
+      db: db as Database,
       async reset() {
         await db.execute(truncateAll);
       },
@@ -77,8 +73,7 @@ export async function createTestDb(): Promise<TestDb> {
   const db = drizzlePglite({ client, schema });
   await migratePglite(db, { migrationsFolder: MIGRATIONS_FOLDER });
   return {
-    db: db as TestDatabase,
-    backend: "pglite",
+    db: db as Database,
     async reset() {
       await db.execute(truncateAll);
     },

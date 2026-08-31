@@ -7,12 +7,13 @@ import { z } from "zod";
 export const PASSWORD_MIN = 8;
 export const PASSWORD_MAX = 128;
 
+// Trim and lowercase before validating: what a form submits is exactly what
+// the server stores (Better Auth normalizes the same way). Also used on its
+// own where only an address is collected (e.g. resending the verification).
+export const emailSchema = z.string().trim().toLowerCase().pipe(z.email());
+
 export const signUpSchema = z.object({
-  // Trim and lowercase before validating: what the form submits is exactly
-  // what the server stores (Better Auth normalizes the same way).
-  email: z.string().trim().toLowerCase().pipe(z.email()),
+  email: emailSchema,
   // Never trim passwords — leading/trailing spaces are legal characters.
   password: z.string().min(PASSWORD_MIN).max(PASSWORD_MAX),
 });
-
-export type SignUpInput = z.infer<typeof signUpSchema>;

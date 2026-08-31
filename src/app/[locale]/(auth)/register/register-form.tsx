@@ -74,7 +74,13 @@ export function RegisterForm() {
       email: sentTo,
       callbackURL,
     });
-    setResendState(error ? (error.status === 429 ? "limited" : "idle") : "done");
+    if (!error) {
+      setResendState("done");
+    } else if (error.status === 429) {
+      setResendState("limited");
+    } else {
+      setResendState("idle");
+    }
   }
 
   if (sentTo) {
