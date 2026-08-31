@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Locale } from "@/i18n/routing";
 import {
   createMemoryTransport,
   logTransport,
@@ -96,7 +97,7 @@ describe("renderEmail (A10: all transactional templates)", () => {
     expect(() =>
       renderEmail(
         SAMPLES_BY_KIND.accountVerification,
-        "de" as unknown as Parameters<typeof renderEmail>[1],
+        "de" as unknown as Locale,
       ),
     ).toThrow(/unsupported email locale/);
   });
