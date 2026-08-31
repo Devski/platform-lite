@@ -16,6 +16,8 @@ export function createAuth(options: {
   db: Database;
   baseURL: string;
   secret: string;
+  /** Test override for the A2 lifetimes; production uses the defaults. */
+  session?: { expiresIn: number; updateAge: number };
 }) {
   const { db, baseURL, secret } = options;
   return betterAuth({
@@ -31,6 +33,15 @@ export function createAuth(options: {
     advanced: {
       // §9: ids come from the database (gen_random_uuid()), never the app.
       database: { generateId: "uuid" },
+    },
+    session: {
+      // A2: 30 days, renewable. Renewal happens in /get-session: once the
+      // window is older than updateAge, expiresAt slides forward by the full
+      // expiresIn and the cookie is re-issued. httpOnly and sameSite=lax are
+      // the library defaults; Secure switches on with an https baseURL
+      // (verified against the installed 1.7.2 cookie builder).
+      expiresIn: options.session?.expiresIn ?? 60 * 60 * 24 * 30,
+      updateAge: options.session?.updateAge ?? 60 * 60 * 24,
     },
     emailAndPassword: {
       enabled: true,

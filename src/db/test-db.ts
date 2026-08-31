@@ -19,9 +19,10 @@ import * as schema from "./schema";
 // Both backends apply the committed migrations from drizzle/ (G6) — never
 // a schema push — so tests exercise exactly what production will run.
 //
-// NOTE: with DATABASE_URL_TEST all vitest workers share one database, so keep
-// every suite that touches the database inside a single test file for now;
-// reset() wipes tables and would race across parallel files.
+// NOTE: with DATABASE_URL_TEST all test files share one database. Vitest runs
+// files serially (fileParallelism: false in vitest.config.mts) precisely so
+// their reset() truncations cannot race — keep that setting in mind before
+// re-enabling parallel files.
 
 const MIGRATIONS_FOLDER = fileURLToPath(new URL("../../drizzle", import.meta.url));
 
