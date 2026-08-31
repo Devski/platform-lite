@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useRouter } from "@/i18n/navigation";
 import { authClient } from "@/lib/auth-client";
 import { emailSchema } from "@/lib/auth-schemas";
+import { ResendStatus } from "../resend-status";
 import { useResendVerification } from "../use-resend-verification";
 
 type FieldErrors = { email?: string; password?: string };
@@ -67,7 +68,11 @@ export function LoginForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="mt-6 flex flex-col gap-4">
+    <form
+      onSubmit={handleSubmit}
+      noValidate
+      className="mt-6 flex flex-col gap-4"
+    >
       <div className="flex flex-col gap-1">
         <label htmlFor="email" className="text-sm font-medium text-gray-700">
           {t("emailLabel")}
@@ -131,21 +136,12 @@ export function LoginForm() {
           >
             {resendState === "sending" ? t("resending") : t("resend")}
           </button>
-          {resendState === "done" && (
-            <p className="text-sm text-green-700" role="status">
-              {t("resendDone")}
-            </p>
-          )}
-          {resendState === "limited" && (
-            <p className="text-sm text-red-700" role="status">
-              {t("resendLimited")}
-            </p>
-          )}
-          {resendState === "failed" && (
-            <p className="text-sm text-red-700" role="status">
-              {t("resendFailed")}
-            </p>
-          )}
+          <ResendStatus
+            state={resendState}
+            done={t("resendDone")}
+            limited={t("resendLimited")}
+            failed={t("resendFailed")}
+          />
         </div>
       )}
 

@@ -1,4 +1,3 @@
-import { eq } from "drizzle-orm";
 import {
   afterAll,
   afterEach,
@@ -8,7 +7,7 @@ import {
   expect,
   it,
 } from "vitest";
-import { sessions, users } from "@/db/schema";
+import { sessions } from "@/db/schema";
 import { createTestDb, type TestDb } from "@/db/test-db";
 import { createAuth } from "./auth";
 import {
@@ -327,15 +326,8 @@ describe("session lifecycle (A2: 30 days, renewable)", () => {
     const response = await getSession(cookiePair, shortAuth);
     expect(response.status).toBe(200);
     expect(await response.json()).toBeNull();
-    const rows = await testDb.db
-      .select()
-      .from(sessions)
-      .where(
-        eq(
-          sessions.userId,
-          (await testDb.db.select().from(users))[0].id,
-        ),
-      );
+    // The reset database held exactly this one session; expiry removed it.
+    const rows = await testDb.db.select().from(sessions);
     expect(rows).toHaveLength(0);
   }, 15_000);
 });

@@ -1,8 +1,15 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Route } from "@playwright/test";
 
 // Render + hydration smoke for the login flow (A2). Nothing here talks to a
 // database, so the suite stays runnable on the DB-less CI job; the full
 // logged-in journey belongs to #20.
+
+const jsonResponse = (status: number, body: unknown) => (route: Route) =>
+  route.fulfill({
+    status,
+    contentType: "application/json",
+    body: JSON.stringify(body),
+  });
 
 test.describe("Polish browser", () => {
   test.use({ locale: "pl-PL" });
@@ -45,27 +52,23 @@ test.describe("Polish browser", () => {
     page,
   }) => {
     await page.goto("/login");
-    await page.route("**/api/auth/sign-in/email", (route) =>
-      route.fulfill({
-        status: 401,
-        contentType: "application/json",
-        body: JSON.stringify({
-          code: "INVALID_EMAIL_OR_PASSWORD",
-          message: "Invalid email or password",
-        }),
+    await page.route(
+      "**/api/auth/sign-in/email",
+      jsonResponse(401, {
+        code: "INVALID_EMAIL_OR_PASSWORD",
+        message: "Invalid email or password",
       }),
     );
     await page.getByLabel("Adres e-mail").fill("user@example.com");
     await page.getByLabel("Hasło").fill("wrong-password");
     await page.getByRole("button", { name: "Zaloguj się" }).click();
-    await expect(page.getByText("Nieprawidłowy e-mail lub hasło.")).toBeVisible();
+    await expect(
+      page.getByText("Nieprawidłowy e-mail lub hasło."),
+    ).toBeVisible();
 
-    await page.route("**/api/auth/sign-in/email", (route) =>
-      route.fulfill({
-        status: 429,
-        contentType: "application/json",
-        body: JSON.stringify({ message: "Too many requests" }),
-      }),
+    await page.route(
+      "**/api/auth/sign-in/email",
+      jsonResponse(429, { message: "Too many requests" }),
     );
     await page.getByRole("button", { name: "Zaloguj się" }).click();
     await expect(
@@ -77,22 +80,16 @@ test.describe("Polish browser", () => {
     page,
   }) => {
     await page.goto("/login");
-    await page.route("**/api/auth/sign-in/email", (route) =>
-      route.fulfill({
-        status: 403,
-        contentType: "application/json",
-        body: JSON.stringify({
-          code: "EMAIL_NOT_VERIFIED",
-          message: "Email not verified",
-        }),
+    await page.route(
+      "**/api/auth/sign-in/email",
+      jsonResponse(403, {
+        code: "EMAIL_NOT_VERIFIED",
+        message: "Email not verified",
       }),
     );
-    await page.route("**/api/auth/send-verification-email", (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ status: true }),
-      }),
+    await page.route(
+      "**/api/auth/send-verification-email",
+      jsonResponse(200, { status: true }),
     );
     await page.getByLabel("Adres e-mail").fill("unverified@example.com");
     await page.getByLabel("Hasło").fill("correct-password");
@@ -172,14 +169,11 @@ test.describe("English browser", () => {
     await expect(page.getByText("Enter a valid e-mail address.")).toBeVisible();
     await expect(page.getByText("Enter your password.")).toBeVisible();
 
-    await page.route("**/api/auth/sign-in/email", (route) =>
-      route.fulfill({
-        status: 401,
-        contentType: "application/json",
-        body: JSON.stringify({
-          code: "INVALID_EMAIL_OR_PASSWORD",
-          message: "Invalid email or password",
-        }),
+    await page.route(
+      "**/api/auth/sign-in/email",
+      jsonResponse(401, {
+        code: "INVALID_EMAIL_OR_PASSWORD",
+        message: "Invalid email or password",
       }),
     );
     await page.getByLabel("E-mail address").fill("user@example.com");

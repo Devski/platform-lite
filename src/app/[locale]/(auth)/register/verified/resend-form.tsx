@@ -3,6 +3,7 @@
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { emailSchema } from "@/lib/auth-schemas";
+import { ResendStatus } from "../../resend-status";
 import { useResendVerification } from "../../use-resend-verification";
 
 // Requests a fresh verification link when the one from the e-mail was
@@ -32,7 +33,10 @@ export function ResendForm() {
 
   return (
     <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-3">
-      <label htmlFor="resend-email" className="text-sm font-medium text-gray-700">
+      <label
+        htmlFor="resend-email"
+        className="text-sm font-medium text-gray-700"
+      >
         {tRegister("emailLabel")}
       </label>
       <input
@@ -59,21 +63,12 @@ export function ResendForm() {
       >
         {state === "sending" ? t("resendSending") : t("resendSubmit")}
       </button>
-      {state === "done" && (
-        <p className="text-sm text-green-700" role="status">
-          {t("resendDone")}
-        </p>
-      )}
-      {state === "limited" && (
-        <p className="text-sm text-red-700" role="status">
-          {t("resendLimited")}
-        </p>
-      )}
-      {state === "failed" && (
-        <p className="text-sm text-red-700" role="status">
-          {t("resendFailed")}
-        </p>
-      )}
+      <ResendStatus
+        state={state}
+        done={t("resendDone")}
+        limited={t("resendLimited")}
+        failed={t("resendFailed")}
+      />
     </form>
   );
 }
