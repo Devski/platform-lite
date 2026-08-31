@@ -1,6 +1,7 @@
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import { routing } from "@/i18n/routing";
+import { SessionPanel } from "./session-panel";
 
 export default async function HomePage({
   params,
@@ -18,6 +19,7 @@ export default async function HomePage({
         {t("brand")}
       </h1>
       <p className="text-gray-600">{t("tagline")}</p>
+      <SessionPanel />
       <nav aria-label={tSwitcher("label")} className="flex gap-3 text-sm">
         {routing.locales.map((l) => (
           <Link

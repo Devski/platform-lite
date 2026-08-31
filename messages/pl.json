@@ -37,9 +37,42 @@
     "brand": "platform-lite",
     "tagline": "Publiczne profile dla studiów architektury i artystów 3D"
   },
+  "Login": {
+    "title": "Logowanie",
+    "heading": "Zaloguj się",
+    "emailLabel": "Adres e-mail",
+    "passwordLabel": "Hasło",
+    "submit": "Zaloguj się",
+    "submitting": "Logowanie…",
+    "errors": {
+      "emailInvalid": "Podaj poprawny adres e-mail.",
+      "passwordRequired": "Podaj hasło.",
+      "invalidCredentials": "Nieprawidłowy e-mail lub hasło.",
+      "notVerified": "Konto nie zostało jeszcze aktywowane. Sprawdź skrzynkę albo wyślij link ponownie.",
+      "rateLimited": "Zbyt wiele prób. Odczekaj chwilę i spróbuj ponownie.",
+      "generic": "Logowanie nie powiodło się. Spróbuj ponownie."
+    },
+    "resend": "Wyślij link aktywacyjny ponownie",
+    "resending": "Wysyłanie…",
+    "resendDone": "Wysłane — sprawdź skrzynkę.",
+    "resendLimited": "Limit 3 wysyłek na godzinę został wykorzystany. Spróbuj później.",
+    "resendFailed": "Wysyłka nie powiodła się. Spróbuj ponownie.",
+    "registerPrompt": "Nie masz konta?",
+    "registerLink": "Zarejestruj się"
+  },
+  "Session": {
+    "logIn": "Zaloguj się",
+    "register": "Załóż konto",
+    "signedInAs": "Zalogowano jako {email}",
+    "logOut": "Wyloguj",
+    "loggingOut": "Wylogowywanie…",
+    "error": "Nie udało się wylogować. Spróbuj ponownie."
+  },
   "Register": {
     "title": "Rejestracja",
     "heading": "Załóż konto",
+    "loginPrompt": "Masz już konto?",
+    "loginLink": "Zaloguj się",
     "emailLabel": "Adres e-mail",
     "passwordLabel": "Hasło",
     "passwordHint": "Od {min} do {max} znaków — bez żadnych dodatkowych wymagań.",

@@ -37,9 +37,42 @@
     "brand": "platform-lite",
     "tagline": "Public profiles for architecture studios and 3D artists"
   },
+  "Login": {
+    "title": "Log in",
+    "heading": "Log in",
+    "emailLabel": "E-mail address",
+    "passwordLabel": "Password",
+    "submit": "Log in",
+    "submitting": "Logging in…",
+    "errors": {
+      "emailInvalid": "Enter a valid e-mail address.",
+      "passwordRequired": "Enter your password.",
+      "invalidCredentials": "Invalid e-mail or password.",
+      "notVerified": "Your account is not activated yet. Check your inbox or send the link again.",
+      "rateLimited": "Too many attempts. Wait a moment and try again.",
+      "generic": "Login failed. Try again."
+    },
+    "resend": "Send the activation link again",
+    "resending": "Sending…",
+    "resendDone": "Sent — check your inbox.",
+    "resendLimited": "The limit of 3 e-mails per hour is used up. Try again later.",
+    "resendFailed": "Sending failed. Try again.",
+    "registerPrompt": "No account yet?",
+    "registerLink": "Sign up"
+  },
+  "Session": {
+    "logIn": "Log in",
+    "register": "Sign up",
+    "signedInAs": "Signed in as {email}",
+    "logOut": "Log out",
+    "loggingOut": "Logging out…",
+    "error": "Logging out failed. Try again."
+  },
   "Register": {
     "title": "Sign up",
     "heading": "Create your account",
+    "loginPrompt": "Already have an account?",
+    "loginLink": "Log in",
     "emailLabel": "E-mail address",
     "passwordLabel": "Password",
     "passwordHint": "{min} to {max} characters — no other requirements.",
