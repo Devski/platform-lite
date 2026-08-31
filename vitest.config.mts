@@ -11,6 +11,10 @@ export default defineConfig({
   test: {
     include: ["src/**/*.test.{ts,tsx}"],
     environment: "node",
+    // With DATABASE_URL_TEST set (CI, tunnelled dev) every database-bound
+    // test file truncates the same database — parallel workers would race.
+    // The suite is small; serial files cost little and stay deterministic.
+    fileParallelism: false,
     coverage: {
       provider: "v8",
       include: ["src/**"],
