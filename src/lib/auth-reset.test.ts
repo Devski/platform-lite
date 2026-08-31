@@ -120,6 +120,16 @@ async function followResetLink(url: string): Promise<string> {
   return response.headers.get("location")!;
 }
 
+/** Request a reset and walk the mailed link into a usable token. */
+async function obtainResetToken(
+  email: string,
+): Promise<{ url: string; token: string }> {
+  await requestReset(email);
+  const url = resetUrlFrom(delivered.at(-1)!);
+  const location = await followResetLink(url);
+  return { url, token: new URL(location).searchParams.get("token")! };
+}
+
 describe("requesting a password reset (A3)", () => {
   it("e-mails a single-use link whose token expires in 60 minutes", async () => {
     await registerVerified("reset@example.com");
@@ -224,9 +234,7 @@ describe("completing the reset (A3)", () => {
 
   it("rejects a reused link on both the callback and the submit", async () => {
     await registerVerified("reuse@example.com");
-    await requestReset("reuse@example.com");
-    const url = resetUrlFrom(delivered.at(-1)!);
-    const token = new URL(await followResetLink(url)).searchParams.get("token");
+    const { url, token } = await obtainResetToken("reuse@example.com");
 
     expect(
       (await post("/reset-password", { newPassword: NEW_PASSWORD, token }))
@@ -247,9 +255,7 @@ describe("completing the reset (A3)", () => {
 
   it("rejects an expired link and leaves the password unchanged", async () => {
     await registerVerified("expired@example.com");
-    await requestReset("expired@example.com");
-    const url = resetUrlFrom(delivered.at(-1)!);
-    const token = new URL(await followResetLink(url)).searchParams.get("token");
+    const { url, token } = await obtainResetToken("expired@example.com");
 
     await testDb.db
       .update(verifications)
@@ -275,9 +281,7 @@ describe("completing the reset (A3)", () => {
 
   it("enforces the A1 bounds on the new password without burning the token", async () => {
     await registerVerified("bounds@example.com");
-    await requestReset("bounds@example.com");
-    const url = resetUrlFrom(delivered.at(-1)!);
-    const token = new URL(await followResetLink(url)).searchParams.get("token");
+    const { token } = await obtainResetToken("bounds@example.com");
 
     const tooShort = await post("/reset-password", {
       newPassword: "1234567",
