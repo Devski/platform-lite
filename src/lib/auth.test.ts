@@ -198,9 +198,9 @@ describe("sign-up (A1)", () => {
 
   it("rejects passwords outside 8-128 characters, with no composition rules (A1)", async () => {
     expect((await signUp("short@example.com", {}, "1234567")).status).toBe(400);
-    expect(
-      (await signUp("long@example.com", {}, "x".repeat(129))).status,
-    ).toBe(400);
+    expect((await signUp("long@example.com", {}, "x".repeat(129))).status).toBe(
+      400,
+    );
     // 8 characters of anything is enough — no composition rules.
     expect((await signUp("edge@example.com", {}, "aaaaaaaa")).status).toBe(200);
   });

@@ -24,7 +24,9 @@ import * as schema from "./schema";
 // their reset() truncations cannot race — keep that setting in mind before
 // re-enabling parallel files.
 
-const MIGRATIONS_FOLDER = fileURLToPath(new URL("../../drizzle", import.meta.url));
+const MIGRATIONS_FOLDER = fileURLToPath(
+  new URL("../../drizzle", import.meta.url),
+);
 
 export interface TestDb {
   db: Database;

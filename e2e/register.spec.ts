@@ -88,8 +88,6 @@ test.describe("English browser", () => {
     await expect(
       page.getByRole("heading", { level: 1, name: "Create your account" }),
     ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Sign up" }),
-    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sign up" })).toBeVisible();
   });
 });

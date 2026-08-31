@@ -63,9 +63,7 @@ export function createAuth(options: {
         const isResend =
           request !== undefined &&
           new URL(request.url).pathname.endsWith("/send-verification-email");
-        const kind = isResend
-          ? "accountReverification"
-          : "accountVerification";
+        const kind = isResend ? "accountReverification" : "accountVerification";
         await sendEmail({
           to: user.email,
           locale: localeFromRequest(request),
@@ -101,7 +99,10 @@ export function getAuth(): ReturnType<typeof createAuth> {
     // A2 requires the Secure cookie attribute, and Better Auth derives it
     // from the base URL scheme — a production deployment behind plain http
     // would silently ship non-Secure session cookies. Fail at startup instead.
-    if (process.env.NODE_ENV === "production" && !baseURL.startsWith("https://")) {
+    if (
+      process.env.NODE_ENV === "production" &&
+      !baseURL.startsWith("https://")
+    ) {
       throw new Error(
         "APP_URL must be https:// in production — the session cookie's Secure attribute depends on it (A2)",
       );
