@@ -3,6 +3,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { getDb, type Database } from "@/db/client";
 import * as schema from "@/db/schema";
 import { localeFromRequest } from "@/i18n/request-locale";
+import { PASSWORD_MAX, PASSWORD_MIN } from "@/lib/auth-schemas";
 import { requireEnv } from "@/lib/env";
 import { sendEmail } from "@/lib/email";
 
@@ -36,9 +37,10 @@ export function createAuth(options: {
       // A1: the account stays inactive (no session possible) until the
       // verification link is clicked.
       requireEmailVerification: true,
-      // A1 pinned explicitly: 8-128 characters, no composition rules.
-      minPasswordLength: 8,
-      maxPasswordLength: 128,
+      // A1: 8-128 characters, no composition rules — the same constants the
+      // client-side signUpSchema validates with (auth-schemas.ts).
+      minPasswordLength: PASSWORD_MIN,
+      maxPasswordLength: PASSWORD_MAX,
     },
     emailVerification: {
       sendOnSignUp: true,
