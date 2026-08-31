@@ -1,4 +1,3 @@
-import { like } from "drizzle-orm";
 import {
   afterAll,
   afterEach,
@@ -147,11 +146,12 @@ describe("requesting a password reset (A3)", () => {
     );
     expect(resetUrlFrom(message)).toContain("/api/auth/reset-password/");
 
-    const [row] = await testDb.db
-      .select()
-      .from(verifications)
-      .where(like(verifications.identifier, "reset-password:%"));
-    const secondsLeft = (row.expiresAt.getTime() - Date.now()) / 1000;
+    // The stored identifier is hashed at rest (createAuth scopes "hashed" to
+    // the reset prefix), so locate the token as the table's only row.
+    const rows = await testDb.db.select().from(verifications);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].identifier).not.toContain("reset-password:");
+    const secondsLeft = (rows[0].expiresAt.getTime() - Date.now()) / 1000;
     expect(secondsLeft).toBeGreaterThan(ONE_HOUR - 60);
     expect(secondsLeft).toBeLessThan(ONE_HOUR + 60);
   }, 15_000);
@@ -196,6 +196,27 @@ describe("requesting a password reset (A3)", () => {
       ONE_HOUR - 100,
     );
   }, 20_000);
+
+  it("refuses a cross-origin redirectTo (open-redirect defense)", async () => {
+    // Origin checks auto-skip under NODE_ENV=test — force them on to prove
+    // the defense with this app's own configuration.
+    auth = createAuth({
+      db: testDb.db,
+      baseURL: BASE_URL,
+      secret: SECRET,
+      enforceOriginChecks: true,
+    });
+    await registerVerified("redirect@example.com");
+
+    const evil = await post("/request-password-reset", {
+      email: "redirect@example.com",
+      redirectTo: "https://evil.example.com/phish",
+    });
+    expect(evil.status).toBe(403);
+
+    // The legitimate relative target still passes under enforced checks.
+    expect((await requestReset("redirect@example.com")).status).toBe(200);
+  }, 15_000);
 });
 
 describe("completing the reset (A3)", () => {
@@ -257,10 +278,11 @@ describe("completing the reset (A3)", () => {
     await registerVerified("expired@example.com");
     const { url, token } = await obtainResetToken("expired@example.com");
 
+    // Identifiers are hashed at rest and this flow stored the only row (the
+    // sibling 60-minute test pins that invariant), so age the whole table.
     await testDb.db
       .update(verifications)
-      .set({ expiresAt: new Date(Date.now() - 1000) })
-      .where(like(verifications.identifier, "reset-password:%"));
+      .set({ expiresAt: new Date(Date.now() - 1000) });
 
     expect(await followResetLink(url)).toContain("error=INVALID_TOKEN");
     const submit = await post("/reset-password", {
@@ -277,6 +299,30 @@ describe("completing the reset (A3)", () => {
           renderEmail({ kind: "passwordChanged", params: {} }, "pl").subject,
       ),
     ).toBe(false);
+  }, 20_000);
+
+  it("completes the reset even when the notification e-mail fails", async () => {
+    await registerVerified("outage@example.com");
+    expect((await signIn("outage@example.com", PASSWORD)).status).toBe(200);
+    const { token } = await obtainResetToken("outage@example.com");
+
+    // Provider outage exactly at the notification: the library awaits
+    // onPasswordReset between the password write and the session revocation,
+    // so an unhandled rejection there would strand a half-done reset — 500
+    // to the user, new password live, the old sessions all still alive.
+    setEmailTransport({
+      async deliver() {
+        throw new Error("provider outage");
+      },
+    });
+    const response = await post("/reset-password", {
+      newPassword: NEW_PASSWORD,
+      token,
+    });
+    expect(response.status).toBe(200);
+
+    expect(await testDb.db.select().from(sessions)).toHaveLength(0);
+    expect((await signIn("outage@example.com", NEW_PASSWORD)).status).toBe(200);
   }, 20_000);
 
   it("enforces the A1 bounds on the new password without burning the token", async () => {

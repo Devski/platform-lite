@@ -18,6 +18,12 @@ export function createAuth(options: {
   secret: string;
   /** Test override for the A2 lifetimes; production uses the defaults. */
   session?: { expiresIn: number; updateAge: number };
+  /**
+   * Test override: origin and redirect-target checks auto-skip under
+   * NODE_ENV=test (captured at library import, so tests cannot stub it) —
+   * this forces them on so the open-redirect defense stays provable.
+   */
+  enforceOriginChecks?: boolean;
 }) {
   const { db, baseURL, secret } = options;
   return betterAuth({
@@ -33,6 +39,16 @@ export function createAuth(options: {
     advanced: {
       // §9: ids come from the database (gen_random_uuid()), never the app.
       database: { generateId: "uuid" },
+      ...(options.enforceOriginChecks ? { disableOriginCheck: false } : {}),
+    },
+    verification: {
+      // A reset token is a bearer credential for account takeover — hash it
+      // at rest so a read-only database leak (backup, SQL injection) cannot
+      // redeem live links. Scoped by prefix; other identifiers stay plain.
+      storeIdentifier: {
+        default: "plain",
+        overrides: { "reset-password:": "hashed" },
+      },
     },
     session: {
       // A2: 30 days, renewable. Renewal happens in /get-session: once the
@@ -57,6 +73,12 @@ export function createAuth(options: {
       // consumed on submit). Explicit even though it equals the 1.7.2 default,
       // so the criterion cannot drift with a library upgrade.
       resetPasswordTokenExpiresIn: 60 * 60,
+      // KNOWN GAP until #22: with advanced.backgroundTasks unset the library
+      // awaits this send on the response path, so a known address answers
+      // slower than an unknown one by a full delivery round-trip — a timing
+      // channel for account enumeration. Negligible with the dev log
+      // transport; the production transport must deliver off-path
+      // (backgroundTasks.handler or a queueing transport) — recorded on #22.
       async sendResetPassword({ user, url }, request) {
         await sendEmail({
           to: user.email,
@@ -65,12 +87,20 @@ export function createAuth(options: {
         });
       },
       // A3: after a successful change, a notification to the account address.
+      // Best-effort by contract: the library awaits this hook un-wrapped
+      // between the password update and the session revocation, so a failed
+      // delivery would otherwise return 500 with the new password live and
+      // every old session intact — the A3 outcome outranks the notification.
       async onPasswordReset({ user }, request) {
-        await sendEmail({
-          to: user.email,
-          locale: localeFromRequest(request),
-          template: { kind: "passwordChanged", params: {} },
-        });
+        try {
+          await sendEmail({
+            to: user.email,
+            locale: localeFromRequest(request),
+            template: { kind: "passwordChanged", params: {} },
+          });
+        } catch (error) {
+          console.error("[auth] password-changed notification failed:", error);
+        }
       },
       // A completed reset implies the old password may be in someone else's
       // hands — no live session survives it (decision of 01.09.2026, OWASP
