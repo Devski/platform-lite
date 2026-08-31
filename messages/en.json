@@ -37,6 +37,43 @@
     "brand": "platform-lite",
     "tagline": "Public profiles for architecture studios and 3D artists"
   },
+  "Register": {
+    "title": "Sign up",
+    "heading": "Create your account",
+    "emailLabel": "E-mail address",
+    "passwordLabel": "Password",
+    "passwordHint": "{min} to {max} characters — no other requirements.",
+    "submit": "Sign up",
+    "submitting": "Signing up…",
+    "errors": {
+      "emailInvalid": "Enter a valid e-mail address.",
+      "passwordTooShort": "The password needs at least {min} characters.",
+      "passwordTooLong": "The password can have at most {max} characters.",
+      "rateLimited": "Too many attempts. Wait a moment and try again.",
+      "generic": "Sign-up failed. Try again."
+    },
+    "sent": {
+      "heading": "Check your inbox",
+      "body": "We sent an activation link to {email}. The link is valid for 24 hours.",
+      "resend": "Send the link again",
+      "resending": "Sending…",
+      "resendDone": "Sent — check your inbox (the spam folder too).",
+      "resendLimited": "The limit of 3 e-mails per hour is used up. Try again later."
+    },
+    "verified": {
+      "successHeading": "Account active",
+      "successBody": "Your e-mail address is confirmed.",
+      "homeLink": "Go to the homepage",
+      "expiredHeading": "The link has expired",
+      "expiredBody": "The activation link was valid for 24 hours. Enter your e-mail address and we will send a new one.",
+      "invalidHeading": "Invalid link",
+      "invalidBody": "This link is invalid or has already been used. Enter your e-mail address and we will send a new one.",
+      "resendSubmit": "Send a new link",
+      "resendSending": "Sending…",
+      "resendDone": "Sent — check your inbox.",
+      "resendLimited": "The limit of 3 e-mails per hour is used up. Try again later."
+    }
+  },
   "LanguageSwitcher": {
     "label": "Language selection",
     "pl": "Polski",

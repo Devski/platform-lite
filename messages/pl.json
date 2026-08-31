@@ -37,6 +37,43 @@
     "brand": "platform-lite",
     "tagline": "Publiczne profile dla studiów architektury i artystów 3D"
   },
+  "Register": {
+    "title": "Rejestracja",
+    "heading": "Załóż konto",
+    "emailLabel": "Adres e-mail",
+    "passwordLabel": "Hasło",
+    "passwordHint": "Od {min} do {max} znaków — bez żadnych dodatkowych wymagań.",
+    "submit": "Zarejestruj się",
+    "submitting": "Rejestrowanie…",
+    "errors": {
+      "emailInvalid": "Podaj poprawny adres e-mail.",
+      "passwordTooShort": "Hasło musi mieć co najmniej {min} znaków.",
+      "passwordTooLong": "Hasło może mieć najwyżej {max} znaków.",
+      "rateLimited": "Zbyt wiele prób. Odczekaj chwilę i spróbuj ponownie.",
+      "generic": "Rejestracja nie powiodła się. Spróbuj ponownie."
+    },
+    "sent": {
+      "heading": "Sprawdź skrzynkę",
+      "body": "Wysłaliśmy link aktywacyjny na adres {email}. Link jest ważny przez 24 godziny.",
+      "resend": "Wyślij link ponownie",
+      "resending": "Wysyłanie…",
+      "resendDone": "Wysłane — zajrzyj do skrzynki (także do folderu ze spamem).",
+      "resendLimited": "Limit 3 wysyłek na godzinę został wykorzystany. Spróbuj później."
+    },
+    "verified": {
+      "successHeading": "Konto aktywne",
+      "successBody": "Twój adres e-mail został potwierdzony.",
+      "homeLink": "Przejdź na stronę główną",
+      "expiredHeading": "Link wygasł",
+      "expiredBody": "Link aktywacyjny był ważny przez 24 godziny. Podaj adres e-mail, a wyślemy nowy.",
+      "invalidHeading": "Nieprawidłowy link",
+      "invalidBody": "Ten link jest niepoprawny lub został już użyty. Podaj adres e-mail, a wyślemy nowy.",
+      "resendSubmit": "Wyślij nowy link",
+      "resendSending": "Wysyłanie…",
+      "resendDone": "Wysłane — sprawdź skrzynkę.",
+      "resendLimited": "Limit 3 wysyłek na godzinę został wykorzystany. Spróbuj później."
+    }
+  },
   "LanguageSwitcher": {
     "label": "Wybór języka",
     "pl": "Polski",
