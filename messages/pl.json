@@ -91,7 +91,8 @@
       "resend": "Wyślij link ponownie",
       "resending": "Wysyłanie…",
       "resendDone": "Wysłane — zajrzyj do skrzynki (także do folderu ze spamem).",
-      "resendLimited": "Limit 3 wysyłek na godzinę został wykorzystany. Spróbuj później."
+      "resendLimited": "Limit 3 wysyłek na godzinę został wykorzystany. Spróbuj później.",
+      "resendFailed": "Wysyłka nie powiodła się. Spróbuj ponownie."
     },
     "verified": {
       "successHeading": "Konto aktywne",
@@ -104,7 +105,8 @@
       "resendSubmit": "Wyślij nowy link",
       "resendSending": "Wysyłanie…",
       "resendDone": "Wysłane — sprawdź skrzynkę.",
-      "resendLimited": "Limit 3 wysyłek na godzinę został wykorzystany. Spróbuj później."
+      "resendLimited": "Limit 3 wysyłek na godzinę został wykorzystany. Spróbuj później.",
+      "resendFailed": "Wysyłka nie powiodła się. Spróbuj ponownie."
     }
   },
   "LanguageSwitcher": {

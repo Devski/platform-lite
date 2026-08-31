@@ -5,6 +5,7 @@ import { useState } from "react";
 import { getPathname } from "@/i18n/navigation";
 import { authClient } from "@/lib/auth-client";
 import { PASSWORD_MAX, PASSWORD_MIN, signUpSchema } from "@/lib/auth-schemas";
+import { useResendVerification } from "../use-resend-verification";
 
 type FieldErrors = { email?: string; password?: string };
 
@@ -17,9 +18,7 @@ export function RegisterForm() {
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [sentTo, setSentTo] = useState<string | null>(null);
-  const [resendState, setResendState] = useState<
-    "idle" | "sending" | "done" | "limited" | "failed"
-  >("idle");
+  const { state: resendState, resend } = useResendVerification();
 
   // Localized landing page for the e-mail link (A8: pl unprefixed, /en/...).
   const callbackURL = getPathname({ locale, href: "/register/verified" });
@@ -72,25 +71,6 @@ export function RegisterForm() {
     }
   }
 
-  async function handleResend() {
-    if (!sentTo) return;
-    setResendState("sending");
-    try {
-      const { error } = await authClient.sendVerificationEmail({
-        email: sentTo,
-        callbackURL,
-      });
-      if (!error) {
-        setResendState("done");
-        return;
-      }
-      setResendState(error.status === 429 ? "limited" : "failed");
-    } catch {
-      // Network-level failure — same generic feedback as an HTTP error.
-      setResendState("failed");
-    }
-  }
-
   if (sentTo) {
     return (
       <div className="mt-4 flex flex-col gap-4">
@@ -102,7 +82,7 @@ export function RegisterForm() {
         </p>
         <button
           type="button"
-          onClick={handleResend}
+          onClick={() => resend(sentTo)}
           disabled={resendState === "sending"}
           className="self-start text-sm font-semibold text-blue-700 hover:underline disabled:text-gray-400"
         >
@@ -120,7 +100,7 @@ export function RegisterForm() {
         )}
         {resendState === "failed" && (
           <p className="text-sm text-red-700" role="status">
-            {t("errors.generic")}
+            {t("sent.resendFailed")}
           </p>
         )}
       </div>
