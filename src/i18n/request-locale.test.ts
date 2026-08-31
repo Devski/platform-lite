@@ -69,4 +69,10 @@ describe("localeFromRequest (A8 precedence for API routes)", () => {
       localeFromRequest(request({ "accept-language": ";;q=,,," })),
     ).toBe("pl");
   });
+
+  it("treats q=0 as not acceptable (RFC 9110) instead of a candidate", () => {
+    expect(
+      localeFromRequest(request({ "accept-language": "en;q=0" })),
+    ).toBe("pl");
+  });
 });

@@ -31,17 +31,21 @@ export function ResendForm() {
     }
 
     setState("sending");
-    const response = await authClient.sendVerificationEmail({
-      email: parsed.data,
-      callbackURL: getPathname({ locale, href: "/register/verified" }),
-    });
-    if (!response.error) {
-      setState("done");
-      return;
-    }
-    if (response.error.status === 429) {
-      setState("limited");
-      return;
+    try {
+      const { error: requestError } = await authClient.sendVerificationEmail({
+        email: parsed.data,
+        callbackURL: getPathname({ locale, href: "/register/verified" }),
+      });
+      if (!requestError) {
+        setState("done");
+        return;
+      }
+      if (requestError.status === 429) {
+        setState("limited");
+        return;
+      }
+    } catch {
+      // Network-level failure — fall through to the generic feedback below.
     }
     setState("idle");
     setError(tErrors("generic"));

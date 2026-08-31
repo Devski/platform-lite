@@ -49,7 +49,10 @@ export function createAuth(options: {
       async sendVerificationEmail({ user, url }, request) {
         // One callback serves both flows; the request path tells them apart
         // (A10 keeps first verification and re-verification as two messages).
-        const kind = request?.url.includes("/send-verification-email")
+        const isResend =
+          request !== undefined &&
+          new URL(request.url).pathname.endsWith("/send-verification-email");
+        const kind = isResend
           ? "accountReverification"
           : "accountVerification";
         await sendEmail({

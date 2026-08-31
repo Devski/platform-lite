@@ -35,6 +35,24 @@ test.describe("Polish browser", () => {
     ).toBeVisible();
   });
 
+  test("a network failure shows a generic error and re-enables the form", async ({
+    page,
+  }) => {
+    await page.goto("/register");
+    // Abort at the network layer: better-fetch rethrows when no HTTP
+    // response arrived, and the form must not stay stuck on "submitting".
+    await page.route("**/api/auth/sign-up/email", (route) => route.abort());
+    await page.getByLabel("Adres e-mail").fill("net@example.com");
+    await page.getByLabel("Hasło").fill("dlugie-haslo-123");
+    await page.getByRole("button", { name: "Zarejestruj się" }).click();
+    await expect(
+      page.getByText("Rejestracja nie powiodła się. Spróbuj ponownie."),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Zarejestruj się" }),
+    ).toBeEnabled();
+  });
+
   test("the verification landing page renders the expired state with a resend form", async ({
     page,
   }) => {

@@ -18,7 +18,7 @@ export function RegisterForm() {
   const [submitting, setSubmitting] = useState(false);
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [resendState, setResendState] = useState<
-    "idle" | "sending" | "done" | "limited"
+    "idle" | "sending" | "done" | "limited" | "failed"
   >("idle");
 
   // Localized landing page for the e-mail link (A8: pl unprefixed, /en/...).
@@ -48,38 +48,46 @@ export function RegisterForm() {
 
     setFieldErrors({});
     setSubmitting(true);
-    const { error } = await authClient.signUp.email({
-      email: parsed.data.email,
-      password: parsed.data.password,
-      // Better Auth requires a name; the real display identity lives in
-      // profiles (#14). Seed it from the address's local part.
-      name: parsed.data.email.split("@")[0],
-      callbackURL,
-    });
-    setSubmitting(false);
-
-    if (error) {
-      setFormError(
-        error.status === 429 ? t("errors.rateLimited") : t("errors.generic"),
-      );
-      return;
+    try {
+      const { error } = await authClient.signUp.email({
+        email: parsed.data.email,
+        password: parsed.data.password,
+        // Better Auth requires a name; the real display identity lives in
+        // profiles (#14). Seed it from the address's local part.
+        name: parsed.data.email.split("@")[0],
+        callbackURL,
+      });
+      if (error) {
+        setFormError(
+          error.status === 429 ? t("errors.rateLimited") : t("errors.generic"),
+        );
+        return;
+      }
+      setSentTo(parsed.data.email);
+    } catch {
+      // Network-level failure: the client rethrows when no response arrived.
+      setFormError(t("errors.generic"));
+    } finally {
+      setSubmitting(false);
     }
-    setSentTo(parsed.data.email);
   }
 
   async function handleResend() {
     if (!sentTo) return;
     setResendState("sending");
-    const { error } = await authClient.sendVerificationEmail({
-      email: sentTo,
-      callbackURL,
-    });
-    if (!error) {
-      setResendState("done");
-    } else if (error.status === 429) {
-      setResendState("limited");
-    } else {
-      setResendState("idle");
+    try {
+      const { error } = await authClient.sendVerificationEmail({
+        email: sentTo,
+        callbackURL,
+      });
+      if (!error) {
+        setResendState("done");
+        return;
+      }
+      setResendState(error.status === 429 ? "limited" : "failed");
+    } catch {
+      // Network-level failure — same generic feedback as an HTTP error.
+      setResendState("failed");
     }
   }
 
@@ -108,6 +116,11 @@ export function RegisterForm() {
         {resendState === "limited" && (
           <p className="text-sm text-red-700" role="status">
             {t("sent.resendLimited")}
+          </p>
+        )}
+        {resendState === "failed" && (
+          <p className="text-sm text-red-700" role="status">
+            {t("errors.generic")}
           </p>
         )}
       </div>

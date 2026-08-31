@@ -34,6 +34,8 @@ function localeFromAcceptLanguage(header: string | null): Locale | undefined {
         q = Number.isFinite(parsed) ? parsed : 0;
       }
     }
+    // RFC 9110: q=0 marks the language as not acceptable at all.
+    if (q <= 0) continue;
     if (!best || q > best.q) {
       best = { locale: base, q };
     }
