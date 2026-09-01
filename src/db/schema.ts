@@ -239,12 +239,20 @@ export const files = pgTable(
   (table) => [
     // Covering index: the A9 quota SUM(size_bytes) per user is index-only.
     index("files_user_id_size_bytes_idx").on(table.userId, table.sizeBytes),
-    // #12: identical bytes are stored once (G2), so they are RECORDED once —
-    // a replayed confirm upserts instead of over-counting the A9 quota.
-    uniqueIndex("files_user_sha256_kind_unique").on(
-      table.userId,
-      table.sha256,
-      table.kind,
-    ),
+    // #12/#14: dedup keys differ by role. ORIGINALS dedupe by content —
+    // identical bytes live under one key (G2), so they are recorded once.
+    // VARIANTS dedupe by (parent, kind): their OBJECTS are keyed by the
+    // parent's hash, so two different originals with byte-identical variant
+    // pixels still store two objects — sha-based dedup would skip the second
+    // row, mis-parenting it and undercounting the A9 quota (#14 review).
+    uniqueIndex("files_original_user_sha256_unique")
+      .on(table.userId, table.sha256, table.kind)
+      .where(sql`${table.kind} = 'avatar-original'`),
+    uniqueIndex("files_variant_user_parent_kind_unique")
+      .on(table.userId, table.parentFileId, table.kind)
+      .where(sql`${table.kind} <> 'avatar-original'`),
+    // Postgres does not index FK source columns; the replacement cascade
+    // scans by parent.
+    index("files_parent_file_id_idx").on(table.parentFileId),
   ],
 );

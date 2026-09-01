@@ -179,7 +179,9 @@ describe("generated migration SQL (G6 — migrations are the source of truth)", 
       'CREATE INDEX "sessions_user_id_idx" ON "sessions" USING btree ("user_id")',
       'CREATE INDEX "verifications_identifier_idx" ON "verifications" USING btree ("identifier")',
       'CREATE UNIQUE INDEX "two_factors_user_id_unique" ON "two_factors" USING btree ("user_id")',
-      'CREATE UNIQUE INDEX "files_user_sha256_kind_unique" ON "files" USING btree ("user_id","sha256","kind")',
+      'CREATE UNIQUE INDEX "files_original_user_sha256_unique" ON "files" USING btree ("user_id","sha256","kind") WHERE "files"."kind" = \'avatar-original\'',
+      'CREATE UNIQUE INDEX "files_variant_user_parent_kind_unique" ON "files" USING btree ("user_id","parent_file_id","kind") WHERE "files"."kind" <> \'avatar-original\'',
+      'CREATE INDEX "files_parent_file_id_idx" ON "files" USING btree ("parent_file_id")',
     ]) {
       expect(sql).toContain(ddl);
     }
@@ -216,10 +218,18 @@ describe("generated migration SQL (G6 — migrations are the source of truth)", 
   it("canary: no migration weakens a guarded object without conscious review", () => {
     // The SQL assertions above check the joined history, so a later migration
     // could drop a guarded object while they stay green. When a future
-    // migration legitimately drops or alters one, update the guarded
-    // assertions in this file in the same change — this canary forces that.
-    expect(sql).not.toMatch(
-      /DROP INDEX|DROP CONSTRAINT|DROP DEFAULT|DROP TABLE|ALTER TYPE/i,
+    // migration legitimately drops or alters one, extend the accepted list —
+    // this canary forces exactly that review.
+    const accepted = [
+      // 0004 (#14 review): the one-size dedup index split into per-role
+      // partial indexes; the replacement is guarded above.
+      'DROP INDEX "files_user_sha256_kind_unique"',
+    ];
+    const drops =
+      sql.match(/(?:DROP INDEX|DROP CONSTRAINT|DROP DEFAULT|DROP TABLE|ALTER TYPE)[^;]*/gi) ??
+      [];
+    expect(drops.map((statement) => statement.trim()).sort()).toEqual(
+      accepted.sort(),
     );
   });
 });

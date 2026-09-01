@@ -93,6 +93,16 @@ describe("updateDisplayName (A4)", () => {
       updateDisplayName(d.deps, "x".repeat(80)),
     ).resolves.toBeUndefined();
   });
+
+  it("rejects control and invisible-format characters in the name", async () => {
+    const d = makeDeps();
+    // NUL would 500 at Postgres; a bidi override spoofs names once public.
+    await expect(updateDisplayName(d.deps, "Studio\u0000X")).rejects.toThrow();
+    await expect(updateDisplayName(d.deps, "Studio\u202EX")).rejects.toThrow();
+    await expect(
+      updateDisplayName(d.deps, "Pracownia Żółć & Sons"),
+    ).resolves.toBeUndefined();
+  });
 });
 
 describe("setAvatar + getProfile (A4, G2)", () => {
@@ -185,6 +195,54 @@ describe("setAvatar + getProfile (A4, G2)", () => {
     expect((await getProfile(d.deps)).avatar?.fileId).toBe(
       uploaded.original.fileId,
     );
+  });
+
+  it("keeps byte-identical variants parented to their own originals", async () => {
+    const d = makeDeps();
+    // Same flat colour, different source dimensions: the square covers come
+    // out byte-identical, but each set stores its own objects (variant keys
+    // derive from each original's hash) — so each must keep its own rows.
+    const image = (width: number, height: number) =>
+      sharp({
+        create: {
+          width,
+          height,
+          channels: 3,
+          background: { r: 9, g: 9, b: 9 },
+        },
+      })
+        .png()
+        .toBuffer();
+    const stage = async (body: Buffer) => {
+      const { stagingKey } = await presignAvatarUpload(d.deps, {
+        sizeBytes: body.length,
+        contentType: "image/png",
+      });
+      await d.deps.storage.putObject(stagingKey, body, "image/png");
+      return confirmAvatarUpload(d.deps, { stagingKey });
+    };
+    const first = await stage(await image(600, 400));
+    const second = await stage(await image(500, 500));
+
+    const rows = await testDb.db.select().from(files);
+    expect(rows).toHaveLength(6);
+    const childrenOf = (id: string) =>
+      rows.filter((row) => row.parentFileId === id);
+    expect(childrenOf(first.original.fileId)).toHaveLength(2);
+    expect(childrenOf(second.original.fileId)).toHaveLength(2);
+
+    // Replacing the first set must not touch the second's rows or objects.
+    await setAvatar(d.deps, first.original.fileId);
+    await setAvatar(d.deps, second.original.fileId);
+    const remaining = await testDb.db.select().from(files);
+    expect(remaining).toHaveLength(3);
+    expect(
+      remaining.find((row) => row.kind === "avatar-original")?.id,
+    ).toBe(second.original.fileId);
+    expect(d.objects.has(second.original.key)).toBe(true);
+    expect(
+      d.objects.has(`${PREFIX}a/${second.original.sha256}-512.webp`),
+    ).toBe(true);
   });
 
   it("a fresh account has an empty profile view", async () => {

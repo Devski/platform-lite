@@ -40,6 +40,10 @@ export function AvatarSection({ currentUrl }: { currentUrl: string | null }) {
   async function handleFile(file: File) {
     setError(null);
     setDone(false);
+    // Reset up front, not only in finally: a client-side rejection below
+    // returns early, and re-selecting the same file would otherwise fire no
+    // change event and give no feedback.
+    if (inputRef.current) inputRef.current.value = "";
     if (!(AVATAR_CONTENT_TYPES as readonly string[]).includes(file.type)) {
       setError(t("errors.file_type"));
       return;

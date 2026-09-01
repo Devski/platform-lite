@@ -83,45 +83,55 @@ export async function setAvatar(
   fileId: string,
 ): Promise<void> {
   const { db, userId } = deps;
-  // Only the caller's own avatar-original row can become their avatar.
-  const [candidate] = await db
-    .select({ id: files.id })
-    .from(files)
-    .where(
-      and(
-        eq(files.id, fileId),
-        eq(files.userId, userId),
-        eq(files.kind, "avatar-original"),
-      ),
-    );
-  if (!candidate) throw new ProfileError("invalid_avatar");
+  // The check-read-swap runs in one transaction serialized per user (FOR
+  // UPDATE on the users row, which always exists): without it, two
+  // overlapping calls both read the same previous pointer and the losing
+  // call's set is never cleaned — permanently quota-charged (#14 review,
+  // reproduced). Storage deletes stay OUTSIDE the transaction.
+  const previousId = await db.transaction(async (tx) => {
+    await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, userId))
+      .for("update");
 
-  const [profile] = await db
-    .select({ avatarFileId: profiles.avatarFileId })
-    .from(profiles)
-    .where(eq(profiles.userId, userId));
-  const previousId = profile?.avatarFileId ?? null;
-  if (previousId === fileId) return;
+    // Only the caller's own avatar-original row can become their avatar.
+    const [candidate] = await tx
+      .select({ id: files.id })
+      .from(files)
+      .where(
+        and(
+          eq(files.id, fileId),
+          eq(files.userId, userId),
+          eq(files.kind, "avatar-original"),
+        ),
+      );
+    if (!candidate) throw new ProfileError("invalid_avatar");
 
-  if (profile) {
-    await db
-      .update(profiles)
-      .set({ avatarFileId: fileId })
+    const [profile] = await tx
+      .select({ avatarFileId: profiles.avatarFileId })
+      .from(profiles)
       .where(eq(profiles.userId, userId));
-  } else {
-    // First profile write via the avatar: the display identity defaults to
-    // users.name (seeded from the e-mail local part at sign-up, #7) until
-    // the user sets a real display name.
-    const [user] = await db
+    const previous = profile?.avatarFileId ?? null;
+    if (previous === fileId) return null;
+
+    // Upsert, not insert: the first profile write can race a concurrent
+    // updateDisplayName upsert, which does not take the user lock. The
+    // display identity defaults to users.name (seeded from the e-mail local
+    // part at sign-up, #7) until the user sets a real display name.
+    const [user] = await tx
       .select({ name: users.name })
       .from(users)
       .where(eq(users.id, userId));
-    await db.insert(profiles).values({
-      userId,
-      displayName: user.name,
-      avatarFileId: fileId,
-    });
-  }
+    await tx
+      .insert(profiles)
+      .values({ userId, displayName: user.name, avatarFileId: fileId })
+      .onConflictDoUpdate({
+        target: profiles.userId,
+        set: { avatarFileId: fileId },
+      });
+    return previous;
+  });
 
   if (previousId) await removeAvatarSet(deps, previousId);
 }
@@ -131,6 +141,10 @@ export async function setAvatar(
 // deletes are best-effort: a failed delete is logged and the rows still go
 // (an orphaned `a/` object joins the reconciliation-sweep residue family);
 // the reverse order would strand rows that keep charging the quota forever.
+// Accepted residual (#14 audit): a confirm of byte-identical content that is
+// mid-flight for ANOTHER user (objects put, rows not yet inserted) is
+// invisible to the shared check — its avatar 404s until re-uploaded, which
+// fully heals. Needs the victim's exact file plus a sub-second window.
 async function removeAvatarSet(
   deps: ProfileDeps,
   originalFileId: string,
