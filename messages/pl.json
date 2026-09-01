@@ -211,6 +211,38 @@
       }
     }
   },
+  "TwoFactor": {
+    "title": "Weryfikacja dwuskładnikowa",
+    "heading": "Potwierdź logowanie",
+    "methods": {
+      "totp": "Aplikacja",
+      "otp": "Kod e-mail",
+      "backup": "Kod zapasowy"
+    },
+    "intro": {
+      "totp": "Wpisz kod z aplikacji uwierzytelniającej.",
+      "otp": "Wyślemy 6-cyfrowy kod na adres e-mail Twojego konta.",
+      "backup": "Wpisz jeden ze swoich kodów zapasowych."
+    },
+    "otp": {
+      "send": "Wyślij kod na e-mail",
+      "resend": "Wyślij kod ponownie",
+      "sending": "Wysyłanie…",
+      "sent": "Kod wysłany — sprawdź skrzynkę."
+    },
+    "codeLabel": "Kod",
+    "backupLabel": "Kod zapasowy",
+    "submit": "Potwierdź",
+    "submitting": "Sprawdzanie…",
+    "errors": {
+      "codeRequired": "Wpisz kod.",
+      "invalidCode": "Nieprawidłowy kod. Spróbuj ponownie.",
+      "locked": "Zbyt wiele prób. Konto jest chwilowo zablokowane — spróbuj później.",
+      "rateLimited": "Zbyt wiele żądań. Odczekaj chwilę i spróbuj ponownie.",
+      "generic": "Weryfikacja nie powiodła się. Spróbuj ponownie."
+    },
+    "backToLogin": "Wróć do logowania"
+  },
   "LanguageSwitcher": {
     "label": "Wybór języka",
     "pl": "Polski",

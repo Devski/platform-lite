@@ -211,6 +211,38 @@
       }
     }
   },
+  "TwoFactor": {
+    "title": "Two-factor verification",
+    "heading": "Confirm your login",
+    "methods": {
+      "totp": "App",
+      "otp": "E-mail code",
+      "backup": "Backup code"
+    },
+    "intro": {
+      "totp": "Enter the code from your authenticator app.",
+      "otp": "We will send a 6-digit code to your account's e-mail address.",
+      "backup": "Enter one of your backup codes."
+    },
+    "otp": {
+      "send": "Send a code to my e-mail",
+      "resend": "Send the code again",
+      "sending": "Sending…",
+      "sent": "Code sent — check your inbox."
+    },
+    "codeLabel": "Code",
+    "backupLabel": "Backup code",
+    "submit": "Confirm",
+    "submitting": "Checking…",
+    "errors": {
+      "codeRequired": "Enter the code.",
+      "invalidCode": "Invalid code. Try again.",
+      "locked": "Too many attempts. The account is temporarily locked — try again later.",
+      "rateLimited": "Too many requests. Wait a moment and try again.",
+      "generic": "Verification failed. Try again."
+    },
+    "backToLogin": "Back to login"
+  },
   "LanguageSwitcher": {
     "label": "Language selection",
     "pl": "Polski",

@@ -42,11 +42,28 @@ export function LoginForm() {
 
     setSubmitting(true);
     try {
-      const { error } = await authClient.signIn.email({
+      const { data, error } = await authClient.signIn.email({
         email: parsedEmail.data,
         password,
       });
       if (!error) {
+        // #29: a 2FA-enabled account gets no session yet — the server asks for
+        // the second factor. The redirect fields ride the sign-in payload but
+        // aren't in the client's inferred success type, so narrow explicitly.
+        const challenge = data as {
+          twoFactorRedirect?: boolean;
+          twoFactorMethods?: string[];
+        } | null;
+        if (challenge?.twoFactorRedirect) {
+          // Carry the offered methods in the URL so the challenge page renders
+          // them server-side (which factors the user actually has). Not
+          // sensitive, and the server enforces what it accepts regardless.
+          const methods = Array.isArray(challenge.twoFactorMethods)
+            ? challenge.twoFactorMethods.join(",")
+            : "";
+          router.push(`/two-factor?methods=${encodeURIComponent(methods)}`);
+          return;
+        }
         router.push("/");
         return;
       }
