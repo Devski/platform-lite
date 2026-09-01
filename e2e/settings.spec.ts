@@ -18,6 +18,26 @@ test.describe("Polish browser", () => {
     ).toBeVisible();
   });
 
+  test("/settings/profile without a session lands on the login page", async ({
+    page,
+  }) => {
+    await page.goto("/settings/profile");
+    await expect(page).toHaveURL(/\/login$/);
+  });
+
+  test("the profile API routes refuse an unauthenticated caller with 401", async ({
+    request,
+  }) => {
+    const name = await request.post("/api/profile", {
+      data: { displayName: "Studio" },
+    });
+    expect(name.status()).toBe(401);
+    const avatar = await request.post("/api/profile/avatar", {
+      data: { fileId: "00000000-0000-4000-8000-000000000000" },
+    });
+    expect(avatar.status()).toBe(401);
+  });
+
   test("/email-changed separates the approval landing from the completed change", async ({
     page,
   }) => {

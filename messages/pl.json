@@ -112,6 +112,7 @@
           "generic": "Wysyłka nie powiodła się. Spróbuj ponownie."
         }
       },
+      "profileLink": "Profil publiczny: nazwa i zdjęcie",
       "twoFactor": {
         "heading": "Weryfikacja dwuskładnikowa",
         "status": {
@@ -150,6 +151,44 @@
           "invalidCode": "Nieprawidłowy kod. Spróbuj ponownie.",
           "rateLimited": "Zbyt wiele prób. Odczekaj chwilę i spróbuj ponownie.",
           "generic": "Operacja nie powiodła się. Spróbuj ponownie."
+        }
+      }
+    },
+    "profile": {
+      "title": "Profil",
+      "heading": "Twój profil",
+      "accountLink": "Ustawienia konta: hasło, e-mail, weryfikacja",
+      "name": {
+        "heading": "Nazwa wyświetlana",
+        "label": "Nazwa (studia albo Twoja)",
+        "save": "Zapisz nazwę",
+        "saving": "Zapisywanie…",
+        "saved": "Nazwa zapisana.",
+        "errors": {
+          "invalid": "Nazwa musi mieć od 1 do {max} znaków.",
+          "rateLimited": "Zbyt wiele zapisów. Odczekaj chwilę i spróbuj ponownie.",
+          "generic": "Zapis nie powiódł się. Spróbuj ponownie."
+        }
+      },
+      "avatar": {
+        "heading": "Zdjęcie profilowe",
+        "currentAlt": "Twoje obecne zdjęcie profilowe",
+        "empty": "Nie masz jeszcze zdjęcia profilowego.",
+        "chooseLabel": "Wybierz zdjęcie",
+        "hint": "JPEG, PNG lub WebP, do 10 MB. Przytniemy je do kwadratu.",
+        "uploading": "Wysyłanie i przetwarzanie…",
+        "done": "Zdjęcie ustawione.",
+        "errors": {
+          "file_type": "Ten format nie jest obsługiwany — wybierz JPEG, PNG lub WebP.",
+          "file_size": "Plik musi mieć od 1 bajta do 10 MB.",
+          "upload_failed": "Wysyłka pliku nie powiodła się. Spróbuj ponownie.",
+          "quota_exceeded": "Brak miejsca: to zdjęcie przekroczyłoby Twój limit 1 GB.",
+          "too_large": "Zdjęcie jest za duże (limit 10 MB i 64 megapiksele).",
+          "not_an_image": "Ten plik nie wygląda na poprawny obraz.",
+          "unsupported_format": "Ten format nie jest obsługiwany — wybierz JPEG, PNG lub WebP.",
+          "invalid_avatar": "Nie udało się ustawić tego zdjęcia. Wgraj je ponownie.",
+          "rate_limited": "Zbyt wiele prób. Odczekaj chwilę i spróbuj ponownie.",
+          "generic": "Coś poszło nie tak. Spróbuj ponownie."
         }
       }
     }

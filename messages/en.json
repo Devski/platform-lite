@@ -112,6 +112,7 @@
           "generic": "Sending failed. Try again."
         }
       },
+      "profileLink": "Public profile: name and photo",
       "twoFactor": {
         "heading": "Two-factor authentication",
         "status": {
@@ -150,6 +151,44 @@
           "invalidCode": "Invalid code. Try again.",
           "rateLimited": "Too many attempts. Wait a moment and try again.",
           "generic": "The operation failed. Try again."
+        }
+      }
+    },
+    "profile": {
+      "title": "Profile",
+      "heading": "Your profile",
+      "accountLink": "Account settings: password, e-mail, verification",
+      "name": {
+        "heading": "Display name",
+        "label": "Name (your studio's or your own)",
+        "save": "Save the name",
+        "saving": "Saving…",
+        "saved": "Name saved.",
+        "errors": {
+          "invalid": "The name needs 1 to {max} characters.",
+          "rateLimited": "Too many saves. Wait a moment and try again.",
+          "generic": "Saving failed. Try again."
+        }
+      },
+      "avatar": {
+        "heading": "Profile photo",
+        "currentAlt": "Your current profile photo",
+        "empty": "You have no profile photo yet.",
+        "chooseLabel": "Choose a photo",
+        "hint": "JPEG, PNG or WebP, up to 10 MB. We crop it to a square.",
+        "uploading": "Uploading and processing…",
+        "done": "Photo set.",
+        "errors": {
+          "file_type": "That format is not supported — choose JPEG, PNG or WebP.",
+          "file_size": "The file needs to be between 1 byte and 10 MB.",
+          "upload_failed": "The file upload failed. Try again.",
+          "quota_exceeded": "No space left: this photo would exceed your 1 GB limit.",
+          "too_large": "The photo is too large (10 MB and 64 megapixels are the limits).",
+          "not_an_image": "This file does not look like a valid image.",
+          "unsupported_format": "That format is not supported — choose JPEG, PNG or WebP.",
+          "invalid_avatar": "Setting this photo failed. Upload it again.",
+          "rate_limited": "Too many attempts. Wait a moment and try again.",
+          "generic": "Something went wrong. Try again."
         }
       }
     }

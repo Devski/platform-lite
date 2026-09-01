@@ -1,7 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import sharp from "sharp";
-import { z } from "zod";
 import type { Database } from "@/db/client";
 import { files } from "@/db/schema";
 import { quotaAllows } from "@/lib/quota";
@@ -15,23 +14,20 @@ import { contentKey, ObjectNotFoundError, type FileStorage } from "@/lib/storage
 // byte count and type but never the byte VALUES, and stays reusable until it
 // expires, nothing is published on the strength of the upload alone.
 
-// A4: JPEG/PNG/WebP up to 10 MB.
-export const AVATAR_MAX_BYTES = 10 * 1024 * 1024;
+// A4 constants and the shared presign schema live in the client-safe module
+// (the settings form uses them without pulling sharp in); re-exported here
+// for the server-side callers.
+export {
+  AVATAR_CONTENT_TYPES,
+  AVATAR_MAX_BYTES,
+  presignAvatarSchema,
+} from "@/lib/avatar-shared";
+import { AVATAR_MAX_BYTES, presignAvatarSchema } from "@/lib/avatar-shared";
 
 // Decode ceiling on top of the byte cap: a mostly-flat 250-megapixel PNG fits
 // in 10 MB yet decodes to gigabytes. 64 MP comfortably covers every real
 // camera photo. (sharp's own ~268 MP limit stays on as the outer bomb guard.)
 export const AVATAR_MAX_PIXELS = 64_000_000;
-export const AVATAR_CONTENT_TYPES = [
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-] as const;
-
-export const presignAvatarSchema = z.object({
-  sizeBytes: z.number().int().min(1).max(AVATAR_MAX_BYTES),
-  contentType: z.enum(AVATAR_CONTENT_TYPES),
-});
 
 // A browser PUT needs seconds; a short window shrinks the replay surface of
 // the multi-use presigned URL (issue note from the #11 audit).

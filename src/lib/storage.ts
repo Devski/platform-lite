@@ -49,8 +49,11 @@ export interface FileStorage {
   publicUrl(key: string): string;
 }
 
-// G2: content-addressed name → served forever-cacheable.
-export const IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable";
+// G2: content-addressed name → served forever-cacheable. Defined in the
+// client-safe module (uploaders must send it); re-exported here for the
+// server-side callers.
+export { IMMUTABLE_CACHE_CONTROL } from "@/lib/storage-shared";
+import { IMMUTABLE_CACHE_CONTROL } from "@/lib/storage-shared";
 
 export function contentKey(hash: string, ext: string, prefix = ""): string {
   // G2: the name IS the content hash, so a changed file is a new URL and the

@@ -2,10 +2,12 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { Link, redirect } from "@/i18n/navigation";
+import { getDb } from "@/db/client";
 import { getAuth } from "@/lib/auth";
-import { ChangeEmailForm } from "./change-email-form";
-import { ChangePasswordForm } from "./change-password-form";
-import { TwoFactorSettings } from "./two-factor-settings";
+import { getProfile } from "@/lib/profile";
+import { getStorage, keyPrefix } from "@/lib/storage";
+import { AvatarSection } from "./avatar-section";
+import { DisplayNameForm } from "./display-name-form";
 
 export async function generateMetadata({
   params,
@@ -13,27 +15,30 @@ export async function generateMetadata({
   params: Promise<{ locale: string }>;
 }): Promise<Metadata> {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "Settings.account" });
+  const t = await getTranslations({ locale, namespace: "Settings.profile" });
   return { title: t("title") };
 }
 
-export default async function AccountSettingsPage({
+export default async function ProfileSettingsPage({
   params,
 }: {
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await params;
   setRequestLocale(locale);
-  // The (app) layout already gated the render; this re-fetch supplies the
-  // page's own data (the account address) and covers the layout-less edge in
-  // tests of this file, so the guard repeats.
   const session = await getAuth().api.getSession({ headers: await headers() });
   if (!session) {
     // redirect() throws; the return only narrows the type below.
     redirect({ href: "/login", locale });
     return null;
   }
-  const t = await getTranslations("Settings.account");
+  const t = await getTranslations("Settings.profile");
+  const profile = await getProfile({
+    db: getDb(),
+    storage: getStorage(),
+    prefix: keyPrefix(),
+    userId: session.user.id,
+  });
 
   return (
     <main className="flex min-h-screen justify-center bg-gray-50 px-4 py-12">
@@ -42,38 +47,28 @@ export default async function AccountSettingsPage({
           <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
             {t("heading")}
           </h1>
-          <p className="mt-2 text-sm text-gray-600">
-            {t("currentEmail", { email: session.user.email })}
-          </p>
           <p className="mt-2 text-sm">
             <Link
-              href="/settings/profile"
+              href="/settings/account"
               className="font-semibold text-blue-700 hover:underline"
             >
-              {t("profileLink")}
+              {t("accountLink")}
             </Link>
           </p>
         </div>
 
         <section className="rounded-lg border border-gray-200 bg-white p-8">
           <h2 className="text-lg font-semibold text-gray-900">
-            {t("password.heading")}
+            {t("name.heading")}
           </h2>
-          <ChangePasswordForm />
+          <DisplayNameForm initialName={profile.displayName ?? ""} />
         </section>
 
         <section className="rounded-lg border border-gray-200 bg-white p-8">
           <h2 className="text-lg font-semibold text-gray-900">
-            {t("email.heading")}
+            {t("avatar.heading")}
           </h2>
-          <ChangeEmailForm currentEmail={session.user.email} />
-        </section>
-
-        <section className="rounded-lg border border-gray-200 bg-white p-8">
-          <h2 className="text-lg font-semibold text-gray-900">
-            {t("twoFactor.heading")}
-          </h2>
-          <TwoFactorSettings enabled={session.user.twoFactorEnabled === true} />
+          <AvatarSection currentUrl={profile.avatar?.url512 ?? null} />
         </section>
       </div>
     </main>
