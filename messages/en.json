@@ -135,7 +135,9 @@
           "backupNote": "Save these somewhere safe — they let you log in when you can't reach the app. Each one works once.",
           "confirmLabel": "Enter a code from the app to finish",
           "activate": "Activate",
-          "activating": "Activating…"
+          "activating": "Activating…",
+          "activatedHeading": "Authenticator on. Save your backup codes before you continue.",
+          "done": "Done"
         },
         "disable": {
           "button": "Turn off two-factor authentication",

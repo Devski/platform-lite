@@ -38,6 +38,10 @@ export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
   const [appCode, setAppCode] = useState("");
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
+  // After the confirming code succeeds we keep the backup codes on screen until
+  // the user acknowledges — refreshing straight to the "on" view would wipe
+  // the only copy of the recovery codes before they are saved.
+  const [activated, setActivated] = useState(false);
 
   // Disable
   const [offPassword, setOffPassword] = useState("");
@@ -117,7 +121,8 @@ export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
         );
         return;
       }
-      router.refresh();
+      // Do NOT refresh yet — show the codes until the user clicks Done.
+      setActivated(true);
     } catch {
       setConfirmError(t("errors.generic"));
     } finally {
@@ -182,6 +187,34 @@ export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
             {offBusy ? t("disable.disabling") : t("disable.button")}
           </button>
         </form>
+      </div>
+    );
+  }
+
+  // The authenticator is now active, but we hold on the backup codes so the
+  // user can save them before the status view (which no longer shows them).
+  if (activated && setup) {
+    return (
+      <div className="mt-4 flex flex-col gap-4">
+        <p className="text-sm text-green-700">{t("app.activatedHeading")}</p>
+        <div className="flex flex-col gap-1">
+          <p className="text-sm font-medium text-gray-900">
+            {t("app.backupTitle")}
+          </p>
+          <p className="text-sm text-gray-600">{t("app.backupNote")}</p>
+          <ul className="grid grid-cols-2 gap-1 rounded-md bg-gray-100 px-3 py-2 font-mono text-sm text-gray-900">
+            {setup.backupCodes.map((backupCode) => (
+              <li key={backupCode}>{backupCode}</li>
+            ))}
+          </ul>
+        </div>
+        <button
+          type="button"
+          onClick={() => router.refresh()}
+          className={primaryButton}
+        >
+          {t("app.done")}
+        </button>
       </div>
     );
   }

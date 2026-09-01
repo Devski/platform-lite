@@ -135,7 +135,9 @@
           "backupNote": "Zapisz je w bezpiecznym miejscu — pozwolą się zalogować, gdy nie masz dostępu do aplikacji. Każdy działa raz.",
           "confirmLabel": "Wpisz kod z aplikacji, aby zakończyć",
           "activate": "Aktywuj",
-          "activating": "Aktywowanie…"
+          "activating": "Aktywowanie…",
+          "activatedHeading": "Aplikacja włączona. Zapisz kody zapasowe, zanim przejdziesz dalej.",
+          "done": "Gotowe"
         },
         "disable": {
           "button": "Wyłącz weryfikację dwuskładnikową",
