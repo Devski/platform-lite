@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { checkRateLimit, parseJsonBody, sessionUserId } from "@/lib/api-route";
-import { presignAvatarSchema, presignAvatarUpload } from "@/lib/avatar";
+import { AvatarUploadError, presignAvatarSchema, presignAvatarUpload } from "@/lib/avatar";
+import { getDb } from "@/db/client";
 import { getStorage, keyPrefix } from "@/lib/storage";
 
 // Step one of the #12 avatar flow: authenticate, validate the A4 edge, hand
@@ -21,9 +22,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid_request" }, { status: 400 });
   }
 
-  const result = await presignAvatarUpload(
-    { storage: getStorage(), prefix: keyPrefix(), userId },
-    input,
-  );
-  return NextResponse.json(result);
+  try {
+    const result = await presignAvatarUpload(
+      { storage: getStorage(), db: getDb(), prefix: keyPrefix(), userId },
+      input,
+    );
+    return NextResponse.json(result);
+  } catch (error) {
+    if (error instanceof AvatarUploadError) {
+      return NextResponse.json({ error: error.code }, { status: 400 });
+    }
+    throw error;
+  }
 }

@@ -17,6 +17,7 @@ import {
   confirmAvatarUpload,
   presignAvatarUpload,
 } from "./avatar";
+import { QUOTA_BYTES } from "./quota";
 import { createMemoryStorage } from "./storage";
 
 // Unit + integration suite for the #12 avatar pipeline, on the G1 memory fake
@@ -355,6 +356,44 @@ describe("confirmAvatarUpload (A4, G2, G5)", () => {
     await expect(
       confirmAvatarUpload(d.common, { stagingKey }),
     ).rejects.toMatchObject({ code: "too_large" });
+  });
+
+  it("refuses to presign past the quota (A9, checked before any URL is minted)", async () => {
+    const d = deps();
+    await testDb.db.insert(files).values({
+      userId,
+      sha256: "presign-quota-seed",
+      sizeBytes: QUOTA_BYTES - 50,
+      kind: "avatar-original",
+    });
+    await expect(
+      presignAvatarUpload(d.common, { sizeBytes: 51, contentType: "image/png" }),
+    ).rejects.toMatchObject({ code: "quota_exceeded" });
+    // Right at the limit still passes.
+    await expect(
+      presignAvatarUpload(d.common, { sizeBytes: 50, contentType: "image/png" }),
+    ).resolves.toBeTruthy();
+  });
+
+  it("re-checks the quota at confirm against the REAL published bytes", async () => {
+    const d = deps();
+    const original = await makeImage("png", 300, 300);
+    const stagingKey = await staged(d, original);
+    // Another upload landed between presign and confirm and ate the room.
+    await testDb.db.insert(files).values({
+      userId,
+      sha256: "confirm-quota-seed",
+      sizeBytes: QUOTA_BYTES - 10,
+      kind: "avatar-original",
+    });
+    await expect(
+      confirmAvatarUpload(d.common, { stagingKey }),
+    ).rejects.toMatchObject({ code: "quota_exceeded" });
+    // Nothing was published or recorded beyond the seed row.
+    expect(
+      [...d.objects.keys()].filter((key) => key.includes("/a/")),
+    ).toHaveLength(0);
+    expect(await testDb.db.select().from(files)).toHaveLength(1);
   });
 
   it("replayed confirms re-record nothing (A9 quota integrity)", async () => {

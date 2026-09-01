@@ -4,6 +4,7 @@ import sharp from "sharp";
 import { z } from "zod";
 import type { Database } from "@/db/client";
 import { files } from "@/db/schema";
+import { quotaAllows } from "@/lib/quota";
 import { contentKey, ObjectNotFoundError, type FileStorage } from "@/lib/storage";
 
 // The #12 avatar pipeline, following the staging contract recorded on the
@@ -56,7 +57,8 @@ export type AvatarErrorCode =
   | "not_found"
   | "not_an_image"
   | "unsupported_format"
-  | "too_large";
+  | "too_large"
+  | "quota_exceeded";
 
 // Stable codes for the route layer; the UI (#14) maps them to pl/en copy.
 export class AvatarUploadError extends Error {
@@ -79,10 +81,15 @@ function sha256(buffer: Buffer): string {
 }
 
 export async function presignAvatarUpload(
-  deps: Pick<AvatarDeps, "storage" | "prefix" | "userId">,
+  deps: AvatarDeps,
   input: { sizeBytes: number; contentType: string },
 ): Promise<{ stagingKey: string; uploadUrl: string }> {
   const parsed = presignAvatarSchema.parse(input);
+  // A9, checked before any URL is minted (the #12 obligation): the signature
+  // pins declared == uploaded bytes, so the declared size is trustworthy.
+  if (!(await quotaAllows(deps.db, deps.userId, parsed.sizeBytes))) {
+    throw new AvatarUploadError("quota_exceeded");
+  }
   // Random and user-bound: confirm accepts only keys from this namespace, so
   // one user can never confirm (or guess) another user's staged upload.
   const stagingKey = `${deps.prefix}staging/${deps.userId}/${randomBytes(16).toString("hex")}`;
@@ -184,6 +191,18 @@ export async function confirmAvatarUpload(
     body: variantBodies[index],
     key: contentKey(`${originalHash}-${px}`, "webp", prefix),
   }));
+
+  // A9 belt at confirm, against the REAL bytes about to be stored — parallel
+  // uploads may have eaten the room since presign. Checked before any
+  // putObject so a rejection publishes and records nothing. Edge accepted: a
+  // REPLAYED confirm near the cap can reject here even though its rows
+  // already exist (nothing new would be stored) — harmless and rare.
+  const publishedBytes =
+    scrubbed.length +
+    variants.reduce((total, variant) => total + variant.body.length, 0);
+  if (!(await quotaAllows(db, userId, publishedBytes))) {
+    throw new AvatarUploadError("quota_exceeded");
+  }
 
   await storage.putObject(originalKey, scrubbed, known.contentType);
   for (const variant of variants) {
