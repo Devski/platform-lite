@@ -4,6 +4,7 @@ import {
   boolean,
   check,
   index,
+  integer,
   pgEnum,
   pgTable,
   text,
@@ -63,6 +64,9 @@ export const users = pgTable(
     email: text("email").notNull().unique(),
     emailVerified: boolean("email_verified").notNull().default(false),
     image: text("image"),
+    // #29: flipped on by the Better Auth two-factor plugin when a user enrolls
+    // in a second factor (e-mail OTP or an authenticator app).
+    twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
     ...authTimestamps(),
   },
   (table) => [uniqueIndex("users_email_lower_unique").on(lower(table.email))],
@@ -127,6 +131,35 @@ export const verifications = pgTable(
     ...authTimestamps(),
   },
   (table) => [index("verifications_identifier_idx").on(table.identifier)],
+);
+
+// #29: the Better Auth two-factor plugin's per-user 2FA record. Exported
+// `twoFactors` (plural) so the drizzle adapter resolves the plugin model
+// `twoFactor` under usePlural, same as users/sessions/... The plugin encrypts
+// `secret` and `backupCodes` at rest itself (symmetricEncrypt with AUTH_SECRET),
+// so no plaintext seed is ever stored; the columns are opaque ciphertext to us.
+export const twoFactors = pgTable(
+  "two_factors",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    secret: text("secret").notNull(),
+    backupCodes: text("backup_codes").notNull(),
+    // false only between TOTP enrollment and the confirming code; e-mail-OTP
+    // enrollment and the default both leave it true.
+    verified: boolean("verified").notNull().default(true),
+    // Challenge-failure counter and lock window (plugin default 10 fails →
+    // 15 min lock), so a stolen password cannot brute-force the 6-digit code.
+    failedVerificationCount: integer("failed_verification_count")
+      .notNull()
+      .default(0),
+    lockedUntil: timestamp("locked_until", { withTimezone: true }),
+  },
+  // One 2FA record per user (the plugin upserts by user_id) — the unique index
+  // enforces that and serves the by-user lookup on every challenge.
+  (table) => [uniqueIndex("two_factors_user_id_unique").on(table.userId)],
 );
 
 // SPEC.md §9: a handle is an attribute, not an identifier — despite uniqueness

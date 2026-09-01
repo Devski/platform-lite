@@ -18,16 +18,37 @@ function tableByName(name: string) {
 }
 
 describe("schema tables (SPEC §9)", () => {
-  it("defines exactly the §9 tables plus Better Auth's accounts", () => {
+  it("defines exactly the §9 tables plus Better Auth's accounts and two_factors", () => {
     expect(pgTables.map((t) => t.name).sort()).toEqual([
       "accounts",
       "files",
       "handle_redirects",
       "profiles",
       "sessions",
+      "two_factors",
       "users",
       "verifications",
     ]);
+  });
+
+  it("two_factors carries the plugin fields and points at users.id, one row per user (#29)", () => {
+    const twoFactors = tableByName("two_factors");
+    expect(twoFactors.columns.map((c) => c.name).sort()).toEqual(
+      [
+        "backup_codes",
+        "failed_verification_count",
+        "id",
+        "locked_until",
+        "secret",
+        "user_id",
+        "verified",
+      ].sort(),
+    );
+    const targets = twoFactors.foreignKeys.map((k) => k.reference());
+    expect(targets.map((r) => getTableConfig(r.foreignTable).name)).toEqual([
+      "users",
+    ]);
+    expect(targets[0].foreignColumns.map((c) => c.name)).toEqual(["id"]);
   });
 
   it("profiles carries exactly the §9 columns, keyed by user_id pointing at users.id", () => {
@@ -139,9 +160,16 @@ describe("generated migration SQL (G6 — migrations are the source of truth)", 
       'CREATE INDEX "profiles_avatar_file_id_idx" ON "profiles" USING btree ("avatar_file_id")',
       'CREATE INDEX "sessions_user_id_idx" ON "sessions" USING btree ("user_id")',
       'CREATE INDEX "verifications_identifier_idx" ON "verifications" USING btree ("identifier")',
+      'CREATE UNIQUE INDEX "two_factors_user_id_unique" ON "two_factors" USING btree ("user_id")',
     ]) {
       expect(sql).toContain(ddl);
     }
+  });
+
+  it("deleting a user cascades away its 2FA record (#29)", () => {
+    expect(sql).toMatch(
+      /"two_factors_user_id_users_id_fk"[^;]*ON DELETE cascade/,
+    );
   });
 
   it("file_kind in SQL matches the three variants exactly", () => {
