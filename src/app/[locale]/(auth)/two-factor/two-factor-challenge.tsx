@@ -51,11 +51,12 @@ export function TwoFactorChallenge({ modes }: { modes: Mode[] }) {
     }
     setSubmitting(true);
     try {
-      const { error: verifyError } = await (mode === "totp"
-        ? authClient.twoFactor.verifyTotp({ code })
-        : mode === "otp"
-          ? authClient.twoFactor.verifyOtp({ code })
-          : authClient.twoFactor.verifyBackupCode({ code }));
+      const verify = {
+        totp: () => authClient.twoFactor.verifyTotp({ code }),
+        otp: () => authClient.twoFactor.verifyOtp({ code }),
+        backup: () => authClient.twoFactor.verifyBackupCode({ code }),
+      };
+      const { error: verifyError } = await verify[mode]();
       if (!verifyError) {
         router.push("/");
         return;

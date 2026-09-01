@@ -139,13 +139,12 @@ async function totpCodeFor(totpURI: string): Promise<string> {
   return result.code;
 }
 
-async function twoFactorRow(email: string) {
+async function userByEmail(email: string) {
   const [user] = await testDb.db
     .select()
     .from(users)
     .where(eq(users.email, email));
-  const [row] = await testDb.db.select().from(twoFactors);
-  return { user, row };
+  return user;
 }
 
 describe("e-mail OTP as the default second factor (#29)", () => {
@@ -159,7 +158,7 @@ describe("e-mail OTP as the default second factor (#29)", () => {
     );
     expect(enable.status).toBe(200);
     expect((await enable.json()).method).toBe("otp");
-    expect((await twoFactorRow("otp@example.com")).user.twoFactorEnabled).toBe(
+    expect((await userByEmail("otp@example.com")).twoFactorEnabled).toBe(
       true,
     );
 
@@ -250,7 +249,7 @@ describe("TOTP as the optional stronger factor (#29)", () => {
     expect(enrollment.totpURI).toContain("otpauth://totp/");
     expect(enrollment.backupCodes.length).toBeGreaterThan(0);
     // Not active until a code confirms the authenticator is set up.
-    expect((await twoFactorRow("totp@example.com")).user.twoFactorEnabled).toBe(
+    expect((await userByEmail("totp@example.com")).twoFactorEnabled).toBe(
       false,
     );
 
@@ -260,7 +259,7 @@ describe("TOTP as the optional stronger factor (#29)", () => {
       cookie,
     );
     expect(confirm.status).toBe(200);
-    expect((await twoFactorRow("totp@example.com")).user.twoFactorEnabled).toBe(
+    expect((await userByEmail("totp@example.com")).twoFactorEnabled).toBe(
       true,
     );
 
@@ -344,7 +343,7 @@ describe("managing and bypassing 2FA (#29)", () => {
       enabledCookie,
     );
     expect(disable.status).toBe(200);
-    const { user } = await twoFactorRow("off@example.com");
+    const user = await userByEmail("off@example.com");
     expect(user.twoFactorEnabled).toBe(false);
     expect(await testDb.db.select().from(twoFactors)).toHaveLength(0);
 
@@ -368,7 +367,7 @@ describe("managing and bypassing 2FA (#29)", () => {
       cookie,
     );
     expect(bad.status).toBe(400);
-    expect((await twoFactorRow("guard@example.com")).user.twoFactorEnabled).toBe(
+    expect((await userByEmail("guard@example.com")).twoFactorEnabled).toBe(
       false,
     );
   }, 30_000);
