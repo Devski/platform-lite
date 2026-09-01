@@ -28,6 +28,29 @@ function emailChangeMarker(userId: string): string {
   return `email-change-pending:${userId}`;
 }
 
+/** One pending change per user — recording a new one supersedes the old. */
+async function recordPendingEmailChange(
+  db: Database,
+  userId: string,
+  newEmail: string,
+): Promise<void> {
+  await clearPendingEmailChange(db, userId);
+  await db.insert(schema.verifications).values({
+    identifier: emailChangeMarker(userId),
+    value: newEmail,
+    expiresAt: new Date(Date.now() + EMAIL_VERIFICATION_EXPIRES_IN * 1000),
+  });
+}
+
+async function clearPendingEmailChange(
+  db: Database,
+  userId: string,
+): Promise<void> {
+  await db
+    .delete(schema.verifications)
+    .where(eq(schema.verifications.identifier, emailChangeMarker(userId)));
+}
+
 // Payload-only decode, no signature check: the gate merely decides whether to
 // consult the marker, and the endpoint behind it verifies the signature — a
 // forged payload can only make the gate reject sooner.
@@ -127,9 +150,7 @@ export function createAuth(options: {
         // #10: the change-notice advises a reset as the recovery action, so a
         // completed reset must kill any pending e-mail change — done first and
         // un-wrapped: skipping it silently would leave the takeover path open.
-        await db
-          .delete(schema.verifications)
-          .where(eq(schema.verifications.identifier, emailChangeMarker(user.id)));
+        await clearPendingEmailChange(db, user.id);
         try {
           await sendEmail({
             to: user.email,
@@ -162,16 +183,7 @@ export function createAuth(options: {
           // /verify-email gate refuses links without a live marker, so a
           // newer request or a password reset invalidates older links.
           const currentEmail = decodeJwtPayload(token)?.email;
-          await db
-            .delete(schema.verifications)
-            .where(eq(schema.verifications.identifier, emailChangeMarker(user.id)));
-          await db.insert(schema.verifications).values({
-            identifier: emailChangeMarker(user.id),
-            value: user.email,
-            expiresAt: new Date(
-              Date.now() + EMAIL_VERIFICATION_EXPIRES_IN * 1000,
-            ),
-          });
+          await recordPendingEmailChange(db, user.id, user.email);
           await sendEmail({
             to: user.email,
             locale,
@@ -207,9 +219,7 @@ export function createAuth(options: {
       async afterEmailVerification(user) {
         // The pending-change marker is consumed with the change itself; a
         // no-op for plain sign-up verifications.
-        await db
-          .delete(schema.verifications)
-          .where(eq(schema.verifications.identifier, emailChangeMarker(user.id)));
+        await clearPendingEmailChange(db, user.id);
       },
     },
     user: {

@@ -281,6 +281,12 @@ describe("change e-mail (A10)", () => {
     return match[0];
   }
 
+  /** The confirmation link of the latest request — second-to-last message,
+   * because the notice to the old address follows it. */
+  function lastChangeConfirmUrl(): string {
+    return confirmUrlFrom(delivered.at(-2)!);
+  }
+
   it("sends the confirmation to the new address and the notice to the old one; nothing changes yet", async () => {
     const cookie = await signedInUser("old@example.com");
     const before = delivered.length;
@@ -317,7 +323,7 @@ describe("change e-mail (A10)", () => {
     await requestChange(cookie, "after@example.com");
 
     const click = await auth.handler(
-      new Request(confirmUrlFrom(delivered.at(-2)!), {
+      new Request(lastChangeConfirmUrl(), {
         headers: { cookie, "x-forwarded-for": testIp },
       }),
     );
@@ -362,7 +368,7 @@ describe("change e-mail (A10)", () => {
   it("a password reset invalidates the pending change (#10 security obligation)", async () => {
     const cookie = await signedInUser("victim@example.com");
     await requestChange(cookie, "attacker@example.com");
-    const confirmUrl = confirmUrlFrom(delivered.at(-2)!);
+    const confirmUrl = lastChangeConfirmUrl();
 
     // The notice advises a password reset — walk it end to end.
     await post("/request-password-reset", {
@@ -391,14 +397,14 @@ describe("change e-mail (A10)", () => {
   it("a newer change request kills the older link", async () => {
     const cookie = await signedInUser("serial@example.com");
     await requestChange(cookie, "first@example.com");
-    const firstUrl = confirmUrlFrom(delivered.at(-2)!);
+    const firstUrl = lastChangeConfirmUrl();
     await requestChange(cookie, "second@example.com");
 
     const stale = await auth.handler(new Request(firstUrl));
     expect(stale.headers.get("location")).toContain("error=INVALID_TOKEN");
 
     const fresh = await auth.handler(
-      new Request(confirmUrlFrom(delivered.at(-2)!)),
+      new Request(lastChangeConfirmUrl()),
     );
     expect(fresh.status).toBe(302);
     expect(fresh.headers.get("location")).not.toContain("error=");
@@ -414,7 +420,7 @@ describe("change e-mail (A10)", () => {
     // Possession of the link is the proof: the click applies the change and
     // opens a session for the account.
     const click = await auth.handler(
-      new Request(confirmUrlFrom(delivered.at(-2)!), {
+      new Request(lastChangeConfirmUrl(), {
         headers: { "x-forwarded-for": testIp },
       }),
     );
