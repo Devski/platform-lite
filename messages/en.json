@@ -252,6 +252,7 @@
   "TwoFactor": {
     "title": "Two-factor verification",
     "heading": "Confirm your login",
+    "methodsLabel": "Choose a verification method",
     "methods": {
       "totp": "App",
       "otp": "E-mail code",

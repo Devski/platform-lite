@@ -252,6 +252,7 @@
   "TwoFactor": {
     "title": "Weryfikacja dwuskładnikowa",
     "heading": "Potwierdź logowanie",
+    "methodsLabel": "Wybierz metodę weryfikacji",
     "methods": {
       "totp": "Aplikacja",
       "otp": "Kod e-mail",

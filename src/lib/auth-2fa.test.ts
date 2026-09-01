@@ -197,7 +197,7 @@ describe("e-mail OTP as the default second factor (#29)", () => {
     expect((await verify.json()).token).toBeTruthy();
   }, 30_000);
 
-  it("rejects a wrong code and counts the failure, issuing no session", async () => {
+  it("rejects a wrong code and issues no session", async () => {
     const cookie = await signedIn("wrong@example.com");
     const enable = await post(
       "/two-factor/enable",
@@ -227,6 +227,34 @@ describe("e-mail OTP as the default second factor (#29)", () => {
     // E-mail OTP enrollment is row-less — the flag on users is the whole
     // record; only TOTP stores a secret in two_factors.
     expect(await testDb.db.select().from(twoFactors)).toHaveLength(0);
+  }, 30_000);
+
+  it("caps guesses at 5 per mailed code (the row-less OTP throttle)", async () => {
+    const cookie = await signedIn("cap@example.com");
+    await post("/two-factor/enable", { password: PASSWORD, method: "otp" }, cookie);
+    const login = await post("/sign-in/email", {
+      email: "cap@example.com",
+      password: PASSWORD,
+    });
+    const challengeCookie = cookiesFrom(login);
+    await post("/two-factor/send-otp", {}, challengeCookie);
+
+    // Five wrong guesses are each rejected...
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const wrong = await post(
+        "/two-factor/verify-otp",
+        { code: "000000" },
+        challengeCookie,
+      );
+      expect(wrong.status).toBe(401);
+    }
+    // ...and the sixth is refused outright — the code is spent, request a new one.
+    const sixth = await post(
+      "/two-factor/verify-otp",
+      { code: "000000" },
+      challengeCookie,
+    );
+    expect(sixth.status).toBe(400);
   }, 30_000);
 });
 
@@ -323,6 +351,51 @@ describe("TOTP as the optional stronger factor (#29)", () => {
     // A spent backup code is rejected as UNAUTHORIZED, like any wrong code.
     expect(reuse.status).toBe(401);
   }, 30_000);
+
+  it("locks the account after enough wrong authenticator codes", async () => {
+    const cookie = await signedIn("lock@example.com");
+    const enable = await post(
+      "/two-factor/enable",
+      { password: PASSWORD, method: "totp" },
+      cookie,
+    );
+    const { totpURI } = (await enable.json()) as { totpURI: string };
+    await post(
+      "/two-factor/verify-totp",
+      { code: await totpCodeFor(totpURI) },
+      cookie,
+    );
+
+    // The per-challenge cap is 5, so drive 10 account-level failures across
+    // two challenges to reach the 10-fail lock.
+    for (let challenge = 0; challenge < 2; challenge++) {
+      const login = await post("/sign-in/email", {
+        email: "lock@example.com",
+        password: PASSWORD,
+      });
+      const challengeCookie = cookiesFrom(login);
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const wrong = await post(
+          "/two-factor/verify-totp",
+          { code: "000000" },
+          challengeCookie,
+        );
+        expect(wrong.status).toBe(401);
+      }
+    }
+
+    // A fresh challenge is now refused up front — the account is locked.
+    const login = await post("/sign-in/email", {
+      email: "lock@example.com",
+      password: PASSWORD,
+    });
+    const locked = await post(
+      "/two-factor/verify-totp",
+      { code: "000000" },
+      cookiesFrom(login),
+    );
+    expect(locked.status).toBe(429);
+  }, 60_000);
 });
 
 describe("managing and bypassing 2FA (#29)", () => {

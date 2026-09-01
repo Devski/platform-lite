@@ -34,9 +34,11 @@ test.describe("Polish browser", () => {
       page.getByRole("heading", { level: 1, name: "Potwierdź logowanie" }),
     ).toBeVisible();
     // Both offered methods plus the backup option are shown as tabs.
-    await expect(page.getByRole("tab", { name: "Aplikacja" })).toBeVisible();
-    await expect(page.getByRole("tab", { name: "Kod e-mail" })).toBeVisible();
-    await expect(page.getByRole("tab", { name: "Kod zapasowy" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Aplikacja" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Kod e-mail" })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Kod zapasowy" }),
+    ).toBeVisible();
   });
 
   test("the e-mail path sends a code then verifies it to a session", async ({
@@ -52,7 +54,7 @@ test.describe("Polish browser", () => {
     );
     await page.goto("/two-factor");
 
-    await page.getByRole("tab", { name: "Kod e-mail" }).click();
+    await page.getByRole("button", { name: "Kod e-mail" }).click();
     // The code field is locked until a code has been sent.
     await expect(page.getByLabel("Kod")).toBeDisabled();
     await page.getByRole("button", { name: "Wyślij kod na e-mail" }).click();
@@ -70,7 +72,7 @@ test.describe("Polish browser", () => {
     );
     await page.goto("/two-factor");
 
-    await page.getByRole("tab", { name: "Aplikacja" }).click();
+    await page.getByRole("button", { name: "Aplikacja" }).click();
     await page.getByLabel("Kod").fill("000000");
     await page.getByRole("button", { name: "Potwierdź" }).click();
     await expect(

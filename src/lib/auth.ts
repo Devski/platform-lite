@@ -357,6 +357,14 @@ export function createAuth(options: {
         // built-in 3 per 10 s allows over a thousand an hour).
         "/change-email": { window: 60 * 60, max: 3 },
         "/change-password": { window: 60 * 60, max: 10 },
+        // #29: every login of an e-mail-OTP account sends a code, so cap the
+        // sender the way the other transactional senders are capped — the
+        // plugin default (3 per 10 s ≈ 1000/hour) would let one IP flood the
+        // victim's inbox with login codes once a password leaks. More generous
+        // than the 3/hour senders above because it fires at login on
+        // potentially shared IPs; a true per-user bound needs app state (#22).
+        // Same x-forwarded-for trust contract and IP-rotation caveat as above.
+        "/two-factor/send-otp": { window: 60 * 60, max: 20 },
       },
     },
     // #29: optional two-factor authentication, opt-in per user (decision of
@@ -365,8 +373,14 @@ export function createAuth(options: {
     //     at each login. Big win against leaked/reused passwords, zero setup.
     //   - TOTP (authenticator app) + backup codes: the stronger option that
     //     also survives a compromised mailbox.
-    // The plugin encrypts the TOTP secret and backup codes at rest and locks
-    // the account after 10 failed challenges for 15 minutes (defaults kept).
+    // The plugin encrypts the TOTP secret and backup codes at rest (defaults
+    // kept). Guessing limits differ by method: TOTP and backup codes get the
+    // per-account lockout (10 failed challenges → 15 min) AND a 5-per-challenge
+    // cap, because they have a two_factors row to track. E-mail OTP enrols
+    // row-less (just the flag), so it relies instead on a 5-guesses-per-code
+    // cap, the code's ~3 min TTL, and the /two-factor/send-otp rate limit above
+    // — the account lockout does NOT apply to it. Do not loosen those without
+    // adding a per-account cap for OTP.
     plugins: [
       twoFactor({
         otpOptions: {

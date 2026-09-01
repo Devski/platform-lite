@@ -151,7 +151,9 @@ export const twoFactors = pgTable(
     // enrollment and the default both leave it true.
     verified: boolean("verified").notNull().default(true),
     // Challenge-failure counter and lock window (plugin default 10 fails →
-    // 15 min lock), so a stolen password cannot brute-force the 6-digit code.
+    // 15 min lock) for the TOTP and backup-code factors, which have a row to
+    // track. E-mail OTP enrolls row-less, so it is capped per-code instead —
+    // never by these columns (see the note in src/lib/auth.ts).
     failedVerificationCount: integer("failed_verification_count")
       .notNull()
       .default(0),

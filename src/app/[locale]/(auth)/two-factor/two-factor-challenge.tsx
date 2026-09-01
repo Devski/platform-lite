@@ -76,13 +76,12 @@ export function TwoFactorChallenge({ modes }: { modes: Mode[] }) {
   return (
     <div className="mt-6 flex flex-col gap-4">
       {modes.length > 1 && (
-        <div className="flex flex-wrap gap-2" role="tablist">
+        <div className="flex flex-wrap gap-2" role="group" aria-label={t("methodsLabel")}>
           {modes.map((option) => (
             <button
               key={option}
               type="button"
-              role="tab"
-              aria-selected={mode === option}
+              aria-pressed={mode === option}
               onClick={() => switchMode(option)}
               className={
                 mode === option
