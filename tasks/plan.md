@@ -39,6 +39,8 @@ Requirements come from [SPEC.md](../SPEC.md). Plan created on 30.08.2026, approv
 9. [#9](https://github.com/3dbdg/platform-lite/issues/9) Password reset
 10. [#10](https://github.com/3dbdg/platform-lite/issues/10) Account settings: change password and change e-mail
 
+- [#29](https://github.com/3dbdg/platform-lite/issues/29) Two-factor authentication (TOTP + backup codes) — **post-MVP hardening**, added 01.09.2026; not one of the original A1–A11 criteria. Depends on #8, #10; auth/session schema change (§7 "ask first").
+
 **Checkpoint:** full account lifecycle works on dev without assistance; auth integration tests green.
 
 ### [Phase 2 - Profile and files](https://github.com/3dbdg/platform-lite/milestone/3)
@@ -85,6 +87,10 @@ approval, §7).
 Every criterion A1–A11 and every boundary G1–G10 has its task (A11 — visual, no test
 requirement). §10 risks are covered by #23 (deliverability) and inside #16/#24. §12 open
 questions = #25–#27.
+
+Beyond the SPEC criteria: #29 (two-factor authentication) is a post-MVP hardening addition
+(01.09.2026), not tied to an A-criterion — it addresses the "account safety rests on the
+mailbox" limitation left open when #10 shipped. SPEC.md is not yet updated for it.
 
 ## Plan risks
 
