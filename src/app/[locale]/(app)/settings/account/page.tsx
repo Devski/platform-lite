@@ -5,6 +5,7 @@ import { redirect } from "@/i18n/navigation";
 import { getAuth } from "@/lib/auth";
 import { ChangeEmailForm } from "./change-email-form";
 import { ChangePasswordForm } from "./change-password-form";
+import { TwoFactorSettings } from "./two-factor-settings";
 
 export async function generateMetadata({
   params,
@@ -58,6 +59,13 @@ export default async function AccountSettingsPage({
             {t("email.heading")}
           </h2>
           <ChangeEmailForm currentEmail={session.user.email} />
+        </section>
+
+        <section className="rounded-lg border border-gray-200 bg-white p-8">
+          <h2 className="text-lg font-semibold text-gray-900">
+            {t("twoFactor.heading")}
+          </h2>
+          <TwoFactorSettings enabled={session.user.twoFactorEnabled === true} />
         </section>
       </div>
     </main>

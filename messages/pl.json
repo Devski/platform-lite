@@ -111,6 +111,44 @@
           "rateLimited": "Limit 3 żądań na godzinę został wykorzystany. Spróbuj później.",
           "generic": "Wysyłka nie powiodła się. Spróbuj ponownie."
         }
+      },
+      "twoFactor": {
+        "heading": "Weryfikacja dwuskładnikowa",
+        "status": {
+          "on": "Weryfikacja dwuskładnikowa jest włączona.",
+          "off": "Weryfikacja dwuskładnikowa jest wyłączona. Włącz drugi składnik, aby lepiej chronić konto."
+        },
+        "passwordLabel": "Potwierdź hasłem",
+        "email": {
+          "title": "Kody e-mail",
+          "description": "Przy każdym logowaniu wyślemy 6-cyfrowy kod na adres e-mail konta. Bez instalowania czegokolwiek.",
+          "enable": "Włącz kody e-mail",
+          "enabling": "Włączanie…"
+        },
+        "app": {
+          "title": "Aplikacja uwierzytelniająca",
+          "description": "Silniejsza ochrona — kod z aplikacji (np. Google Authenticator) działa nawet, gdy ktoś przejmie Twoją skrzynkę.",
+          "setup": "Skonfiguruj aplikację",
+          "settingUp": "Przygotowywanie…",
+          "keyLabel": "Wpisz ten klucz w aplikacji uwierzytelniającej:",
+          "backupTitle": "Kody zapasowe",
+          "backupNote": "Zapisz je w bezpiecznym miejscu — pozwolą się zalogować, gdy nie masz dostępu do aplikacji. Każdy działa raz.",
+          "confirmLabel": "Wpisz kod z aplikacji, aby zakończyć",
+          "activate": "Aktywuj",
+          "activating": "Aktywowanie…"
+        },
+        "disable": {
+          "button": "Wyłącz weryfikację dwuskładnikową",
+          "disabling": "Wyłączanie…"
+        },
+        "errors": {
+          "passwordRequired": "Podaj hasło.",
+          "wrongPassword": "Nieprawidłowe hasło.",
+          "codeRequired": "Wpisz kod.",
+          "invalidCode": "Nieprawidłowy kod. Spróbuj ponownie.",
+          "rateLimited": "Zbyt wiele prób. Odczekaj chwilę i spróbuj ponownie.",
+          "generic": "Operacja nie powiodła się. Spróbuj ponownie."
+        }
       }
     }
   },

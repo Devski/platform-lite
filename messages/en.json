@@ -111,6 +111,44 @@
           "rateLimited": "The limit of 3 requests per hour is used up. Try again later.",
           "generic": "Sending failed. Try again."
         }
+      },
+      "twoFactor": {
+        "heading": "Two-factor authentication",
+        "status": {
+          "on": "Two-factor authentication is on.",
+          "off": "Two-factor authentication is off. Turn on a second factor to better protect your account."
+        },
+        "passwordLabel": "Confirm with your password",
+        "email": {
+          "title": "E-mail codes",
+          "description": "At each login we send a 6-digit code to your account's e-mail. Nothing to install.",
+          "enable": "Turn on e-mail codes",
+          "enabling": "Turning on…"
+        },
+        "app": {
+          "title": "Authenticator app",
+          "description": "Stronger protection — a code from an app (such as Google Authenticator) works even if someone takes over your mailbox.",
+          "setup": "Set up the app",
+          "settingUp": "Preparing…",
+          "keyLabel": "Enter this key in your authenticator app:",
+          "backupTitle": "Backup codes",
+          "backupNote": "Save these somewhere safe — they let you log in when you can't reach the app. Each one works once.",
+          "confirmLabel": "Enter a code from the app to finish",
+          "activate": "Activate",
+          "activating": "Activating…"
+        },
+        "disable": {
+          "button": "Turn off two-factor authentication",
+          "disabling": "Turning off…"
+        },
+        "errors": {
+          "passwordRequired": "Enter your password.",
+          "wrongPassword": "Incorrect password.",
+          "codeRequired": "Enter the code.",
+          "invalidCode": "Invalid code. Try again.",
+          "rateLimited": "Too many attempts. Wait a moment and try again.",
+          "generic": "The operation failed. Try again."
+        }
       }
     }
   },
