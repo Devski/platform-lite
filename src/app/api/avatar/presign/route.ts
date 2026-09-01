@@ -1,7 +1,6 @@
-import { headers } from "next/headers";
 import { NextResponse } from "next/server";
+import { parseJsonBody, sessionUserId } from "@/lib/api-route";
 import { presignAvatarSchema, presignAvatarUpload } from "@/lib/avatar";
-import { getAuth } from "@/lib/auth";
 import { getStorage, keyPrefix } from "@/lib/storage";
 
 // Step one of the #12 avatar flow: authenticate, validate the A4 edge, hand
@@ -9,35 +8,19 @@ import { getStorage, keyPrefix } from "@/lib/storage";
 // lib/avatar.ts, tested against the memory fake.
 
 export async function POST(request: Request) {
-  // Fail closed like the (app) layout: an unverifiable session — including
-  // an environment with no database — is a 401, never a 500.
-  let userId: string | null = null;
-  try {
-    const session = await getAuth().api.getSession({
-      headers: await headers(),
-    });
-    userId = session?.user.id ?? null;
-  } catch {
-    userId = null;
-  }
+  const userId = await sessionUserId();
   if (!userId) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "invalid_request" }, { status: 400 });
-  }
-  const parsed = presignAvatarSchema.safeParse(body);
-  if (!parsed.success) {
+  const input = await parseJsonBody(request, presignAvatarSchema);
+  if (!input) {
     return NextResponse.json({ error: "invalid_request" }, { status: 400 });
   }
 
   const result = await presignAvatarUpload(
     { storage: getStorage(), prefix: keyPrefix(), userId },
-    parsed.data,
+    input,
   );
   return NextResponse.json(result);
 }

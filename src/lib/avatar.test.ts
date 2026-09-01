@@ -256,30 +256,20 @@ describe("confirmAvatarUpload (A4, G2, G5)", () => {
 
   it("still succeeds when the staging cleanup fails (best-effort delete)", async () => {
     const memory = createMemoryStorage();
-    const failingDelete = {
-      ...memory.storage,
-      deleteObject: async () => {
-        throw new Error("transient S3 hiccup");
+    const d = deps({
+      objects: memory.objects,
+      storage: {
+        ...memory.storage,
+        deleteObject: async () => {
+          throw new Error("transient S3 hiccup");
+        },
       },
-    };
-    const d = deps();
-    d.common.storage = failingDelete;
-    d.storage = failingDelete;
+    });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       const original = await makeImage("png", 300, 300);
-      const stagingKey = await presignAvatarUpload(d.common, {
-        sizeBytes: original.length,
-        contentType: "image/png",
-      });
-      await memory.storage.putObject(
-        stagingKey.stagingKey,
-        original,
-        "image/png",
-      );
-      const result = await confirmAvatarUpload(d.common, {
-        stagingKey: stagingKey.stagingKey,
-      });
+      const stagingKey = await staged(d, original);
+      const result = await confirmAvatarUpload(d.common, { stagingKey });
       expect(result.variants).toHaveLength(2);
       expect(await testDb.db.select().from(files)).toHaveLength(3);
       expect(errorSpy).toHaveBeenCalled();

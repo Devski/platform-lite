@@ -1,8 +1,7 @@
-import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { parseJsonBody, sessionUserId } from "@/lib/api-route";
 import { AvatarUploadError, confirmAvatarUpload } from "@/lib/avatar";
-import { getAuth } from "@/lib/auth";
 import { getDb } from "@/db/client";
 import { getStorage, keyPrefix } from "@/lib/storage";
 
@@ -13,34 +12,20 @@ import { getStorage, keyPrefix } from "@/lib/storage";
 const confirmSchema = z.object({ stagingKey: z.string().min(1) });
 
 export async function POST(request: Request) {
-  let userId: string | null = null;
-  try {
-    const session = await getAuth().api.getSession({
-      headers: await headers(),
-    });
-    userId = session?.user.id ?? null;
-  } catch {
-    userId = null;
-  }
+  const userId = await sessionUserId();
   if (!userId) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "invalid_request" }, { status: 400 });
-  }
-  const parsed = confirmSchema.safeParse(body);
-  if (!parsed.success) {
+  const input = await parseJsonBody(request, confirmSchema);
+  if (!input) {
     return NextResponse.json({ error: "invalid_request" }, { status: 400 });
   }
 
   try {
     const result = await confirmAvatarUpload(
       { storage: getStorage(), db: getDb(), prefix: keyPrefix(), userId },
-      parsed.data,
+      input,
     );
     return NextResponse.json(result);
   } catch (error) {
