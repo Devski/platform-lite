@@ -32,13 +32,14 @@ export interface FileStorage {
    * must also send the declared Content-Type and
    * `Cache-Control: IMMUTABLE_CACHE_CONTROL` — all three ride the signature.
    * The payload itself is NOT signed and the URL stays valid for multiple
-   * requests until it expires, so callers must verify the uploaded bytes
+   * requests until it expires (600 s unless the caller passes a shorter
+   * `expiresInSeconds`), so callers must verify the uploaded bytes
    * server-side before publishing anything under a content-addressed key
    * (upload to a staging key, verify, copy — the #12 contract).
    */
   presignUpload(
     key: string,
-    opts: { maxBytes: number; contentType: string },
+    opts: { maxBytes: number; contentType: string; expiresInSeconds?: number },
   ): Promise<string>;
   putObject(key: string, body: Buffer, contentType: string): Promise<void>;
   /** Rejects with ObjectNotFoundError when the key does not exist. */
@@ -112,7 +113,7 @@ export function createS3Storage(config: {
         CacheControl: IMMUTABLE_CACHE_CONTROL,
       });
       return getSignedUrl(client, command, {
-        expiresIn: PRESIGN_EXPIRES_SECONDS,
+        expiresIn: opts.expiresInSeconds ?? PRESIGN_EXPIRES_SECONDS,
         // Verified against the installed SDK (3.1121): by default only
         // content-length;host end up signed — the presigner marks
         // content-type unsignable and SigV4 always excludes cache-control.

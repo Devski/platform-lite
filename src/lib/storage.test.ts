@@ -122,6 +122,25 @@ describe("S3 storage (offline: URL composition and signing)", () => {
     expect(signedHeaders).toContain("cache-control");
   });
 
+  it("honors a caller TTL override and keeps 600 s as the default", async () => {
+    const storage = createS3Storage(config);
+    const short = new URL(
+      await storage.presignUpload("a/short.bin", {
+        maxBytes: 10,
+        contentType: "text/plain",
+        expiresInSeconds: 120,
+      }),
+    );
+    expect(short.searchParams.get("X-Amz-Expires")).toBe("120");
+    const standard = new URL(
+      await storage.presignUpload("a/standard.bin", {
+        maxBytes: 10,
+        contentType: "text/plain",
+      }),
+    );
+    expect(standard.searchParams.get("X-Amz-Expires")).toBe("600");
+  });
+
   it("presigned URLs differ per key and per size (no reuse across objects)", async () => {
     const storage = createS3Storage(config);
     const a = await storage.presignUpload("a/one.bin", {
