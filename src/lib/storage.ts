@@ -59,6 +59,13 @@ export function contentKey(hash: string, ext: string, prefix = ""): string {
   return `${prefix}a/${hash}.${ext}`;
 }
 
+// SPEC §4: dev and PR environments scope their keys (`devski/`, `pr-7/`);
+// production uses the bare bucket. Optional on purpose — requireEnv would
+// make the empty production value an error.
+export function keyPrefix(): string {
+  return process.env.S3_PREFIX?.trim() ?? "";
+}
+
 const PRESIGN_EXPIRES_SECONDS = 600;
 
 // Normalizes the SDK's not-found (and any provider 404 quirk) into the G1
