@@ -102,17 +102,35 @@ describe("schema tables (SPEC §9)", () => {
     expect(pkColumns).toEqual(["old_handle"]);
   });
 
-  it("files carries exactly the §9 columns and points at users.id", () => {
+  it("files carries the §9 columns plus the #14 set linkage and points at users.id", () => {
     const files = tableByName("files");
     const columnNames = files.columns.map((c) => c.name).sort();
     expect(columnNames).toEqual(
-      ["created_at", "id", "kind", "sha256", "size_bytes", "user_id"].sort(),
+      [
+        "created_at",
+        "ext",
+        "id",
+        "kind",
+        "parent_file_id",
+        "sha256",
+        "size_bytes",
+        "user_id",
+      ].sort(),
     );
     const targets = files.foreignKeys.map((k) => k.reference());
-    expect(targets.map((r) => getTableConfig(r.foreignTable).name)).toEqual([
-      "users",
-    ]);
-    expect(targets[0].foreignColumns.map((c) => c.name)).toEqual(["id"]);
+    expect(
+      targets.map((r) => getTableConfig(r.foreignTable).name).sort(),
+    ).toEqual(["files", "users"]);
+  });
+
+  it("variant rows cascade away with their original (#14 replacement cleanup)", () => {
+    const sql = readFileSync(
+      join(__dirname, "../../drizzle/0003_giant_falcon.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(
+      /"files_parent_file_id_files_id_fk"[\s\S]*ON DELETE cascade/,
+    );
   });
 
   it("file kind is restricted to the three avatar variants", () => {

@@ -225,6 +225,15 @@ export const files = pgTable(
     // A9: per-user quota = sum of size_bytes; number mode is safe far beyond 1 GB.
     sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
     kind: fileKind("kind").notNull(),
+    // #14: variants belong to their original — deleting the original row
+    // takes its set with it, which is how avatar replacement frees quota.
+    parentFileId: uuid("parent_file_id").references(
+      (): AnyPgColumn => files.id,
+      { onDelete: "cascade" },
+    ),
+    // #14: the stored object's extension (jpg/png/webp), needed to rebuild
+    // the original's key for app-mediated object cleanup (G2).
+    ext: text("ext").notNull(),
     createdAt: createdAt(),
   },
   (table) => [

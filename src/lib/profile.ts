@@ -1,0 +1,181 @@
+import { and, eq, ne } from "drizzle-orm";
+import type { Database } from "@/db/client";
+import { files, profiles, users } from "@/db/schema";
+import { displayNameSchema } from "@/lib/profile-schemas";
+import { contentKey, type FileStorage } from "@/lib/storage";
+
+// The #14 profile layer: display name and the avatar pointer. The handle and
+// everything public-facing stay with #15/#18 — a profile here is still the
+// signed-in user's own settings object.
+
+export class ProfileError extends Error {
+  constructor(public readonly code: "invalid_avatar") {
+    super(`profile update rejected: ${code}`);
+    this.name = "ProfileError";
+  }
+}
+
+export interface ProfileDeps {
+  db: Database;
+  storage: FileStorage;
+  /** Environment key prefix (SPEC §4). */
+  prefix: string;
+  userId: string;
+}
+
+export interface ProfileView {
+  displayName: string | null;
+  avatar: { fileId: string; url512: string; url128: string } | null;
+}
+
+function variantUrl(
+  storage: FileStorage,
+  prefix: string,
+  sha256: string,
+  px: 512 | 128,
+): string {
+  // The #12 naming contract: variants are keyed by the ORIGINAL's hash + size
+  // suffix, so the one sha256 on the original's row yields every URL.
+  return storage.publicUrl(contentKey(`${sha256}-${px}`, "webp", prefix));
+}
+
+export async function getProfile(deps: ProfileDeps): Promise<ProfileView> {
+  const { db, storage, prefix, userId } = deps;
+  const [row] = await db
+    .select({
+      displayName: profiles.displayName,
+      avatarFileId: profiles.avatarFileId,
+      avatarSha256: files.sha256,
+    })
+    .from(profiles)
+    .leftJoin(files, eq(profiles.avatarFileId, files.id))
+    .where(eq(profiles.userId, userId));
+  if (!row) return { displayName: null, avatar: null };
+  return {
+    displayName: row.displayName,
+    avatar:
+      row.avatarFileId && row.avatarSha256
+        ? {
+            fileId: row.avatarFileId,
+            url512: variantUrl(storage, prefix, row.avatarSha256, 512),
+            url128: variantUrl(storage, prefix, row.avatarSha256, 128),
+          }
+        : null,
+  };
+}
+
+export async function updateDisplayName(
+  deps: Pick<ProfileDeps, "db" | "userId">,
+  displayName: string,
+): Promise<void> {
+  const parsed = displayNameSchema.parse(displayName);
+  await deps.db
+    .insert(profiles)
+    .values({ userId: deps.userId, displayName: parsed })
+    .onConflictDoUpdate({
+      target: profiles.userId,
+      set: { displayName: parsed },
+    });
+}
+
+export async function setAvatar(
+  deps: ProfileDeps,
+  fileId: string,
+): Promise<void> {
+  const { db, userId } = deps;
+  // Only the caller's own avatar-original row can become their avatar.
+  const [candidate] = await db
+    .select({ id: files.id })
+    .from(files)
+    .where(
+      and(
+        eq(files.id, fileId),
+        eq(files.userId, userId),
+        eq(files.kind, "avatar-original"),
+      ),
+    );
+  if (!candidate) throw new ProfileError("invalid_avatar");
+
+  const [profile] = await db
+    .select({ avatarFileId: profiles.avatarFileId })
+    .from(profiles)
+    .where(eq(profiles.userId, userId));
+  const previousId = profile?.avatarFileId ?? null;
+  if (previousId === fileId) return;
+
+  if (profile) {
+    await db
+      .update(profiles)
+      .set({ avatarFileId: fileId })
+      .where(eq(profiles.userId, userId));
+  } else {
+    // First profile write via the avatar: the display identity defaults to
+    // users.name (seeded from the e-mail local part at sign-up, #7) until
+    // the user sets a real display name.
+    const [user] = await db
+      .select({ name: users.name })
+      .from(users)
+      .where(eq(users.id, userId));
+    await db.insert(profiles).values({
+      userId,
+      displayName: user.name,
+      avatarFileId: fileId,
+    });
+  }
+
+  if (previousId) await removeAvatarSet(deps, previousId);
+}
+
+// App-mediated cleanup (G2): replacing an avatar frees its quota rows and —
+// when no other user's avatar shares the same bytes — its objects. Object
+// deletes are best-effort: a failed delete is logged and the rows still go
+// (an orphaned `a/` object joins the reconciliation-sweep residue family);
+// the reverse order would strand rows that keep charging the quota forever.
+async function removeAvatarSet(
+  deps: ProfileDeps,
+  originalFileId: string,
+): Promise<void> {
+  const { db, storage, prefix, userId } = deps;
+  const [original] = await db
+    .select({ id: files.id, sha256: files.sha256, ext: files.ext })
+    .from(files)
+    .where(
+      and(
+        eq(files.id, originalFileId),
+        eq(files.userId, userId),
+        eq(files.kind, "avatar-original"),
+      ),
+    );
+  if (!original) return;
+
+  // Content-addressed objects are shared across users: identical bytes live
+  // once. Delete them only when this was the last original referencing them.
+  const [shared] = await db
+    .select({ id: files.id })
+    .from(files)
+    .where(
+      and(
+        eq(files.sha256, original.sha256),
+        eq(files.kind, "avatar-original"),
+        ne(files.id, original.id),
+      ),
+    )
+    .limit(1);
+  if (!shared) {
+    const keys = [
+      contentKey(original.sha256, original.ext, prefix),
+      contentKey(`${original.sha256}-512`, "webp", prefix),
+      contentKey(`${original.sha256}-128`, "webp", prefix),
+    ];
+    for (const key of keys) {
+      try {
+        await storage.deleteObject(key);
+      } catch (error) {
+        console.error("[profile] avatar object cleanup failed:", error);
+      }
+    }
+  }
+
+  // The parent cascade takes the variant rows with the original.
+  await db.delete(files).where(eq(files.id, original.id));
+}

@@ -204,18 +204,18 @@ export async function confirmAvatarUpload(
     key: contentKey(`${originalHash}-${px}`, "webp", prefix),
   }));
 
-  const rowValues = [
+  const plannedRows = [
     {
-      userId,
       sha256: originalHash,
       sizeBytes: scrubbed.length,
       kind: "avatar-original" as const,
+      ext: known.ext,
     },
     ...variants.map((variant) => ({
-      userId,
       sha256: sha256(variant.body),
       sizeBytes: variant.body.length,
       kind: variant.kind,
+      ext: "webp",
     })),
   ];
 
@@ -235,14 +235,14 @@ export async function confirmAvatarUpload(
         eq(files.userId, userId),
         inArray(
           files.sha256,
-          rowValues.map((row) => row.sha256),
+          plannedRows.map((row) => row.sha256),
         ),
       ),
     );
   const alreadyRecorded = new Set(
     existing.map((row) => `${row.sha256}:${row.kind}`),
   );
-  const newBytes = rowValues
+  const newBytes = plannedRows
     .filter((row) => !alreadyRecorded.has(`${row.sha256}:${row.kind}`))
     .reduce((total, row) => total + row.sizeBytes, 0);
   if (!(await quotaAllows(db, userId, newBytes))) {
@@ -256,10 +256,16 @@ export async function confirmAvatarUpload(
 
   // Idempotent by content (unique user_id+sha256+kind): a replayed confirm —
   // the presigned URL stays live for its TTL — re-records nothing, so the A9
-  // quota never counts the same stored bytes twice.
-  await db.insert(files).values(rowValues).onConflictDoNothing();
-  const rows = await db
-    .select({ id: files.id, kind: files.kind })
+  // quota never counts the same stored bytes twice. The original lands first
+  // so the variants can point at it (#14: deleting the original row cascades
+  // its set away, which is how avatar replacement frees quota).
+  const [originalPlan, ...variantPlans] = plannedRows;
+  await db
+    .insert(files)
+    .values({ userId, ...originalPlan })
+    .onConflictDoNothing();
+  const [originalRow] = await db
+    .select({ id: files.id })
     .from(files)
     .where(
       and(
@@ -268,6 +274,16 @@ export async function confirmAvatarUpload(
         eq(files.kind, "avatar-original"),
       ),
     );
+  await db
+    .insert(files)
+    .values(
+      variantPlans.map((plan) => ({
+        userId,
+        ...plan,
+        parentFileId: originalRow.id,
+      })),
+    )
+    .onConflictDoNothing();
 
   // Best-effort: the published state is complete; a failed cleanup only
   // leaves a staging object behind. Residue classes, none user-visible:
@@ -282,7 +298,6 @@ export async function confirmAvatarUpload(
     console.error("[avatar] staging cleanup failed:", error);
   }
 
-  const originalRow = rows.find((row) => row.kind === "avatar-original")!;
   return {
     original: {
       fileId: originalRow.id,

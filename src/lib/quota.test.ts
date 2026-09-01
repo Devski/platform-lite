@@ -41,6 +41,7 @@ function fileRow(
     sha256: `hash-${++hashCounter}`,
     sizeBytes,
     kind,
+    ext: "png",
   };
 }
 

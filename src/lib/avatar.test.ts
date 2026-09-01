@@ -121,6 +121,7 @@ describe("presignAvatarUpload (A4, G4)", () => {
       sha256: "presign-quota-seed",
       sizeBytes: QUOTA_BYTES - 50,
       kind: "avatar-original",
+      ext: "png",
     });
     await expect(
       presignAvatarUpload(d.common, { sizeBytes: 51, contentType: "image/png" }),
@@ -384,6 +385,7 @@ describe("confirmAvatarUpload (A4, G2, G5)", () => {
       sha256: "confirm-quota-seed",
       sizeBytes: QUOTA_BYTES - 10,
       kind: "avatar-original",
+      ext: "png",
     });
     await expect(
       confirmAvatarUpload(d.common, { stagingKey }),
@@ -407,6 +409,7 @@ describe("confirmAvatarUpload (A4, G2, G5)", () => {
       sha256: "filler",
       sizeBytes: QUOTA_BYTES - used,
       kind: "avatar-original",
+      ext: "png",
     });
 
     await d.storage.putObject(stagingKey, original, "image/png");
