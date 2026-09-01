@@ -1,6 +1,7 @@
 import {
   DeleteObjectCommand,
   GetObjectCommand,
+  NoSuchKey,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
@@ -13,12 +14,34 @@ import { requireEnv } from "@/lib/env";
 // every object carries the immutable cache header and public reads go through
 // stable, unsigned URLs (G3); signatures exist only on uploads (G4).
 
+// Thrown by getObject when the key does not exist, by every implementation —
+// callers above the G1 line can tell "never uploaded" (a 4xx) from a storage
+// outage (a 5xx/retry) without touching the SDK's error types.
+export class ObjectNotFoundError extends Error {
+  constructor(key: string) {
+    super(`no such key: ${key}`);
+    this.name = "ObjectNotFoundError";
+  }
+}
+
 export interface FileStorage {
+  /**
+   * Signed one-key upload URL (G4). `maxBytes` is signed as the EXACT
+   * Content-Length the uploader must send — pass the client-declared size,
+   * not a ceiling; the URL cannot move more (or fewer) bytes. The uploader
+   * must also send the declared Content-Type and
+   * `Cache-Control: IMMUTABLE_CACHE_CONTROL` — all three ride the signature.
+   * The payload itself is NOT signed and the URL stays valid for multiple
+   * requests until it expires, so callers must verify the uploaded bytes
+   * server-side before publishing anything under a content-addressed key
+   * (upload to a staging key, verify, copy — the #12 contract).
+   */
   presignUpload(
     key: string,
     opts: { maxBytes: number; contentType: string },
   ): Promise<string>;
   putObject(key: string, body: Buffer, contentType: string): Promise<void>;
+  /** Rejects with ObjectNotFoundError when the key does not exist. */
   getObject(key: string): Promise<Buffer>;
   deleteObject(key: string): Promise<void>;
   /** Stable, unsigned address of a public object (G3). */
@@ -36,6 +59,18 @@ export function contentKey(hash: string, ext: string, prefix = ""): string {
 }
 
 const PRESIGN_EXPIRES_SECONDS = 600;
+
+// Normalizes the SDK's not-found (and any provider 404 quirk) into the G1
+// contract error — here, in the one module allowed to know the SDK's shapes.
+// Exported for its unit tests only.
+export function isNotFound(error: unknown): boolean {
+  if (error instanceof NoSuchKey) return true;
+  return (
+    error instanceof Error &&
+    "$metadata" in error &&
+    (error.$metadata as { httpStatusCode?: number }).httpStatusCode === 404
+  );
+}
 
 export function createS3Storage(config: {
   endpoint: string;
@@ -79,17 +114,18 @@ export function createS3Storage(config: {
       return getSignedUrl(client, command, {
         expiresIn: PRESIGN_EXPIRES_SECONDS,
         // Verified against the installed SDK (3.1121): by default only
-        // content-length;host end up signed. signableHeaders forces the type
-        // and cache header INTO the signature, and unhoistableHeaders keeps
-        // them as request headers the uploader must actually send — X-Amz-
-        // SignedHeaders comes out cache-control;content-length;content-type;
-        // host, so a request differing in any of them fails verification.
+        // content-length;host end up signed — the presigner marks
+        // content-type unsignable and SigV4 always excludes cache-control.
+        // signableHeaders is the documented override that forces both back
+        // into the signature (nothing hoists non-x-amz headers to the query,
+        // so they stay request headers the uploader must send). Net result:
+        // X-Amz-SignedHeaders=cache-control;content-length;content-type;host,
+        // and a request differing in any of them fails verification.
         signableHeaders: new Set([
           "content-length",
           "content-type",
           "cache-control",
         ]),
-        unhoistableHeaders: new Set(["content-type", "cache-control"]),
       });
     },
 
@@ -106,9 +142,15 @@ export function createS3Storage(config: {
     },
 
     async getObject(key) {
-      const response = await client.send(
-        new GetObjectCommand({ Bucket: bucket, Key: key }),
-      );
+      let response;
+      try {
+        response = await client.send(
+          new GetObjectCommand({ Bucket: bucket, Key: key }),
+        );
+      } catch (error) {
+        if (isNotFound(error)) throw new ObjectNotFoundError(key);
+        throw error;
+      }
       if (!response.Body) {
         throw new Error(`empty S3 response body for key: ${key}`);
       }
@@ -122,7 +164,11 @@ export function createS3Storage(config: {
     },
 
     publicUrl(key) {
-      return `${endpoint}/${bucket}/${key}`;
+      // Encoded per segment exactly like the SDK encodes the signed path, so
+      // the public address always names the object the upload created — an
+      // identity transform for the URL-safe keys contentKey produces.
+      const encodedKey = key.split("/").map(encodeURIComponent).join("/");
+      return `${endpoint}/${bucket}/${encodedKey}`;
     },
   };
 }
@@ -148,7 +194,7 @@ export function createMemoryStorage(): {
       },
       async getObject(key) {
         const stored = objects.get(key);
-        if (!stored) throw new Error(`no such key: ${key}`);
+        if (!stored) throw new ObjectNotFoundError(key);
         return stored.body;
       },
       async deleteObject(key) {

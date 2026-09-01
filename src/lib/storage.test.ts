@@ -1,9 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   contentKey,
   createMemoryStorage,
   createS3Storage,
   IMMUTABLE_CACHE_CONTROL,
+  isNotFound,
+  ObjectNotFoundError,
 } from "./storage";
 
 // Unit suite for the G1 storage layer. Everything here runs offline: the
@@ -29,10 +31,10 @@ describe("memory storage (the G1 fake for dependent code)", () => {
     expect(objects.get("a/k1.webp")?.contentType).toBe("image/webp");
   });
 
-  it("throws on a missing key, like S3 NoSuchKey", async () => {
+  it("rejects a missing key with the G1 contract error", async () => {
     const { storage } = createMemoryStorage();
-    await expect(storage.getObject("a/missing.bin")).rejects.toThrow(
-      /no such key/,
+    await expect(storage.getObject("a/missing.bin")).rejects.toBeInstanceOf(
+      ObjectNotFoundError,
     );
   });
 
@@ -90,6 +92,15 @@ describe("S3 storage (offline: URL composition and signing)", () => {
     );
   });
 
+  it("percent-encodes unsafe key characters the way the signed path does", () => {
+    const storage = createS3Storage(config);
+    // Nothing in this system mints such keys (contentKey is URL-safe), but a
+    // hostile one must not truncate or escape the bucket path.
+    expect(storage.publicUrl("a/we ird#?.bin")).toBe(
+      "https://s3.waw.io.cloud.ovh.net/platform-dev/a/we%20ird%23%3F.bin",
+    );
+  });
+
   it("presignUpload signs the exact length, type and immutable cache header (G2/G4)", async () => {
     const storage = createS3Storage(config);
     const url = new URL(
@@ -136,26 +147,61 @@ describe("S3 storage (offline: URL composition and signing)", () => {
   it("exposes the G2 cache header constant for the delivery layer", () => {
     expect(IMMUTABLE_CACHE_CONTROL).toBe("public, max-age=31536000, immutable");
   });
+
+  it("maps the SDK's not-found shapes to the G1 contract, nothing else", async () => {
+    const { NoSuchKey } = await import("@aws-sdk/client-s3");
+    expect(
+      isNotFound(
+        new NoSuchKey({ $metadata: {}, message: "The key does not exist." }),
+      ),
+    ).toBe(true);
+    const quirk404 = Object.assign(new Error("not found"), {
+      $metadata: { httpStatusCode: 404 },
+    });
+    expect(isNotFound(quirk404)).toBe(true);
+    const serverError = Object.assign(new Error("boom"), {
+      $metadata: { httpStatusCode: 500 },
+    });
+    expect(isNotFound(serverError)).toBe(false);
+    expect(isNotFound(new Error("plain"))).toBe(false);
+    expect(isNotFound("not even an error")).toBe(false);
+  });
 });
 
 describe("getStorage environment wiring", () => {
-  it("builds a memoized instance from the S3_* variables and fails loudly when one is missing", async () => {
+  // A valid environment is the baseline; each test states only its deviation
+  // (same convention as the getAuth suite in auth.test.ts).
+  beforeEach(() => {
     vi.stubEnv("S3_ENDPOINT", "https://s3.waw.io.cloud.ovh.net");
     vi.stubEnv("S3_REGION", "waw");
     vi.stubEnv("S3_BUCKET", "platform-dev");
     vi.stubEnv("S3_KEY", "k");
     vi.stubEnv("S3_SECRET", "s");
-    vi.resetModules();
-    const fresh = await import("./storage");
-    const first = fresh.getStorage();
-    expect(first.publicUrl("a/x.bin")).toContain("/platform-dev/");
-    expect(fresh.getStorage()).toBe(first);
+  });
 
-    vi.stubEnv("S3_BUCKET", "");
-    vi.resetModules();
-    const broken = await import("./storage");
-    expect(() => broken.getStorage()).toThrow("S3_BUCKET");
+  afterEach(() => {
     vi.unstubAllEnvs();
     vi.resetModules();
   });
+
+  async function loadGetStorage() {
+    vi.resetModules();
+    return (await import("./storage")).getStorage;
+  }
+
+  it("builds a memoized instance from the S3_* variables", async () => {
+    const getStorage = await loadGetStorage();
+    const first = getStorage();
+    expect(first.publicUrl("a/x.bin")).toContain("/platform-dev/");
+    expect(getStorage()).toBe(first);
+  });
+
+  it.each(["S3_ENDPOINT", "S3_REGION", "S3_BUCKET", "S3_KEY", "S3_SECRET"])(
+    "fails loudly when %s is missing",
+    async (name) => {
+      vi.stubEnv(name, "");
+      const getStorage = await loadGetStorage();
+      expect(() => getStorage()).toThrow(name);
+    },
+  );
 });

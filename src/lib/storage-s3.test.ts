@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   createS3Storage,
   IMMUTABLE_CACHE_CONTROL,
+  ObjectNotFoundError,
   type FileStorage,
 } from "./storage";
 
@@ -31,33 +32,37 @@ describe.runIf(configured)("S3 storage against the real bucket", () => {
   });
   // Unique per run, under the SPEC §4 developer prefix, cleaned up at the end.
   const prefix = `devski/test-${randomBytes(6).toString("hex")}/`;
+  // Every key a test touches, registered BEFORE the attempt: cleanup must
+  // cover exactly the failure cases (an upload that unexpectedly landed).
+  // DeleteObject is idempotent, so deleting never-written keys is free.
   const written: string[] = [];
+  const touched = (key: string): string => {
+    written.push(key);
+    return key;
+  };
 
   afterAll(async () => {
-    await Promise.all(written.map((key) => storage.deleteObject(key)));
+    await Promise.allSettled(written.map((key) => storage.deleteObject(key)));
   });
 
-  async function put(key: string, body: Buffer, contentType: string) {
-    await storage.putObject(key, body, contentType);
-    written.push(key);
-  }
-
   it("round-trips an object", async () => {
-    const key = `${prefix}a/roundtrip.bin`;
+    const key = touched(`${prefix}a/roundtrip.bin`);
     const body = randomBytes(256);
-    await put(key, body, "application/octet-stream");
+    await storage.putObject(key, body, "application/octet-stream");
     expect((await storage.getObject(key)).equals(body)).toBe(true);
   });
 
-  it("deletes for real", async () => {
-    const key = `${prefix}a/gone.bin`;
+  it("deletes for real and reports the G1 not-found contract", async () => {
+    const key = touched(`${prefix}a/gone.bin`);
     await storage.putObject(key, Buffer.from("x"), "text/plain");
     await storage.deleteObject(key);
-    await expect(storage.getObject(key)).rejects.toThrow();
+    await expect(storage.getObject(key)).rejects.toBeInstanceOf(
+      ObjectNotFoundError,
+    );
   });
 
   it("accepts a presigned upload with the declared length and type (G4)", async () => {
-    const key = `${prefix}a/presigned.bin`;
+    const key = touched(`${prefix}a/presigned.bin`);
     const body = randomBytes(512);
     const url = await storage.presignUpload(key, {
       maxBytes: body.length,
@@ -72,12 +77,11 @@ describe.runIf(configured)("S3 storage against the real bucket", () => {
       body,
     });
     expect(response.status).toBe(200);
-    written.push(key);
     expect((await storage.getObject(key)).equals(body)).toBe(true);
   });
 
   it("rejects a presigned upload whose byte count differs from the declaration (G4/A9)", async () => {
-    const key = `${prefix}a/oversized.bin`;
+    const key = touched(`${prefix}a/oversized.bin`);
     const url = await storage.presignUpload(key, {
       maxBytes: 100,
       contentType: "application/octet-stream",
@@ -95,7 +99,7 @@ describe.runIf(configured)("S3 storage against the real bucket", () => {
   });
 
   it("rejects a presigned upload with a different content type", async () => {
-    const key = `${prefix}a/wrong-type.bin`;
+    const key = touched(`${prefix}a/wrong-type.bin`);
     const body = randomBytes(64);
     const url = await storage.presignUpload(key, {
       maxBytes: body.length,

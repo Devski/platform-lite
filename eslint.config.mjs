@@ -23,7 +23,9 @@ const eslintConfig = defineConfig([
   },
   {
     files: ["**/*.ts", "**/*.tsx"],
-    ignores: ["src/lib/storage.ts"],
+    // The storage layer and its own tests are the G1 boundary; everything
+    // else stays SDK-free.
+    ignores: ["src/lib/storage.ts", "src/lib/storage*.test.ts"],
     rules: {
       // G1: S3 is reached exclusively through src/lib/storage.ts — the SDK
       // must not leak into any other module.
@@ -37,6 +39,17 @@ const eslintConfig = defineConfig([
                 "S3 is reached only through src/lib/storage.ts (SPEC.md G1).",
             },
           ],
+        },
+      ],
+      // no-restricted-imports sees only static imports; this closes the
+      // dynamic-import escape (require() is already banned repo-wide by
+      // @typescript-eslint/no-require-imports).
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "ImportExpression > Literal[value=/^@aws-sdk\\u002F/]",
+          message:
+            "S3 is reached only through src/lib/storage.ts (SPEC.md G1).",
         },
       ],
     },
