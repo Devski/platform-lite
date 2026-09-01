@@ -31,12 +31,16 @@ beforeEach(async () => {
 });
 
 let hashCounter = 0;
-function fileRow(ownerId: string, sizeBytes: number, kind = "avatar-original") {
+function fileRow(
+  ownerId: string,
+  sizeBytes: number,
+  kind: "avatar-original" | "avatar-512" | "avatar-128" = "avatar-original",
+) {
   return {
     userId: ownerId,
     sha256: `hash-${++hashCounter}`,
     sizeBytes,
-    kind: kind as "avatar-original",
+    kind,
   };
 }
 
