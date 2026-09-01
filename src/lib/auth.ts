@@ -177,6 +177,11 @@ export function createAuth(options: {
         const locale = localeFromRequest(request);
 
         if (path.endsWith("/change-email")) {
+          // Same known gap as the reset send (deferred to #22): these deliveries
+          // are awaited on the response path, so a free target answers slower
+          // than a taken one — a timing oracle for address existence. The
+          // response bodies are already identical; #22's off-path delivery
+          // closes the timing side too.
           // A10 "address change ×2". The library aims this send at the NEW
           // address (user.email is already the target); the CURRENT address
           // sits in the token payload. Record the pending change first — the
@@ -241,8 +246,16 @@ export function createAuth(options: {
         if (typeof updateTo !== "string") return;
 
         const reject = () => {
+          // This gate runs before the endpoint's own originCheck middleware,
+          // so it must validate callbackURL itself — otherwise a crafted link
+          // on the real origin (unsigned payload is enough to reach here)
+          // would bounce the victim to any external site. Trust the same list
+          // the library does; anything else falls back to a bare 401.
           const callbackURL = requestUrl.searchParams.get("callbackURL");
-          if (callbackURL) {
+          if (
+            callbackURL &&
+            ctx.context.isTrustedOrigin(callbackURL, { allowRelativePaths: true })
+          ) {
             const target = new URL(callbackURL, ctx.context.baseURL);
             target.searchParams.set("error", "INVALID_TOKEN");
             throw ctx.redirect(target.href);

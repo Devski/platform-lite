@@ -450,6 +450,27 @@ describe("change e-mail (A10)", () => {
     );
   }, 30_000);
 
+  it("never redirects the rejection to an untrusted callbackURL (open-redirect defense)", async () => {
+    // A crafted link on the real origin: the payload alone (unsigned) is
+    // enough to reach the gate's reject path, and callbackURL points off-site.
+    const payload = Buffer.from(
+      JSON.stringify({
+        email: "x@example.com",
+        updateTo: "y@example.com",
+        requestType: "not-our-type",
+      }),
+    ).toString("base64url");
+    const forged = `e30.${payload}.sig`;
+    const response = await auth.handler(
+      new Request(
+        `${BASE_URL}/api/auth/verify-email?token=${forged}&callbackURL=${encodeURIComponent("https://evil.example/phish")}`,
+      ),
+    );
+    // The gate refuses to bounce anywhere off-origin: a bare 401, no Location.
+    expect(response.status).toBe(401);
+    expect(response.headers.get("location")).toBeNull();
+  });
+
   it("ignores an updateTo token minted outside the change flow (defense in depth)", async () => {
     // No flow of ours mints an updateTo token without the
     // change-email-verification request type — the gate refuses any other.
