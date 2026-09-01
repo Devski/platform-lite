@@ -51,6 +51,17 @@ async function clearPendingEmailChange(
     .where(eq(schema.verifications.identifier, emailChangeMarker(userId)));
 }
 
+// Add a status marker to the callbackURL carried by a /verify-email link, so
+// the landing page can tell the two-step change's approval click apart from
+// its final verification click (both otherwise share one callbackURL).
+function withCallbackStatus(verifyUrl: string, status: string): string {
+  const link = new URL(verifyUrl);
+  const callbackURL = link.searchParams.get("callbackURL") ?? "/email-changed";
+  const separator = callbackURL.includes("?") ? "&" : "?";
+  link.searchParams.set("callbackURL", `${callbackURL}${separator}status=${status}`);
+  return link.href;
+}
+
 // Payload-only decode, no signature check: the gate merely decides whether to
 // consult the marker, and the endpoint behind it verifies the signature — a
 // forged payload can only make the gate reject sooner.
@@ -171,48 +182,30 @@ export function createAuth(options: {
       // A1: the link is valid for 24 hours.
       expiresIn: EMAIL_VERIFICATION_EXPIRES_IN,
       async sendVerificationEmail({ user, url, token }, request) {
-        // One callback serves every flow; the request path tells them apart
-        // (A10 keeps each of the three occasions a distinct message).
         const path = request ? new URL(request.url).pathname : "";
         const locale = localeFromRequest(request);
 
-        if (path.endsWith("/change-email")) {
-          // Same known gap as the reset send (deferred to #22): these deliveries
-          // are awaited on the response path, so a free target answers slower
-          // than a taken one — a timing oracle for address existence. The
-          // response bodies are already identical; #22's off-path delivery
-          // closes the timing side too.
-          // A10 "address change ×2". The library aims this send at the NEW
-          // address (user.email is already the target); the CURRENT address
-          // sits in the token payload. Record the pending change first — the
-          // /verify-email gate refuses links without a live marker, so a
-          // newer request or a password reset invalidates older links.
-          const currentEmail = decodeJwtPayload(token)?.email;
-          await recordPendingEmailChange(db, user.id, user.email);
+        // Step two of the two-step e-mail change: once the CURRENT address has
+        // approved, the library sends this to the NEW address (the only place
+        // an updateTo-bearing token reaches this callback). user.email is
+        // already the new address. Clicking it is what finally switches it.
+        if (typeof decodeJwtPayload(token)?.updateTo === "string") {
           await sendEmail({
             to: user.email,
             locale,
+            // Land this final click on a distinct state (?status=done) so the
+            // page says "changed", not the approval step's "check your new
+            // inbox" — both steps otherwise share the one callbackURL. A
+            // relative path keeps its query through the library's origin check.
             template: {
-              kind: "emailChangeConfirmation",
-              params: { confirmUrl: url },
+              kind: "emailChangeVerification",
+              params: { verifyUrl: withCallbackStatus(url, "done") },
             },
           });
-          if (typeof currentEmail === "string") {
-            // The notice promises nothing changes until the new address
-            // confirms, and advises a password reset — kept honest by the
-            // marker deletion in onPasswordReset.
-            await sendEmail({
-              to: currentEmail,
-              locale,
-              template: {
-                kind: "emailChangeNotice",
-                params: { newEmail: user.email },
-              },
-            });
-          }
           return;
         }
 
+        // Sign-up and its resend (A10 keeps them two distinct messages).
         const isResend = path.endsWith("/send-verification-email");
         const kind = isResend ? "accountReverification" : "accountVerification";
         await sendEmail({
@@ -228,15 +221,40 @@ export function createAuth(options: {
       },
     },
     user: {
-      // #10: the address switches only after the NEW address confirms. With
-      // sendChangeEmailConfirmation left unset, 1.7.2 sends exactly one link
-      // (request type change-email-verification) through the callback above.
-      changeEmail: { enabled: true },
+      changeEmail: {
+        enabled: true,
+        // #10 two-step (decision of 01.09.2026, option B): setting this
+        // callback makes 1.7.2 send the FIRST link to the CURRENT address, so
+        // a stolen session alone cannot move the account — the old-mailbox
+        // owner has to approve. Approve here (change-email-confirmation) →
+        // library then sends the NEW address a change-email-verification link
+        // (sendVerificationEmail above) → that second click switches it.
+        async sendChangeEmailConfirmation({ user, newEmail, url }, request) {
+          // Record the pending target before the link goes out: the
+          // /verify-email gate below refuses both steps' links unless a live
+          // marker matches, so a newer request or a password reset kills the
+          // older link. Only reached for a FREE newEmail (a taken one returns
+          // early inside the endpoint), so — like the reset send — this awaited
+          // delivery is a known timing channel for address existence, deferred
+          // to #22's off-path delivery.
+          await recordPendingEmailChange(db, user.id, newEmail);
+          await sendEmail({
+            to: user.email,
+            locale: localeFromRequest(request),
+            template: {
+              kind: "emailChangeConfirmation",
+              params: { confirmUrl: url, newEmail },
+            },
+          });
+        },
+      },
     },
     hooks: {
-      // The stateful gate for the stateless change-email JWT (#10): any
-      // /verify-email carrying updateTo must match a live pending-change
-      // marker for that user — and only the request type our flow mints.
+      // The stateful gate for the stateless change-email JWT (#10): both steps
+      // of the change ride a /verify-email link carrying updateTo, and each
+      // must match a live pending-change marker for that user — the approve
+      // step and the verify step alike, and only those two request types (the
+      // legacy instant-update default is refused).
       before: createAuthMiddleware(async (ctx) => {
         if (ctx.path !== "/verify-email" || !ctx.request) return;
         const requestUrl = new URL(ctx.request.url);
@@ -244,6 +262,9 @@ export function createAuth(options: {
         const payload = token ? decodeJwtPayload(token) : null;
         const updateTo = payload?.updateTo;
         if (typeof updateTo !== "string") return;
+        const isChangeEmailStep =
+          payload?.requestType === "change-email-confirmation" ||
+          payload?.requestType === "change-email-verification";
 
         const reject = () => {
           // This gate runs before the endpoint's own originCheck middleware,
@@ -266,7 +287,7 @@ export function createAuth(options: {
           });
         };
 
-        if (payload?.requestType !== "change-email-verification") reject();
+        if (!isChangeEmailStep) reject();
         const email = payload?.email;
         if (typeof email !== "string") reject();
         const [account] = await db

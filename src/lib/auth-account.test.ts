@@ -275,70 +275,117 @@ describe("change e-mail (A10)", () => {
     );
   }
 
-  function confirmUrlFrom(message: EmailMessage): string {
+  function verifyLinkFrom(message: EmailMessage): string {
     const match = message.body.match(CONFIRM_URL_RE);
-    if (!match) throw new Error(`no confirmation URL in: ${message.body}`);
+    if (!match) throw new Error(`no verify link in: ${message.body}`);
     return match[0];
   }
 
-  /** The confirmation link of the latest request — second-to-last message,
-   * because the notice to the old address follows it. */
-  function lastChangeConfirmUrl(): string {
-    return confirmUrlFrom(delivered.at(-2)!);
+  /** Approve the pending change from the CURRENT address (two-step, step two).
+   * Returns the verification link then sent to the new address. */
+  async function approveFromCurrentAddress(
+    cookie: string | null,
+  ): Promise<string> {
+    const approveClick = await auth.handler(
+      new Request(verifyLinkFrom(delivered.at(-1)!), {
+        headers: { "x-forwarded-for": testIp, ...(cookie ? { cookie } : {}) },
+      }),
+    );
+    expect(approveClick.status).toBe(302);
+    return verifyLinkFrom(delivered.at(-1)!);
   }
 
-  it("sends the confirmation to the new address and the notice to the old one; nothing changes yet", async () => {
+  it("step one sends only the approval, to the CURRENT address; nothing moves yet", async () => {
     const cookie = await signedInUser("old@example.com");
     const before = delivered.length;
 
     const response = await requestChange(cookie, "new@example.com");
     expect(response.status).toBe(200);
 
-    // A10 "address change ×2": confirmation link -> new, notice -> old.
-    expect(delivered).toHaveLength(before + 2);
-    const confirmation = delivered[before];
-    expect(confirmation.to).toBe("new@example.com");
-    expect(confirmation.subject).toBe(
-      subjectOf({ kind: "emailChangeConfirmation", params: { confirmUrl: "x" } }),
+    // Two-step: the first link goes to the current address, not the new one.
+    expect(delivered).toHaveLength(before + 1);
+    const approval = delivered[before];
+    expect(approval.to).toBe("old@example.com");
+    expect(approval.subject).toBe(
+      subjectOf({
+        kind: "emailChangeConfirmation",
+        params: { confirmUrl: "x", newEmail: "x" },
+      }),
     );
-    expect(confirmUrlFrom(confirmation)).toBeTruthy();
-    const notice = delivered[before + 1];
-    expect(notice.to).toBe("old@example.com");
-    expect(notice.subject).toBe(
-      subjectOf({ kind: "emailChangeNotice", params: { newEmail: "x" } }),
-    );
-    expect(notice.body).toContain("new@example.com");
+    expect(approval.body).toContain("new@example.com");
 
     // The pending change is recorded but not in effect (the criterion).
-    expect(await emailChangeMarkers()).toEqual([
-      { value: "new@example.com" },
-    ]);
+    expect(await emailChangeMarkers()).toEqual([{ value: "new@example.com" }]);
     const [user] = await testDb.db.select().from(users);
     expect(user.email).toBe("old@example.com");
     expect((await signIn("old@example.com", PASSWORD)).status).toBe(200);
   }, 30_000);
 
-  it("switches the address only when the new-address link is clicked", async () => {
+  it("switches the address only after BOTH the old-address approval and the new-address verification", async () => {
     const cookie = await signedInUser("before@example.com");
     await requestChange(cookie, "after@example.com");
 
-    const click = await auth.handler(
-      new Request(lastChangeConfirmUrl(), {
+    // Step two: approve from the current address → the new address now gets
+    // its verification link, but nothing has switched yet.
+    const verifyUrl = await approveFromCurrentAddress(cookie);
+    const verification = delivered.at(-1)!;
+    expect(verification.to).toBe("after@example.com");
+    expect(verification.subject).toBe(
+      subjectOf({ kind: "emailChangeVerification", params: { verifyUrl: "x" } }),
+    );
+    {
+      const [pending] = await testDb.db.select().from(users);
+      expect(pending.email).toBe("before@example.com");
+      expect(await emailChangeMarkers()).toHaveLength(1);
+    }
+
+    // Step three: verify from the new address → this is what switches it.
+    const verifyClick = await auth.handler(
+      new Request(verifyUrl, {
         headers: { cookie, "x-forwarded-for": testIp },
       }),
     );
-    expect(click.status).toBe(302);
-    expect(click.headers.get("location")).toContain("/email-changed");
+    expect(verifyClick.status).toBe(302);
+    expect(verifyClick.headers.get("location")).toContain("/email-changed");
 
     const [user] = await testDb.db.select().from(users);
     expect(user.email).toBe("after@example.com");
     expect(user.emailVerified).toBe(true);
-    // The marker is consumed with the change.
     expect(await emailChangeMarkers()).toHaveLength(0);
 
-    // The password stays; only the address moved.
-    expect((await signIn("after@example.com", PASSWORD)).status).toBe(200);
-    expect((await signIn("before@example.com", PASSWORD)).status).toBe(401);
+    // The password stays; only the address moved. Probe from a fresh IP so
+    // the sign-ins above don't exhaust the built-in 3-per-10-s allowance.
+    const probe = { "x-forwarded-for": `203.0.113.${ipCounter}` };
+    expect(
+      (
+        await post(
+          "/sign-in/email",
+          { email: "after@example.com", password: PASSWORD },
+          probe,
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await post(
+          "/sign-in/email",
+          { email: "before@example.com", password: PASSWORD },
+          probe,
+        )
+      ).status,
+    ).toBe(401);
+  }, 30_000);
+
+  it("a stolen session alone cannot approve the change (the point of two-step)", async () => {
+    // The attacker holds only the session cookie, not the old mailbox. They
+    // can request the change, but the approval link lands in the victim's
+    // current inbox — the attacker never sees it, so nothing moves.
+    const cookie = await signedInUser("target@example.com");
+    const response = await requestChange(cookie, "attacker@example.com");
+    expect(response.status).toBe(200);
+    expect(delivered.at(-1)!.to).toBe("target@example.com");
+    const [user] = await testDb.db.select().from(users);
+    expect(user.email).toBe("target@example.com");
   }, 30_000);
 
   it("answers a taken address with a generic 200 and sends nothing", async () => {
@@ -368,9 +415,9 @@ describe("change e-mail (A10)", () => {
   it("a password reset invalidates the pending change (#10 security obligation)", async () => {
     const cookie = await signedInUser("victim@example.com");
     await requestChange(cookie, "attacker@example.com");
-    const confirmUrl = lastChangeConfirmUrl();
+    const approveUrl = verifyLinkFrom(delivered.at(-1)!);
 
-    // The notice advises a password reset — walk it end to end.
+    // The approval message advises a password reset — walk it end to end.
     await post("/request-password-reset", {
       email: "victim@example.com",
       redirectTo: "/reset-password/new",
@@ -386,8 +433,8 @@ describe("change e-mail (A10)", () => {
     ).toBe(200);
     expect(await emailChangeMarkers()).toHaveLength(0);
 
-    // The still-signed change link is now dead and the address unchanged.
-    const click = await auth.handler(new Request(confirmUrl));
+    // The still-signed approval link is now dead and the address unchanged.
+    const click = await auth.handler(new Request(approveUrl));
     expect(click.status).toBe(302);
     expect(click.headers.get("location")).toContain("error=INVALID_TOKEN");
     const [user] = await testDb.db.select().from(users);
@@ -397,36 +444,38 @@ describe("change e-mail (A10)", () => {
   it("a newer change request kills the older link", async () => {
     const cookie = await signedInUser("serial@example.com");
     await requestChange(cookie, "first@example.com");
-    const firstUrl = lastChangeConfirmUrl();
+    const firstApprove = verifyLinkFrom(delivered.at(-1)!);
     await requestChange(cookie, "second@example.com");
+    const secondApprove = verifyLinkFrom(delivered.at(-1)!);
 
-    const stale = await auth.handler(new Request(firstUrl));
+    const stale = await auth.handler(new Request(firstApprove));
     expect(stale.headers.get("location")).toContain("error=INVALID_TOKEN");
 
     const fresh = await auth.handler(
-      new Request(lastChangeConfirmUrl()),
+      new Request(secondApprove, {
+        headers: { cookie, "x-forwarded-for": testIp },
+      }),
     );
     expect(fresh.status).toBe(302);
     expect(fresh.headers.get("location")).not.toContain("error=");
-    const [user] = await testDb.db.select().from(users);
-    expect(user.email).toBe("second@example.com");
+    // The pending target is now the second address (marker superseded).
+    expect(await emailChangeMarkers()).toEqual([{ value: "second@example.com" }]);
   }, 30_000);
 
-  it("a logged-out click still applies the change and signs the user in (library contract)", async () => {
+  it("a logged-out click can still complete both steps (library contract)", async () => {
     const cookie = await signedInUser("mobile@example.com");
     await requestChange(cookie, "desktop@example.com");
     await post("/sign-out", {}, { cookie });
 
-    // Possession of the link is the proof: the click applies the change and
-    // opens a session for the account.
-    const click = await auth.handler(
-      new Request(lastChangeConfirmUrl(), {
-        headers: { "x-forwarded-for": testIp },
-      }),
+    // Possession of the two links is the proof: approve from the old inbox,
+    // then verify from the new one — the final click opens a session.
+    const verifyUrl = await approveFromCurrentAddress(null);
+    const verifyClick = await auth.handler(
+      new Request(verifyUrl, { headers: { "x-forwarded-for": testIp } }),
     );
-    expect(click.status).toBe(302);
+    expect(verifyClick.status).toBe(302);
     expect(
-      click.headers
+      verifyClick.headers
         .getSetCookie()
         .some((line) => line.split("=")[0].endsWith("session_token")),
     ).toBe(true);

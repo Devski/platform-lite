@@ -18,16 +18,23 @@ test.describe("Polish browser", () => {
     ).toBeVisible();
   });
 
-  test("/email-changed renders the success state with a settings link", async ({
+  test("/email-changed separates the approval landing from the completed change", async ({
     page,
   }) => {
+    // The old-address approval click lands here plain: "check your new inbox".
     await page.goto("/email-changed");
     await expect(page).toHaveTitle("Zmiana adresu");
     await expect(
-      page.getByRole("heading", { level: 1, name: "Adres potwierdzony" }),
+      page.getByRole("heading", { level: 1, name: "Zmiana zatwierdzona" }),
     ).toBeVisible();
     await expect(
       page.getByRole("link", { name: "Przejdź do ustawień konta" }),
+    ).toBeVisible();
+
+    // The new-address verification click lands with ?status=done: "changed".
+    await page.goto("/email-changed?status=done");
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Adres zmieniony" }),
     ).toBeVisible();
   });
 

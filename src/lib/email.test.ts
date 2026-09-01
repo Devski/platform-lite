@@ -28,13 +28,13 @@ const SAMPLES_BY_KIND: {
     params: { resetUrl: "https://x.test/reset?t=3" },
   },
   passwordChanged: { kind: "passwordChanged", params: {} },
-  emailChangeNotice: {
-    kind: "emailChangeNotice",
-    params: { newEmail: "new@example.com" },
-  },
   emailChangeConfirmation: {
     kind: "emailChangeConfirmation",
-    params: { confirmUrl: "https://x.test/confirm?t=4" },
+    params: { confirmUrl: "https://x.test/confirm?t=4", newEmail: "new@example.com" },
+  },
+  emailChangeVerification: {
+    kind: "emailChangeVerification",
+    params: { verifyUrl: "https://x.test/verify?t=5" },
   },
   handleChanged: {
     kind: "handleChanged",

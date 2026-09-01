@@ -2,17 +2,18 @@ import type { Metadata } from "next";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 
-// Landing page for the e-mail-change confirmation link (A10). Better Auth
-// redirects here: plain on success, with ?error=TOKEN_EXPIRED when the JWT
-// aged out, and with other error codes (INVALID_TOKEN from the pending-change
-// gate, USER_NOT_FOUND after a completed change, ...) that all mean the link
-// no longer works.
+// Landing page for the two-step e-mail-change links (A10). Better Auth
+// redirects here after each click: the old-address approval lands plain
+// ("approved"), the new-address verification lands with ?status=done
+// ("changed"), and a rejected link arrives with ?error=TOKEN_EXPIRED (aged
+// out) or another code (INVALID_TOKEN from the pending-change gate, ...).
 function changeState(
   error: string | undefined,
-): "success" | "expired" | "invalid" {
-  if (!error) return "success";
+  status: string | undefined,
+): "changed" | "approved" | "expired" | "invalid" {
   if (error === "TOKEN_EXPIRED") return "expired";
-  return "invalid";
+  if (error) return "invalid";
+  return status === "done" ? "changed" : "approved";
 }
 
 export async function generateMetadata({
@@ -30,13 +31,13 @@ export default async function EmailChangedPage({
   searchParams,
 }: {
   params: Promise<{ locale: string }>;
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; status?: string }>;
 }) {
   const { locale } = await params;
   setRequestLocale(locale);
-  const { error } = await searchParams;
+  const { error, status } = await searchParams;
   const t = await getTranslations("EmailChanged");
-  const state = changeState(error);
+  const state = changeState(error, status);
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-gray-50 px-4">

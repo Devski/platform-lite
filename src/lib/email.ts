@@ -14,10 +14,17 @@ export type EmailTemplate =
   | { kind: "accountReverification"; params: { verifyUrl: string } }
   | { kind: "passwordReset"; params: { resetUrl: string } }
   | { kind: "passwordChanged"; params: Record<string, never> }
-  // Sent to the OLD address at request time — the copy promises nothing
-  // changes until the new address confirms (decision from the #6 review).
-  | { kind: "emailChangeNotice"; params: { newEmail: string } }
-  | { kind: "emailChangeConfirmation"; params: { confirmUrl: string } }
+  // A10 "address change ×2", two-step (decision of 01.09.2026): the CURRENT
+  // address must approve before anything moves — so the confirmation link
+  // goes there and doubles as the "someone is changing your address" notice
+  // (its copy advises a password reset if the request was not the owner's).
+  | {
+      kind: "emailChangeConfirmation";
+      params: { confirmUrl: string; newEmail: string };
+    }
+  // Then the NEW address verifies it is reachable; only this second click
+  // switches the account address.
+  | { kind: "emailChangeVerification"; params: { verifyUrl: string } }
   | {
       kind: "handleChanged";
       params: { oldHandle: string; newHandle: string; profileUrl: string };
