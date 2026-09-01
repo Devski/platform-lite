@@ -114,6 +114,23 @@ describe("presignAvatarUpload (A4, G4)", () => {
     expect(second.stagingKey).not.toBe(stagingKey);
   });
 
+  it("refuses to presign past the quota (A9, checked before any URL is minted)", async () => {
+    const d = deps();
+    await testDb.db.insert(files).values({
+      userId,
+      sha256: "presign-quota-seed",
+      sizeBytes: QUOTA_BYTES - 50,
+      kind: "avatar-original",
+    });
+    await expect(
+      presignAvatarUpload(d.common, { sizeBytes: 51, contentType: "image/png" }),
+    ).rejects.toMatchObject({ code: "quota_exceeded" });
+    // Right at the limit still passes.
+    await expect(
+      presignAvatarUpload(d.common, { sizeBytes: 50, contentType: "image/png" }),
+    ).resolves.toBeTruthy();
+  });
+
   it("rejects oversize declarations and foreign content types at the edge", async () => {
     const d = deps();
     await expect(
@@ -343,9 +360,8 @@ describe("confirmAvatarUpload (A4, G2, G5)", () => {
       confirmAvatarUpload(d.common, { stagingKey }),
     ).rejects.toMatchObject({ code: "not_an_image" });
     expect(await testDb.db.select().from(files)).toHaveLength(0);
-    expect(
-      [...d.objects.keys()].filter((key) => key.includes("/a/")),
-    ).toHaveLength(0);
+    // Nothing published, and the unusable staging object was discarded too.
+    expect(d.objects.size).toBe(0);
   });
 
   it("rejects images over the pixel ceiling before decoding them", async () => {
@@ -356,23 +372,6 @@ describe("confirmAvatarUpload (A4, G2, G5)", () => {
     await expect(
       confirmAvatarUpload(d.common, { stagingKey }),
     ).rejects.toMatchObject({ code: "too_large" });
-  });
-
-  it("refuses to presign past the quota (A9, checked before any URL is minted)", async () => {
-    const d = deps();
-    await testDb.db.insert(files).values({
-      userId,
-      sha256: "presign-quota-seed",
-      sizeBytes: QUOTA_BYTES - 50,
-      kind: "avatar-original",
-    });
-    await expect(
-      presignAvatarUpload(d.common, { sizeBytes: 51, contentType: "image/png" }),
-    ).rejects.toMatchObject({ code: "quota_exceeded" });
-    // Right at the limit still passes.
-    await expect(
-      presignAvatarUpload(d.common, { sizeBytes: 50, contentType: "image/png" }),
-    ).resolves.toBeTruthy();
   });
 
   it("re-checks the quota at confirm against the REAL published bytes", async () => {
@@ -389,11 +388,31 @@ describe("confirmAvatarUpload (A4, G2, G5)", () => {
     await expect(
       confirmAvatarUpload(d.common, { stagingKey }),
     ).rejects.toMatchObject({ code: "quota_exceeded" });
-    // Nothing was published or recorded beyond the seed row.
-    expect(
-      [...d.objects.keys()].filter((key) => key.includes("/a/")),
-    ).toHaveLength(0);
+    // Nothing was published or recorded beyond the seed row, and the doomed
+    // staging object was discarded (a retry needs a fresh presign anyway).
+    expect(d.objects.size).toBe(0);
     expect(await testDb.db.select().from(files)).toHaveLength(1);
+  });
+
+  it("a replay of already-recorded bytes passes even with zero quota room", async () => {
+    const d = deps();
+    const original = await makeImage("png", 400, 400);
+    const stagingKey = await staged(d, original);
+    const first = await confirmAvatarUpload(d.common, { stagingKey });
+    const recorded = await testDb.db.select().from(files);
+    const used = recorded.reduce((total, row) => total + row.sizeBytes, 0);
+    // Fill the quota to exactly the limit.
+    await testDb.db.insert(files).values({
+      userId,
+      sha256: "filler",
+      sizeBytes: QUOTA_BYTES - used,
+      kind: "avatar-original",
+    });
+
+    await d.storage.putObject(stagingKey, original, "image/png");
+    const replay = await confirmAvatarUpload(d.common, { stagingKey });
+    expect(replay.original.fileId).toBe(first.original.fileId);
+    expect(await testDb.db.select().from(files)).toHaveLength(4);
   });
 
   it("replayed confirms re-record nothing (A9 quota integrity)", async () => {

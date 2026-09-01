@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import sharp from "sharp";
 import { z } from "zod";
 import type { Database } from "@/db/client";
@@ -129,10 +129,22 @@ export async function confirmAvatarUpload(
     }
     throw error;
   }
+  // A typed rejection after the bytes were fetched is terminal for this
+  // staged object — a retry needs a fresh presign anyway — so discard it
+  // (best-effort) instead of leaving it for the lifecycle sweep.
+  const discarded = async (code: AvatarErrorCode): Promise<AvatarUploadError> => {
+    try {
+      await storage.deleteObject(input.stagingKey);
+    } catch (error) {
+      console.error("[avatar] staging cleanup failed:", error);
+    }
+    return new AvatarUploadError(code);
+  };
+
   // The presign signature already pins the length; this belt catches an
   // object that reached the bucket any other way before we buffer variants.
   if (original.length > AVATAR_MAX_BYTES) {
-    throw new AvatarUploadError("too_large");
+    throw await discarded("too_large");
   }
 
   // Decode-verify. The decoded format is authoritative; metadata() only
@@ -143,12 +155,12 @@ export async function confirmAvatarUpload(
   try {
     ({ format, width, height } = await sharp(original).metadata());
   } catch {
-    throw new AvatarUploadError("not_an_image");
+    throw await discarded("not_an_image");
   }
   const known = format ? FORMATS[format] : undefined;
-  if (!known) throw new AvatarUploadError("unsupported_format");
+  if (!known) throw await discarded("unsupported_format");
   if ((width ?? 0) * (height ?? 0) > AVATAR_MAX_PIXELS) {
-    throw new AvatarUploadError("too_large");
+    throw await discarded("too_large");
   }
 
   // Review findings (01.09.2026): the published original is a RE-ENCODE, not
@@ -174,7 +186,7 @@ export async function confirmAvatarUpload(
     );
   } catch {
     // Header parsed but the pixel stream is truncated/corrupt.
-    throw new AvatarUploadError("not_an_image");
+    throw await discarded("not_an_image");
   }
 
   // G2: the original is named by its published bytes; the variants are named
@@ -192,27 +204,6 @@ export async function confirmAvatarUpload(
     key: contentKey(`${originalHash}-${px}`, "webp", prefix),
   }));
 
-  // A9 belt at confirm, against the REAL bytes about to be stored — parallel
-  // uploads may have eaten the room since presign. Checked before any
-  // putObject so a rejection publishes and records nothing. Edge accepted: a
-  // REPLAYED confirm near the cap can reject here even though its rows
-  // already exist (nothing new would be stored) — harmless and rare.
-  const publishedBytes =
-    scrubbed.length +
-    variants.reduce((total, variant) => total + variant.body.length, 0);
-  if (!(await quotaAllows(db, userId, publishedBytes))) {
-    throw new AvatarUploadError("quota_exceeded");
-  }
-
-  await storage.putObject(originalKey, scrubbed, known.contentType);
-  for (const variant of variants) {
-    await storage.putObject(variant.key, variant.body, "image/webp");
-  }
-
-  // Idempotent by content (unique user_id+sha256+kind): a replayed confirm —
-  // the presigned URL stays live for its TTL — re-records nothing, so the A9
-  // quota never counts the same stored bytes twice. onConflictDoNothing
-  // returns no rows for the duplicates; the select below serves both paths.
   const rowValues = [
     {
       userId,
@@ -227,6 +218,45 @@ export async function confirmAvatarUpload(
       kind: variant.kind,
     })),
   ];
+
+  // A9 belt at confirm, against the REAL bytes about to be stored, charging
+  // only what is not already recorded — so replaying (or re-uploading) an
+  // already-published avatar passes even at the cap: nothing new would be
+  // stored. Checked before any putObject, so a rejection publishes and
+  // records nothing. Parallel confirms of DIFFERENT files can still overshoot
+  // once — bounded by the per-user confirm rate limit to a handful of avatar
+  // sets; the next check sees the committed SUM and refuses. Accepted for the
+  // A9 soft cost cap.
+  const existing = await db
+    .select({ sha256: files.sha256, kind: files.kind })
+    .from(files)
+    .where(
+      and(
+        eq(files.userId, userId),
+        inArray(
+          files.sha256,
+          rowValues.map((row) => row.sha256),
+        ),
+      ),
+    );
+  const alreadyRecorded = new Set(
+    existing.map((row) => `${row.sha256}:${row.kind}`),
+  );
+  const newBytes = rowValues
+    .filter((row) => !alreadyRecorded.has(`${row.sha256}:${row.kind}`))
+    .reduce((total, row) => total + row.sizeBytes, 0);
+  if (!(await quotaAllows(db, userId, newBytes))) {
+    throw await discarded("quota_exceeded");
+  }
+
+  await storage.putObject(originalKey, scrubbed, known.contentType);
+  for (const variant of variants) {
+    await storage.putObject(variant.key, variant.body, "image/webp");
+  }
+
+  // Idempotent by content (unique user_id+sha256+kind): a replayed confirm —
+  // the presigned URL stays live for its TTL — re-records nothing, so the A9
+  // quota never counts the same stored bytes twice.
   await db.insert(files).values(rowValues).onConflictDoNothing();
   const rows = await db
     .select({ id: files.id, kind: files.kind })
@@ -240,10 +270,12 @@ export async function confirmAvatarUpload(
     );
 
   // Best-effort: the published state is complete; a failed cleanup only
-  // leaves a staging object behind. Residue classes for the (future)
-  // reconciliation sweep, all rare and none user-visible: an undeleted
-  // staging object; published `a/` objects with no rows (puts succeeded, the
-  // insert failed — a client retry heals it, since staging still exists).
+  // leaves a staging object behind. Residue classes, none user-visible:
+  // uploads NEVER confirmed at all (the presign TTL kills the URL, not the
+  // object — the bucket needs a lifecycle rule on the staging/ prefix,
+  // recorded on #2/#24); an undeleted staging object from this best-effort
+  // pass; published `a/` objects with no rows (puts succeeded, the insert
+  // failed — a client retry heals it, since staging still exists).
   try {
     await storage.deleteObject(input.stagingKey);
   } catch (error) {
