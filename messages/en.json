@@ -20,6 +20,10 @@
       "subject": "Your password has been changed",
       "body": "Hello!\n\nThe password for your account has just been changed.\n\nIf this was not you, use the password reset option immediately and secure your e-mail inbox."
     },
+    "twoFactorCode": {
+      "subject": "Your login code",
+      "body": "Hello!\n\nYour one-time login code:\n{code}\n\nThe code is valid for a few minutes. If this was not you trying to log in, ignore this message and consider changing your password."
+    },
     "emailChangeConfirmation": {
       "subject": "Confirm your e-mail address change",
       "body": "Hello!\n\nWe received a request to change your account's e-mail address to: {newEmail}\n\nTo approve it, click:\n{confirmUrl}\n\nWe will then send a link to the new address — the change takes effect only after that second link is clicked.\n\nIf you did not request this, do not click and reset your password immediately — someone may have access to your account."

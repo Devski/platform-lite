@@ -20,6 +20,10 @@
       "subject": "Twoje hasło zostało zmienione",
       "body": "Cześć!\n\nHasło do Twojego konta zostało właśnie zmienione.\n\nJeśli to nie Ty — jak najszybciej użyj opcji resetu hasła i zabezpiecz swoją skrzynkę e-mail."
     },
+    "twoFactorCode": {
+      "subject": "Twój kod logowania",
+      "body": "Cześć!\n\nTwój jednorazowy kod logowania:\n{code}\n\nKod jest ważny kilka minut. Jeśli to nie Ty próbujesz się zalogować, zignoruj tę wiadomość i rozważ zmianę hasła."
+    },
     "emailChangeConfirmation": {
       "subject": "Potwierdź zmianę adresu e-mail",
       "body": "Cześć!\n\nOtrzymaliśmy prośbę o zmianę adresu e-mail Twojego konta na: {newEmail}\n\nAby ją zatwierdzić, kliknij:\n{confirmUrl}\n\nPotem wyślemy link na nowy adres — zmiana zacznie obowiązywać dopiero po kliknięciu tego drugiego linku.\n\nJeśli to nie Ty prosiłeś o zmianę, nie klikaj i natychmiast zresetuj hasło — ktoś może mieć dostęp do Twojego konta."

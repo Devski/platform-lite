@@ -28,6 +28,7 @@ const SAMPLES_BY_KIND: {
     params: { resetUrl: "https://x.test/reset?t=3" },
   },
   passwordChanged: { kind: "passwordChanged", params: {} },
+  twoFactorCode: { kind: "twoFactorCode", params: { code: "012345" } },
   emailChangeConfirmation: {
     kind: "emailChangeConfirmation",
     params: { confirmUrl: "https://x.test/confirm?t=4", newEmail: "new@example.com" },

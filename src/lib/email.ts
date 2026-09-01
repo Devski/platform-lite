@@ -14,6 +14,8 @@ export type EmailTemplate =
   | { kind: "accountReverification"; params: { verifyUrl: string } }
   | { kind: "passwordReset"; params: { resetUrl: string } }
   | { kind: "passwordChanged"; params: Record<string, never> }
+  // #29: the one-time login code for e-mail-based two-factor authentication.
+  | { kind: "twoFactorCode"; params: { code: string } }
   // A10 "address change ×2", two-step (decision of 01.09.2026): the CURRENT
   // address must approve before anything moves — so the confirmation link
   // goes there and doubles as the "someone is changing your address" notice

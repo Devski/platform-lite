@@ -1,6 +1,7 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware } from "better-auth/api";
+import { twoFactor } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
 import { getDb, type Database } from "@/db/client";
 import * as schema from "@/db/schema";
@@ -358,6 +359,33 @@ export function createAuth(options: {
         "/change-password": { window: 60 * 60, max: 10 },
       },
     },
+    // #29: optional two-factor authentication, opt-in per user (decision of
+    // 01.09.2026 — both methods). Two ways to enrol:
+    //   - e-mail OTP: the easy default; a 6-digit code to the account address
+    //     at each login. Big win against leaked/reused passwords, zero setup.
+    //   - TOTP (authenticator app) + backup codes: the stronger option that
+    //     also survives a compromised mailbox.
+    // The plugin encrypts the TOTP secret and backup codes at rest and locks
+    // the account after 10 failed challenges for 15 minutes (defaults kept).
+    plugins: [
+      twoFactor({
+        otpOptions: {
+          // Store only a hash of the live code, never the plaintext (default
+          // is "plain"); it is short-lived but there is no reason to keep it.
+          storeOTP: "hashed",
+          // Unlike the emailAndPassword callbacks (which receive the Request),
+          // the plugin hands this one the whole endpoint context — the Request
+          // is on ctx.request.
+          async sendOTP({ user, otp }, ctx) {
+            await sendEmail({
+              to: user.email,
+              locale: localeFromRequest(ctx?.request),
+              template: { kind: "twoFactorCode", params: { code: otp } },
+            });
+          },
+        },
+      }),
+    ],
   });
 }
 
