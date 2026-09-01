@@ -3,6 +3,7 @@
 import { useTranslations } from "next-intl";
 import { useRef, useState } from "react";
 import { useRouter } from "@/i18n/navigation";
+import { postJson } from "@/lib/api-client";
 import { AVATAR_CONTENT_TYPES, AVATAR_MAX_BYTES } from "@/lib/avatar-shared";
 import { IMMUTABLE_CACHE_CONTROL } from "@/lib/storage-shared";
 
@@ -50,24 +51,22 @@ export function AvatarSection({ currentUrl }: { currentUrl: string | null }) {
 
     setBusy(true);
     try {
-      const presign = await fetch("/api/avatar/presign", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sizeBytes: file.size, contentType: file.type }),
-      });
-      const presignBody = (await presign.json()) as {
+      const presign = await postJson<{
         error?: string;
         stagingKey?: string;
         uploadUrl?: string;
-      };
-      if (!presign.ok || !presignBody.stagingKey || !presignBody.uploadUrl) {
-        setError(serverError(presignBody.error, presign.status));
+      }>("/api/avatar/presign", {
+        sizeBytes: file.size,
+        contentType: file.type,
+      });
+      if (!presign.ok || !presign.data.stagingKey || !presign.data.uploadUrl) {
+        setError(serverError(presign.data.error, presign.status));
         return;
       }
 
       // The three headers ride the presigned signature — storage refuses the
       // upload if any of them differs from what the server declared.
-      const upload = await fetch(presignBody.uploadUrl, {
+      const upload = await fetch(presign.data.uploadUrl, {
         method: "PUT",
         headers: {
           "content-type": file.type,
@@ -80,28 +79,21 @@ export function AvatarSection({ currentUrl }: { currentUrl: string | null }) {
         return;
       }
 
-      const confirm = await fetch("/api/avatar/confirm", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ stagingKey: presignBody.stagingKey }),
-      });
-      const confirmBody = (await confirm.json()) as {
+      const confirm = await postJson<{
         error?: string;
         original?: { fileId: string };
-      };
-      if (!confirm.ok || !confirmBody.original) {
-        setError(serverError(confirmBody.error, confirm.status));
+      }>("/api/avatar/confirm", { stagingKey: presign.data.stagingKey });
+      if (!confirm.ok || !confirm.data.original) {
+        setError(serverError(confirm.data.error, confirm.status));
         return;
       }
 
-      const assign = await fetch("/api/profile/avatar", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ fileId: confirmBody.original.fileId }),
-      });
+      const assign = await postJson<{ error?: string }>(
+        "/api/profile/avatar",
+        { fileId: confirm.data.original.fileId },
+      );
       if (!assign.ok) {
-        const assignBody = (await assign.json()) as { error?: string };
-        setError(serverError(assignBody.error, assign.status));
+        setError(serverError(assign.data.error, assign.status));
         return;
       }
 

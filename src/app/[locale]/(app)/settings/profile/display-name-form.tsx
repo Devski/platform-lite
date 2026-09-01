@@ -3,6 +3,7 @@
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { useRouter } from "@/i18n/navigation";
+import { postJson } from "@/lib/api-client";
 import { DISPLAY_NAME_MAX, displayNameSchema } from "@/lib/profile-schemas";
 
 export function DisplayNameForm({ initialName }: { initialName: string }) {
@@ -26,10 +27,8 @@ export function DisplayNameForm({ initialName }: { initialName: string }) {
 
     setSaving(true);
     try {
-      const response = await fetch("/api/profile", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ displayName: parsed.data }),
+      const response = await postJson("/api/profile", {
+        displayName: parsed.data,
       });
       if (!response.ok) {
         setError(

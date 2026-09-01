@@ -124,7 +124,7 @@ describe("setAvatar + getProfile (A4, G2)", () => {
     const [variantRow] = await testDb.db
       .select({ id: files.id })
       .from(files)
-      .where(eqKind("avatar-512"));
+      .where(eq(files.kind, "avatar-512"));
     await expect(setAvatar(d.deps, variantRow.id)).rejects.toMatchObject({
       code: "invalid_avatar",
     });
@@ -196,6 +196,3 @@ describe("setAvatar + getProfile (A4, G2)", () => {
   });
 });
 
-function eqKind(kind: "avatar-512" | "avatar-128" | "avatar-original") {
-  return eq(files.kind, kind);
-}
