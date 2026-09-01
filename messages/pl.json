@@ -65,9 +65,60 @@
     "logIn": "Zaloguj się",
     "register": "Załóż konto",
     "signedInAs": "Zalogowano jako {email}",
+    "settings": "Ustawienia konta",
     "logOut": "Wyloguj",
     "loggingOut": "Wylogowywanie…",
     "error": "Nie udało się wylogować. Spróbuj ponownie."
+  },
+  "Settings": {
+    "account": {
+      "title": "Ustawienia konta",
+      "heading": "Ustawienia konta",
+      "currentEmail": "Adres konta: {email}",
+      "password": {
+        "heading": "Zmiana hasła",
+        "currentLabel": "Bieżące hasło",
+        "newLabel": "Nowe hasło",
+        "newHint": "Od {min} do {max} znaków — bez żadnych dodatkowych wymagań.",
+        "submit": "Zmień hasło",
+        "submitting": "Zapisywanie…",
+        "done": "Hasło zmienione. Pozostałe urządzenia zostały wylogowane.",
+        "errors": {
+          "currentRequired": "Podaj bieżące hasło.",
+          "wrongCurrent": "Bieżące hasło jest nieprawidłowe.",
+          "passwordTooShort": "Hasło musi mieć co najmniej {min} znaków.",
+          "passwordTooLong": "Hasło może mieć najwyżej {max} znaków.",
+          "rateLimited": "Limit 10 prób na godzinę został wykorzystany. Spróbuj później.",
+          "generic": "Zmiana hasła nie powiodła się. Spróbuj ponownie."
+        }
+      },
+      "email": {
+        "heading": "Zmiana adresu e-mail",
+        "newLabel": "Nowy adres e-mail",
+        "submit": "Wyślij link potwierdzający",
+        "submitting": "Wysyłanie…",
+        "sent": {
+          "heading": "Sprawdź nową skrzynkę",
+          "body": "Jeśli adres {email} jest dostępny, wysłaliśmy na niego link potwierdzający (ważny 24 godziny), a na obecny adres — powiadomienie. Do czasu potwierdzenia nic się nie zmienia."
+        },
+        "errors": {
+          "emailInvalid": "Podaj poprawny adres e-mail.",
+          "sameEmail": "To jest obecny adres tego konta.",
+          "rateLimited": "Limit 3 żądań na godzinę został wykorzystany. Spróbuj później.",
+          "generic": "Wysyłka nie powiodła się. Spróbuj ponownie."
+        }
+      }
+    }
+  },
+  "EmailChanged": {
+    "title": "Zmiana adresu",
+    "successHeading": "Adres potwierdzony",
+    "successBody": "Adres e-mail Twojego konta został zmieniony.",
+    "expiredHeading": "Link wygasł",
+    "expiredBody": "Link potwierdzający był ważny przez 24 godziny. Zaloguj się i poproś o zmianę ponownie.",
+    "invalidHeading": "Nieprawidłowy link",
+    "invalidBody": "Ten link jest niepoprawny, został unieważniony (np. przez reset hasła albo nowszą prośbę) lub już wykorzystany.",
+    "settingsLink": "Przejdź do ustawień konta"
   },
   "Register": {
     "title": "Rejestracja",

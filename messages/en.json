@@ -65,9 +65,60 @@
     "logIn": "Log in",
     "register": "Sign up",
     "signedInAs": "Signed in as {email}",
+    "settings": "Account settings",
     "logOut": "Log out",
     "loggingOut": "Logging out…",
     "error": "Logging out failed. Try again."
+  },
+  "Settings": {
+    "account": {
+      "title": "Account settings",
+      "heading": "Account settings",
+      "currentEmail": "Account address: {email}",
+      "password": {
+        "heading": "Change password",
+        "currentLabel": "Current password",
+        "newLabel": "New password",
+        "newHint": "{min} to {max} characters — no other requirements.",
+        "submit": "Change the password",
+        "submitting": "Saving…",
+        "done": "Password changed. Your other devices have been signed out.",
+        "errors": {
+          "currentRequired": "Enter your current password.",
+          "wrongCurrent": "The current password is incorrect.",
+          "passwordTooShort": "The password needs at least {min} characters.",
+          "passwordTooLong": "The password can have at most {max} characters.",
+          "rateLimited": "The limit of 10 attempts per hour is used up. Try again later.",
+          "generic": "Changing the password failed. Try again."
+        }
+      },
+      "email": {
+        "heading": "Change e-mail address",
+        "newLabel": "New e-mail address",
+        "submit": "Send the confirmation link",
+        "submitting": "Sending…",
+        "sent": {
+          "heading": "Check the new inbox",
+          "body": "If {email} is available, we sent it a confirmation link (valid for 24 hours) and a notice to your current address. Nothing changes until it is confirmed."
+        },
+        "errors": {
+          "emailInvalid": "Enter a valid e-mail address.",
+          "sameEmail": "This is already the account's address.",
+          "rateLimited": "The limit of 3 requests per hour is used up. Try again later.",
+          "generic": "Sending failed. Try again."
+        }
+      }
+    }
+  },
+  "EmailChanged": {
+    "title": "Address change",
+    "successHeading": "Address confirmed",
+    "successBody": "Your account's e-mail address has been changed.",
+    "expiredHeading": "The link has expired",
+    "expiredBody": "The confirmation link was valid for 24 hours. Log in and request the change again.",
+    "invalidHeading": "Invalid link",
+    "invalidBody": "This link is invalid, has been revoked (for example by a password reset or a newer request) or has already been used.",
+    "settingsLink": "Go to the account settings"
   },
   "Register": {
     "title": "Sign up",

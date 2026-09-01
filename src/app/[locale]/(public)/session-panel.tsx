@@ -59,6 +59,12 @@ export function SessionPanel() {
         <span className="text-gray-600">
           {t("signedInAs", { email: data.user.email })}
         </span>
+        <Link
+          href="/settings/account"
+          className="font-semibold text-blue-700 hover:underline"
+        >
+          {t("settings")}
+        </Link>
         <button
           type="button"
           onClick={handleSignOut}
