@@ -1,6 +1,10 @@
 import { randomBytes } from "node:crypto";
-import { afterAll, describe, expect, it } from "vitest";
-import { createS3Storage, IMMUTABLE_CACHE_CONTROL } from "./storage";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  createS3Storage,
+  IMMUTABLE_CACHE_CONTROL,
+  type FileStorage,
+} from "./storage";
 
 // Real-bucket integration suite (issue #11 verification: platform-dev under
 // the per-developer prefix). Gated on the S3_* environment exactly like the
@@ -13,15 +17,18 @@ const configured = ["S3_ENDPOINT", "S3_REGION", "S3_BUCKET", "S3_KEY", "S3_SECRE
   .every(Boolean);
 
 describe.runIf(configured)("S3 storage against the real bucket", () => {
-  const storage = configured
-    ? createS3Storage({
-        endpoint: process.env.S3_ENDPOINT!,
-        region: process.env.S3_REGION!,
-        bucket: process.env.S3_BUCKET!,
-        accessKeyId: process.env.S3_KEY!,
-        secretAccessKey: process.env.S3_SECRET!,
-      })
-    : null!;
+  // Lazy on purpose: beforeAll never runs when the suite is skipped, so the
+  // unconfigured environment constructs nothing.
+  let storage: FileStorage;
+  beforeAll(() => {
+    storage = createS3Storage({
+      endpoint: process.env.S3_ENDPOINT!,
+      region: process.env.S3_REGION!,
+      bucket: process.env.S3_BUCKET!,
+      accessKeyId: process.env.S3_KEY!,
+      secretAccessKey: process.env.S3_SECRET!,
+    });
+  });
   // Unique per run, under the SPEC §4 developer prefix, cleaned up at the end.
   const prefix = `devski/test-${randomBytes(6).toString("hex")}/`;
   const written: string[] = [];
