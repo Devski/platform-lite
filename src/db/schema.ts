@@ -230,5 +230,12 @@ export const files = pgTable(
   (table) => [
     // Covering index: the A9 quota SUM(size_bytes) per user is index-only.
     index("files_user_id_size_bytes_idx").on(table.userId, table.sizeBytes),
+    // #12: identical bytes are stored once (G2), so they are RECORDED once —
+    // a replayed confirm upserts instead of over-counting the A9 quota.
+    uniqueIndex("files_user_sha256_kind_unique").on(
+      table.userId,
+      table.sha256,
+      table.kind,
+    ),
   ],
 );

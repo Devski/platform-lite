@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { and, eq } from "drizzle-orm";
 import sharp from "sharp";
 import { z } from "zod";
 import type { Database } from "@/db/client";
@@ -15,6 +16,11 @@ import { contentKey, ObjectNotFoundError, type FileStorage } from "@/lib/storage
 
 // A4: JPEG/PNG/WebP up to 10 MB.
 export const AVATAR_MAX_BYTES = 10 * 1024 * 1024;
+
+// Decode ceiling on top of the byte cap: a mostly-flat 250-megapixel PNG fits
+// in 10 MB yet decodes to gigabytes. 64 MP comfortably covers every real
+// camera photo. (sharp's own ~268 MP limit stays on as the outer bomb guard.)
+export const AVATAR_MAX_PIXELS = 64_000_000;
 export const AVATAR_CONTENT_TYPES = [
   "image/jpeg",
   "image/png",
@@ -122,61 +128,103 @@ export async function confirmAvatarUpload(
     throw new AvatarUploadError("too_large");
   }
 
-  // Decode-verify (sharp's default input-pixel limit stays on as the
-  // decompression-bomb guard). The decoded format is authoritative.
+  // Decode-verify. The decoded format is authoritative; metadata() only
+  // parses the header, so the full-decode steps below stay guarded too.
   let format: string | undefined;
+  let width: number | undefined;
+  let height: number | undefined;
   try {
-    format = (await sharp(original).metadata()).format;
+    ({ format, width, height } = await sharp(original).metadata());
   } catch {
     throw new AvatarUploadError("not_an_image");
   }
   const known = format ? FORMATS[format] : undefined;
   if (!known) throw new AvatarUploadError("unsupported_format");
+  if ((width ?? 0) * (height ?? 0) > AVATAR_MAX_PIXELS) {
+    throw new AvatarUploadError("too_large");
+  }
 
-  // G2: the original is named by its own bytes; the variants are named by the
-  // ORIGINAL's hash + size suffix, so every URL is derivable from the one
-  // sha256 stored on the original's files row (#14/#18 need no extra lookup).
-  // The variant rows still record their own real sha256/size. Regenerating
-  // variants in place (a sharp upgrade) would need new names — accepted; a
-  // migration task would bump the suffix.
-  const originalHash = sha256(original);
+  // Review findings (01.09.2026): the published original is a RE-ENCODE, not
+  // the uploaded bytes — sharp strips every metadata block (EXIF GPS, device
+  // serial: the object sits at a public, derivable URL) and autoOrient bakes
+  // the EXIF rotation into the pixels (0.35 defaults it OFF; without it every
+  // portrait phone photo would publish sideways variants under immutable
+  // names). A small re-encode loss on JPEG is the accepted price. The G2
+  // hash is therefore the hash of the PUBLISHED bytes.
+  let scrubbed: Buffer;
+  let variantBodies: Buffer[];
+  try {
+    scrubbed = await sharp(original, { autoOrient: true })
+      .toFormat(format as "jpeg" | "png" | "webp")
+      .toBuffer();
+    variantBodies = await Promise.all(
+      AVATAR_VARIANTS.map(({ px }) =>
+        sharp(scrubbed)
+          .resize(px, px, { fit: "cover", position: "centre" })
+          .webp()
+          .toBuffer(),
+      ),
+    );
+  } catch {
+    // Header parsed but the pixel stream is truncated/corrupt.
+    throw new AvatarUploadError("not_an_image");
+  }
+
+  // G2: the original is named by its published bytes; the variants are named
+  // by the ORIGINAL's hash + size suffix, so every URL is derivable from the
+  // one sha256 stored on the original's files row (#14/#18 need no extra
+  // lookup). The variant rows still record their own real sha256/size.
+  // Regenerating variants in place (a sharp upgrade) would need new names —
+  // accepted; a migration task would bump the suffix.
+  const originalHash = sha256(scrubbed);
   const originalKey = contentKey(originalHash, known.ext, prefix);
+  const variants = AVATAR_VARIANTS.map(({ kind, px }, index) => ({
+    kind,
+    px,
+    body: variantBodies[index],
+    key: contentKey(`${originalHash}-${px}`, "webp", prefix),
+  }));
 
-  const variants = await Promise.all(
-    AVATAR_VARIANTS.map(async ({ kind, px }) => {
-      const body = await sharp(original)
-        .resize(px, px, { fit: "cover", position: "centre" })
-        .webp()
-        .toBuffer();
-      return { kind, px, body, key: contentKey(`${originalHash}-${px}`, "webp", prefix) };
-    }),
-  );
-
-  await storage.putObject(originalKey, original, known.contentType);
+  await storage.putObject(originalKey, scrubbed, known.contentType);
   for (const variant of variants) {
     await storage.putObject(variant.key, variant.body, "image/webp");
   }
 
+  // Idempotent by content (unique user_id+sha256+kind): a replayed confirm —
+  // the presigned URL stays live for its TTL — re-records nothing, so the A9
+  // quota never counts the same stored bytes twice. onConflictDoNothing
+  // returns no rows for the duplicates; the select below serves both paths.
+  const rowValues = [
+    {
+      userId,
+      sha256: originalHash,
+      sizeBytes: scrubbed.length,
+      kind: "avatar-original" as const,
+    },
+    ...variants.map((variant) => ({
+      userId,
+      sha256: sha256(variant.body),
+      sizeBytes: variant.body.length,
+      kind: variant.kind,
+    })),
+  ];
+  await db.insert(files).values(rowValues).onConflictDoNothing();
   const rows = await db
-    .insert(files)
-    .values([
-      {
-        userId,
-        sha256: originalHash,
-        sizeBytes: original.length,
-        kind: "avatar-original" as const,
-      },
-      ...variants.map((variant) => ({
-        userId,
-        sha256: sha256(variant.body),
-        sizeBytes: variant.body.length,
-        kind: variant.kind,
-      })),
-    ])
-    .returning({ id: files.id, kind: files.kind });
+    .select({ id: files.id, kind: files.kind })
+    .from(files)
+    .where(
+      and(
+        eq(files.userId, userId),
+        eq(files.sha256, originalHash),
+        eq(files.kind, "avatar-original"),
+      ),
+    );
 
   // Best-effort: the published state is complete; a failed cleanup only
-  // leaves a staging object for the (future) reconciliation sweep.
+  // leaves a staging object behind. Residue classes for the (future)
+  // reconciliation sweep, all rare and none user-visible: an undeleted
+  // staging object; published `a/` objects with no rows (puts succeeded, the
+  // insert failed — a client retry heals it, since staging still exists).
   try {
     await storage.deleteObject(input.stagingKey);
   } catch (error) {

@@ -187,6 +187,19 @@ describe("S3 storage (offline: URL composition and signing)", () => {
   });
 });
 
+describe("keyPrefix (SPEC §4 scoping)", () => {
+  it("passes a proper prefix through, forces the trailing slash, defaults empty", async () => {
+    const fresh = await import("./storage");
+    vi.stubEnv("S3_PREFIX", "devski/");
+    expect(fresh.keyPrefix()).toBe("devski/");
+    vi.stubEnv("S3_PREFIX", "devski");
+    expect(fresh.keyPrefix()).toBe("devski/");
+    vi.stubEnv("S3_PREFIX", "");
+    expect(fresh.keyPrefix()).toBe("");
+    vi.unstubAllEnvs();
+  });
+});
+
 describe("getStorage environment wiring", () => {
   // A valid environment is the baseline; each test states only its deviation
   // (same convention as the getAuth suite in auth.test.ts).

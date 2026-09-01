@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { parseJsonBody, sessionUserId } from "@/lib/api-route";
+import { checkRateLimit, parseJsonBody, sessionUserId } from "@/lib/api-route";
 import { AvatarUploadError, confirmAvatarUpload } from "@/lib/avatar";
 import { getDb } from "@/db/client";
 import { getStorage, keyPrefix } from "@/lib/storage";
@@ -15,6 +15,10 @@ export async function POST(request: Request) {
   const userId = await sessionUserId();
   if (!userId) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+  // Tighter than presign: each confirm decodes and re-encodes up to 10 MB.
+  if (!checkRateLimit(`avatar-confirm:${userId}`, { windowSeconds: 60, max: 5 })) {
+    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
 
   const input = await parseJsonBody(request, confirmSchema);

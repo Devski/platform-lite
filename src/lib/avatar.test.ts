@@ -283,4 +283,92 @@ describe("confirmAvatarUpload (A4, G2, G5)", () => {
     expect(error).toBeInstanceOf(Error);
     expect(error.code).toBe("not_found");
   });
+
+  it("bakes the EXIF orientation into the published pixels (portrait phones)", async () => {
+    const d = deps();
+    // A 300x200 landscape marked Orientation 6 (rotate 90 CW to display):
+    // the honest output is 200x300 portrait everywhere.
+    const rotated = await sharp({
+      create: {
+        width: 300,
+        height: 200,
+        channels: 3,
+        background: { r: 10, g: 200, b: 10 },
+      },
+    })
+      .jpeg()
+      .withMetadata({ orientation: 6 })
+      .toBuffer();
+    const stagingKey = await staged(d, rotated, "image/jpeg");
+    const result = await confirmAvatarUpload(d.common, { stagingKey });
+
+    const published = d.objects.get(result.original.key)!.body;
+    const meta = await sharp(published).metadata();
+    expect(meta.width).toBe(200);
+    expect(meta.height).toBe(300);
+    expect(meta.orientation).toBeUndefined();
+  });
+
+  it("publishes a metadata-scrubbed re-encode, never the uploaded bytes", async () => {
+    const d = deps();
+    const withExif = await sharp({
+      create: {
+        width: 320,
+        height: 240,
+        channels: 3,
+        background: { r: 5, g: 5, b: 120 },
+      },
+    })
+      .jpeg()
+      .withMetadata({ orientation: 3, density: 300 })
+      .toBuffer();
+    const stagingKey = await staged(d, withExif, "image/jpeg");
+    const result = await confirmAvatarUpload(d.common, { stagingKey });
+
+    const published = d.objects.get(result.original.key)!.body;
+    expect(published.equals(withExif)).toBe(false);
+    // G2: the content address is the hash of the PUBLISHED bytes.
+    expect(result.original.sha256).toBe(sha256(published));
+    expect((await sharp(published).metadata()).orientation).toBeUndefined();
+  });
+
+  it("maps a truncated pixel stream to not_an_image, publishing nothing", async () => {
+    const d = deps();
+    const whole = await makeImage("jpeg");
+    // The header survives; the pixel data does not.
+    const truncated = whole.subarray(0, Math.floor(whole.length / 2));
+    const stagingKey = await staged(d, Buffer.from(truncated), "image/jpeg");
+    await expect(
+      confirmAvatarUpload(d.common, { stagingKey }),
+    ).rejects.toMatchObject({ code: "not_an_image" });
+    expect(await testDb.db.select().from(files)).toHaveLength(0);
+    expect(
+      [...d.objects.keys()].filter((key) => key.includes("/a/")),
+    ).toHaveLength(0);
+  });
+
+  it("rejects images over the pixel ceiling before decoding them", async () => {
+    const d = deps();
+    // 9000x8000 = 72 MP > the 64 MP ceiling; flat PNG, tiny on disk.
+    const huge = await makeImage("png", 9000, 8000);
+    const stagingKey = await staged(d, huge);
+    await expect(
+      confirmAvatarUpload(d.common, { stagingKey }),
+    ).rejects.toMatchObject({ code: "too_large" });
+  });
+
+  it("replayed confirms re-record nothing (A9 quota integrity)", async () => {
+    const d = deps();
+    const original = await makeImage("png", 400, 400);
+    const stagingKey = await staged(d, original);
+    const first = await confirmAvatarUpload(d.common, { stagingKey });
+
+    // The presigned URL outlives the first confirm; the client re-PUTs the
+    // same bytes and confirms again.
+    await d.storage.putObject(stagingKey, original, "image/png");
+    const second = await confirmAvatarUpload(d.common, { stagingKey });
+
+    expect(second.original.fileId).toBe(first.original.fileId);
+    expect(await testDb.db.select().from(files)).toHaveLength(3);
+  });
 });

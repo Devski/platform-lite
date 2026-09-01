@@ -15,6 +15,13 @@
       "when": 1788259350433,
       "tag": "0001_abandoned_starjammers",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788269464945,
+      "tag": "0002_orange_the_leader",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "files_user_sha256_kind_unique" ON "files" USING btree ("user_id","sha256","kind");

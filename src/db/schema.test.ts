@@ -161,6 +161,7 @@ describe("generated migration SQL (G6 — migrations are the source of truth)", 
       'CREATE INDEX "sessions_user_id_idx" ON "sessions" USING btree ("user_id")',
       'CREATE INDEX "verifications_identifier_idx" ON "verifications" USING btree ("identifier")',
       'CREATE UNIQUE INDEX "two_factors_user_id_unique" ON "two_factors" USING btree ("user_id")',
+      'CREATE UNIQUE INDEX "files_user_sha256_kind_unique" ON "files" USING btree ("user_id","sha256","kind")',
     ]) {
       expect(sql).toContain(ddl);
     }

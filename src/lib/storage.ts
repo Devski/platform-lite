@@ -61,9 +61,13 @@ export function contentKey(hash: string, ext: string, prefix = ""): string {
 
 // SPEC §4: dev and PR environments scope their keys (`devski/`, `pr-7/`);
 // production uses the bare bucket. Optional on purpose — requireEnv would
-// make the empty production value an error.
+// make the empty production value an error. The trailing slash is enforced,
+// so `S3_PREFIX=devski` cannot silently fuse into `devskia/...` keys (and a
+// future by-prefix cleanup cannot match `pr-70/` when it means `pr-7/`).
 export function keyPrefix(): string {
-  return process.env.S3_PREFIX?.trim() ?? "";
+  const prefix = process.env.S3_PREFIX?.trim() ?? "";
+  if (prefix === "" || prefix.endsWith("/")) return prefix;
+  return `${prefix}/`;
 }
 
 const PRESIGN_EXPIRES_SECONDS = 600;
