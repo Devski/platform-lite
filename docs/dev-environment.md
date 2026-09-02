@@ -74,17 +74,22 @@ What it does:
 
 4. `aws --endpoint-url https://s3.waw.io.cloud.ovh.net s3 ls s3://platform-dev` —
    empty listing, no error.
-5. `pnpm dev` renders http://localhost:3000. (The app does not touch the database yet —
-   database-backed verification arrives with the schema task.)
+5. `pnpm db:migrate`, then `pnpm db:seed` — both go through the tunnel; the seed reports
+   14 created profiles and prints the password. `pnpm dev` then renders
+   http://localhost:3000; sign in with a seed account (`<handle>@seed.example`) and the
+   settings pages show the seeded profile (the public page arrives with #18).
 
 ## Restore after a disaster (G10 direction)
 
-Dev data is disposable — `pnpm db:seed` recreates it (G7). Restore = delete and re-run
-with the same inputs:
+Dev data is disposable: on a fresh database, `pnpm db:migrate && pnpm db:seed` recreates it
+(G7); the seed adds, it never resets. Restore = delete and re-run with the same inputs,
+then rebuild the data through the tunnel (Part 3, steps 1–2):
 
 ```
 openstack server delete platform-dev
 ./scripts/bootstrap-dev.sh
+pnpm db:migrate
+pnpm db:seed
 ```
 
 The bucket and its objects live independently of the instance and survive its loss.

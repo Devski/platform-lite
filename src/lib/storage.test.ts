@@ -5,6 +5,7 @@ import {
   createS3Storage,
   IMMUTABLE_CACHE_CONTROL,
   isNotFound,
+  isStorageConfigured,
   ObjectNotFoundError,
 } from "./storage";
 
@@ -19,7 +20,9 @@ describe("contentKey (G2)", () => {
   });
 
   it("scopes with the per-developer or per-PR prefix", () => {
-    expect(contentKey("abc123", "webp", "devski/")).toBe("devski/a/abc123.webp");
+    expect(contentKey("abc123", "webp", "devski/")).toBe(
+      "devski/a/abc123.webp",
+    );
   });
 });
 
@@ -197,6 +200,35 @@ describe("keyPrefix (SPEC §4 scoping)", () => {
     vi.stubEnv("S3_PREFIX", "");
     expect(fresh.keyPrefix()).toBe("");
     vi.unstubAllEnvs();
+  });
+});
+
+describe("isStorageConfigured (the S3_* probe)", () => {
+  const S3_ENV = {
+    S3_ENDPOINT: "https://s3.waw.io.cloud.ovh.net",
+    S3_REGION: "waw",
+    S3_BUCKET: "platform-dev",
+    S3_KEY: "k",
+    S3_SECRET: "s",
+  };
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("is true when all five variables are set", () => {
+    for (const [name, value] of Object.entries(S3_ENV)) {
+      vi.stubEnv(name, value);
+    }
+    expect(isStorageConfigured()).toBe(true);
+  });
+
+  it("is false when one of them is blank — the same names getStorage requires", () => {
+    for (const [name, value] of Object.entries(S3_ENV)) {
+      vi.stubEnv(name, value);
+    }
+    vi.stubEnv("S3_SECRET", "   ");
+    expect(isStorageConfigured()).toBe(false);
   });
 });
 

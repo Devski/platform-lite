@@ -3,7 +3,7 @@ import { hashPassword } from "better-auth/crypto";
 import { eq } from "drizzle-orm";
 import sharp from "sharp";
 import type { Database } from "@/db/client";
-import { accounts, users } from "@/db/schema";
+import { accounts, profiles, users } from "@/db/schema";
 import {
   confirmAvatarUpload,
   presignAvatarUpload,
@@ -22,8 +22,10 @@ import type { FileStorage } from "@/lib/storage";
 //
 // G7 — kept current with the schema and the profile features: a new profile
 // field means a new column in SEED_PROFILES and a new step in createProfile;
-// a changed profile layer changes the step that calls it, in the same change.
-// The suite fails the moment the seed and the application disagree.
+// a changed profile layer changes the step that calls it, in the same change;
+// a changed environment contract (the S3_* names behind isStorageConfigured,
+// DATABASE_URL) changes the CLI, scripts/seed.ts. The suite fails the moment
+// the seed and the application disagree.
 //
 // Account-row contract. Accounts are inserted directly, not through
 // auth.api.signUpEmail — that would send verification e-mails and trip the
@@ -135,9 +137,13 @@ function initialsOf(displayName: string): string {
 
 /** A 512×512 PNG: white initials on a color derived from the name. */
 export async function avatarPng(displayName: string): Promise<Buffer> {
+  // Named faces first: the Windows sharp build ignores a bare `sans-serif`,
+  // so the initials would not render there. DejaVu Sans is what the Linux
+  // runners carry, Arial/Helvetica what Windows and macOS have; the generic
+  // family stays as the last resort.
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${AVATAR_PX}" height="${AVATAR_PX}">
   <rect width="100%" height="100%" fill="${backgroundHex(displayName)}"/>
-  <text x="50%" y="50%" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="220" font-weight="700" fill="#ffffff">${initialsOf(displayName)}</text>
+  <text x="50%" y="50%" text-anchor="middle" dominant-baseline="central" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="220" font-weight="700" fill="#ffffff">${initialsOf(displayName)}</text>
 </svg>`;
   return sharp(Buffer.from(svg)).png().toBuffer();
 }
@@ -157,12 +163,42 @@ export interface SeedDeps {
 export interface SeedSummary {
   created: string[];
   skipped: string[];
+  /** Profiles that got a photo in this run: created with one, or resumed. */
   photos: string[];
 }
 
 type CreateOutcome =
   | { kind: "created"; userId: string }
-  | { kind: "skipped"; reason: "e-mail exists" | "handle taken" };
+  | { kind: "skipped"; reason: "e-mail exists" | "handle taken" }
+  // Ours from an earlier run without a storage — the seed's handle on the
+  // seed's e-mail, avatar_file_id NULL — and a storage is present now.
+  | { kind: "photo missing"; userId: string };
+
+// The account-row contract from the header, in one place: the users row and
+// its credential account exactly as Better Auth 1.7.2 leaves them after
+// sign-up. Returns the new user's id.
+async function insertAccount(
+  db: Database,
+  profile: SeedProfile,
+  password: string,
+): Promise<string> {
+  const [user] = await db
+    .insert(users)
+    .values({
+      name: profile.email.split("@")[0],
+      email: profile.email,
+      emailVerified: true,
+    })
+    .returning({ id: users.id });
+  await db.insert(accounts).values({
+    userId: user.id,
+    providerId: "credential",
+    issuer: "local:credential",
+    accountId: user.id,
+    password,
+  });
+  return user.id;
+}
 
 // The account and its profile land in ONE transaction: a failure part-way —
 // the handle already held by a real account, say — leaves no half-profile
@@ -172,37 +208,37 @@ type CreateOutcome =
 async function createProfile(
   db: Database,
   profile: SeedProfile,
+  canAddPhoto: boolean,
 ): Promise<CreateOutcome> {
   const [existing] = await db
-    .select({ id: users.id })
+    .select({
+      id: users.id,
+      handle: profiles.handle,
+      avatarFileId: profiles.avatarFileId,
+    })
     .from(users)
+    .leftJoin(profiles, eq(profiles.userId, users.id))
     .where(eq(users.email, profile.email));
-  if (existing) return { kind: "skipped", reason: "e-mail exists" };
+  if (existing) {
+    // The seed's own account is told from a real user's by the handle: a
+    // different one means someone registered the address, and it stays theirs.
+    const ours = existing.handle === profile.handle;
+    if (ours && existing.avatarFileId === null && canAddPhoto) {
+      return { kind: "photo missing", userId: existing.id };
+    }
+    return { kind: "skipped", reason: "e-mail exists" };
+  }
 
   // scrypt takes ~100 ms — hashed before the transaction opens, per account
   // (a fresh salt each, as sign-up would).
   const password = await hashPassword(SEED_PASSWORD);
   try {
     return await db.transaction(async (tx) => {
-      const [user] = await tx
-        .insert(users)
-        .values({
-          name: profile.email.split("@")[0],
-          email: profile.email,
-          emailVerified: true,
-        })
-        .returning({ id: users.id });
-      await tx.insert(accounts).values({
-        userId: user.id,
-        providerId: "credential",
-        issuer: "local:credential",
-        accountId: user.id,
-        password,
-      });
-      await updateDisplayName({ db: tx, userId: user.id }, profile.displayName);
+      const userId = await insertAccount(tx, profile, password);
+      await updateDisplayName({ db: tx, userId }, profile.displayName);
       // An initial assignment: no cooldown stamp (A6).
-      await setHandle(tx, user.id, profile.handle);
-      return { kind: "created", userId: user.id };
+      await setHandle(tx, userId, profile.handle);
+      return { kind: "created", userId };
     });
   } catch (error) {
     if (error instanceof HandleError && error.code === "taken") {
@@ -233,27 +269,34 @@ async function uploadAvatar(
 /**
  * Seed every SEED_PROFILES entry that does not exist yet. Idempotent: an
  * existing e-mail (or a handle held by another account) is skipped and
- * reported; nothing is ever deleted. Photos only with a storage.
+ * reported; nothing is ever deleted. Photos only with a storage — and
+ * resumable: a seed account left without one by an earlier run gets its
+ * photo the first time a storage is present.
  */
 export async function seedProfiles(deps: SeedDeps): Promise<SeedSummary> {
   const { db, storage, prefix, log } = deps;
   const summary: SeedSummary = { created: [], skipped: [], photos: [] };
   for (const profile of SEED_PROFILES) {
-    const outcome = await createProfile(db, profile);
+    const { handle } = profile;
+    const outcome = await createProfile(db, profile, storage !== null);
     if (outcome.kind === "skipped") {
-      summary.skipped.push(profile.handle);
-      log(`skipped  ${profile.handle}  (${outcome.reason})`);
+      summary.skipped.push(handle);
+      log(`skipped  ${handle}  (${outcome.reason})`);
       continue;
     }
-    summary.created.push(profile.handle);
     if (storage) {
       await uploadAvatar(
         { db, storage, prefix, userId: outcome.userId },
         profile.displayName,
       );
-      summary.photos.push(profile.handle);
+      summary.photos.push(handle);
     }
-    log(`created  ${profile.handle}  ${storage ? "with photo" : "no photo"}`);
+    if (outcome.kind === "photo missing") {
+      log(`photo    ${handle}  added`);
+      continue;
+    }
+    summary.created.push(handle);
+    log(`created  ${handle}  ${storage ? "with photo" : "no photo"}`);
   }
   return summary;
 }

@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   createS3Storage,
   IMMUTABLE_CACHE_CONTROL,
+  isStorageConfigured,
   ObjectNotFoundError,
   type FileStorage,
 } from "./storage";
@@ -11,11 +12,10 @@ import {
 // the per-developer prefix). Gated on the S3_* environment exactly like the
 // DATABASE_URL_TEST pattern in db/test-db.ts: with no configured bucket the
 // suite reports as skipped, and starts running the day #2 provisions one
-// (locally via .env, in CI via secrets).
+// (locally via .env, in CI via secrets). The gate is the storage module's own
+// probe — the same S3_* list getStorage requires, maintained in one place.
 
-const configured = ["S3_ENDPOINT", "S3_REGION", "S3_BUCKET", "S3_KEY", "S3_SECRET"]
-  .map((name) => process.env[name]?.trim())
-  .every(Boolean);
+const configured = isStorageConfigured();
 
 describe.runIf(configured)("S3 storage against the real bucket", () => {
   // Lazy on purpose: beforeAll never runs when the suite is skipped, so the
@@ -117,8 +117,11 @@ describe.runIf(configured)("S3 storage against the real bucket", () => {
   });
 });
 
-describe.runIf(!configured)("S3 storage against the real bucket (skipped)", () => {
-  it("waits for the platform-dev bucket (#2) — set S3_* to enable", () => {
-    expect(configured).toBe(false);
-  });
-});
+describe.runIf(!configured)(
+  "S3 storage against the real bucket (skipped)",
+  () => {
+    it("waits for the platform-dev bucket (#2) — set S3_* to enable", () => {
+      expect(configured).toBe(false);
+    });
+  },
+);

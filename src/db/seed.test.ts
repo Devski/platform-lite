@@ -4,6 +4,12 @@ import sharp from "sharp";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { accounts, files, profiles, users } from "@/db/schema";
 import { createTestDb, type TestDb } from "@/db/test-db";
+import { createAuth } from "@/lib/auth";
+import {
+  createMemoryTransport,
+  logTransport,
+  setEmailTransport,
+} from "@/lib/email";
 import { checkHandle, handleBaseFrom } from "@/lib/handle";
 import { createMemoryStorage, type FileStorage } from "@/lib/storage";
 import {
@@ -15,11 +21,13 @@ import {
 
 // Integration suite for #17 on PGlite + the memory storage fake. The seed
 // must leave behind exactly what a user leaves behind by hand: a credential
-// account Better Auth can sign in (the account-row contract from
+// account the app's own auth signs in (proven through auth.handler, the
+// surface production mounts — plus the account-row contract from
 // auth.test.ts), a profile with a name and a handle, and an avatar set that
 // went through the #12 pipeline — three files rows, objects under the
 // prefix, the staging copy gone.
 
+const BASE_URL = "http://localhost:3000";
 const PREFIX = "devski/";
 const HANDLES = SEED_PROFILES.map((profile) => profile.handle);
 const SCRYPT_HASH_RE = /^[0-9a-f]+:[0-9a-f]+$/;
@@ -38,9 +46,9 @@ beforeEach(async () => {
   await testDb.reset();
 });
 
-function run(storage: FileStorage | null) {
+async function run(storage: FileStorage | null) {
   const lines: string[] = [];
-  const summary = seedProfiles({
+  const summary = await seedProfiles({
     db: testDb.db,
     storage,
     prefix: PREFIX,
@@ -98,8 +106,8 @@ describe("avatarPng", () => {
 describe("seedProfiles", () => {
   it("creates 14 verified accounts with names, handles and avatar sets through the real layers", async () => {
     const memory = createMemoryStorage();
-    const { summary, lines } = run(memory.storage);
-    expect(await summary).toEqual({
+    const { summary, lines } = await run(memory.storage);
+    expect(summary).toEqual({
       created: HANDLES,
       skipped: [],
       photos: HANDLES,
@@ -157,7 +165,7 @@ describe("seedProfiles", () => {
   }, 60_000);
 
   it("stores a scrypt hash of SEED_PASSWORD in an account shaped like a 1.7.2 sign-up", async () => {
-    await run(null).summary;
+    await run(null);
     const accountRows = await testDb.db.select().from(accounts);
     expect(accountRows).toHaveLength(14);
     for (const account of accountRows) {
@@ -175,19 +183,108 @@ describe("seedProfiles", () => {
     }
   }, 30_000);
 
+  it("signs a seed account in through the app's own auth with SEED_PASSWORD", async () => {
+    await run(null);
+    // The request shape of auth.test.ts: a JSON POST to the handler with an
+    // origin and a client IP for the rate limiter. A silent transport in case
+    // anything mails — a plain sign-in of a verified account sends nothing.
+    const auth = createAuth({
+      db: testDb.db,
+      baseURL: BASE_URL,
+      secret: "seed-test-secret",
+    });
+    const mail = createMemoryTransport();
+    setEmailTransport(mail.transport);
+    try {
+      const response = await auth.handler(
+        new Request(`${BASE_URL}/api/auth/sign-in/email`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            origin: BASE_URL,
+            "x-forwarded-for": "198.51.100.250",
+          },
+          body: JSON.stringify({
+            email: SEED_PROFILES[0].email,
+            password: SEED_PASSWORD,
+          }),
+        }),
+      );
+      expect(response.status).toBe(200);
+      const sessionCookie = response.headers
+        .getSetCookie()
+        .find((line) => line.split("=")[0].endsWith("session_token"));
+      expect(sessionCookie).toBeDefined();
+      expect(mail.delivered).toHaveLength(0);
+    } finally {
+      setEmailTransport(logTransport);
+    }
+  }, 30_000);
+
   it("is idempotent: a second run skips every profile and adds no rows or objects", async () => {
     const memory = createMemoryStorage();
-    await run(memory.storage).summary;
+    await run(memory.storage);
     const before = await rowCounts();
 
-    const second = await run(memory.storage).summary;
+    const { summary: second } = await run(memory.storage);
     expect(second).toEqual({ created: [], skipped: HANDLES, photos: [] });
     expect(await rowCounts()).toEqual(before);
     expect(memory.objects.size).toBe(14 * 3);
   }, 60_000);
 
+  it("resumes photos: a run with storage after one without adds every missing photo, once", async () => {
+    await run(null);
+    const memory = createMemoryStorage();
+
+    const { summary: second, lines } = await run(memory.storage);
+    expect(second).toEqual({ created: [], skipped: [], photos: HANDLES });
+    expect(lines).toEqual(HANDLES.map((handle) => `photo    ${handle}  added`));
+    expect(await rowCounts()).toEqual({
+      users: 14,
+      accounts: 14,
+      profiles: 14,
+      files: 14 * 3,
+    });
+    expect(memory.objects.size).toBe(14 * 3);
+    const profileRows = await testDb.db.select().from(profiles);
+    expect(profileRows.every((row) => row.avatarFileId !== null)).toBe(true);
+
+    // Every profile has one now: nothing left to add.
+    const { summary: third } = await run(memory.storage);
+    expect(third).toEqual({ created: [], skipped: HANDLES, photos: [] });
+    expect(memory.objects.size).toBe(14 * 3);
+  }, 90_000);
+
+  it("leaves a real user's account on a seed address alone: skipped, no photo", async () => {
+    const [first, ...rest] = SEED_PROFILES;
+    const [stranger] = await testDb.db
+      .insert(users)
+      .values({ name: "stranger", email: first.email })
+      .returning({ id: users.id });
+    // A different handle marks the account as not ours, avatar or no avatar.
+    await testDb.db.insert(profiles).values({
+      userId: stranger.id,
+      displayName: "Someone Else",
+      handle: "someone-else",
+    });
+
+    const memory = createMemoryStorage();
+    const { summary, lines } = await run(memory.storage);
+    const restHandles = rest.map((profile) => profile.handle);
+    expect(summary).toEqual({
+      created: restHandles,
+      skipped: [first.handle],
+      photos: restHandles,
+    });
+    expect(lines[0]).toBe(`skipped  ${first.handle}  (e-mail exists)`);
+    const strangerFiles = (await testDb.db.select().from(files)).filter(
+      (row) => row.userId === stranger.id,
+    );
+    expect(strangerFiles).toHaveLength(0);
+  }, 60_000);
+
   it("without storage it seeds accounts, names and handles but no photos", async () => {
-    const summary = await run(null).summary;
+    const { summary } = await run(null);
     expect(summary).toEqual({ created: HANDLES, skipped: [], photos: [] });
 
     const profileRows = await testDb.db.select().from(profiles);
@@ -212,7 +309,7 @@ describe("seedProfiles", () => {
     });
 
     const memory = createMemoryStorage();
-    const summary = await run(memory.storage).summary;
+    const { summary } = await run(memory.storage);
     const restHandles = rest.map((profile) => profile.handle);
     expect(summary).toEqual({
       created: restHandles,

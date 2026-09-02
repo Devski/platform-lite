@@ -173,9 +173,7 @@ export function createS3Storage(config: {
     },
 
     async deleteObject(key) {
-      await client.send(
-        new DeleteObjectCommand({ Bucket: bucket, Key: key }),
-      );
+      await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
     },
 
     publicUrl(key) {
@@ -222,16 +220,38 @@ export function createMemoryStorage(): {
   };
 }
 
+// The environment contract of getStorage, keyed by createS3Storage field —
+// the ONE list of S3_* names, so the probe below and the constructor can
+// never disagree on what "configured" means.
+const S3_VARIABLES = {
+  endpoint: "S3_ENDPOINT",
+  region: "S3_REGION",
+  bucket: "S3_BUCKET",
+  accessKeyId: "S3_KEY",
+  secretAccessKey: "S3_SECRET",
+} as const;
+
+/**
+ * True when every variable getStorage requires is set and non-blank — for
+ * callers that degrade without a bucket (the seed CLI, the env-gated
+ * real-bucket suite) instead of failing loudly the way getStorage does.
+ */
+export function isStorageConfigured(): boolean {
+  return Object.values(S3_VARIABLES).every((name) =>
+    Boolean(process.env[name]?.trim()),
+  );
+}
+
 let instance: FileStorage | undefined;
 
 export function getStorage(): FileStorage {
   if (!instance) {
     instance = createS3Storage({
-      endpoint: requireEnv("S3_ENDPOINT"),
-      region: requireEnv("S3_REGION"),
-      bucket: requireEnv("S3_BUCKET"),
-      accessKeyId: requireEnv("S3_KEY"),
-      secretAccessKey: requireEnv("S3_SECRET"),
+      endpoint: requireEnv(S3_VARIABLES.endpoint),
+      region: requireEnv(S3_VARIABLES.region),
+      bucket: requireEnv(S3_VARIABLES.bucket),
+      accessKeyId: requireEnv(S3_VARIABLES.accessKeyId),
+      secretAccessKey: requireEnv(S3_VARIABLES.secretAccessKey),
     });
   }
   return instance;
