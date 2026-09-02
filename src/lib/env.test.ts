@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { appOrigin, requireEnv } from "./env";
+import { appOrigin, isMissingEnv, requireEnv } from "./env";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -18,6 +18,28 @@ describe("requireEnv", () => {
     );
     vi.stubEnv("PLATFORM_TEST_VAR", "");
     expect(() => requireEnv("PLATFORM_TEST_VAR")).toThrow(/PLATFORM_TEST_VAR/);
+  });
+});
+
+// The callers that must survive a missing variable (src/proxy.ts, the public
+// profile page) tell that case apart from an outage by this predicate only —
+// so it has to recognize exactly what requireEnv throws, and nothing else.
+describe("isMissingEnv", () => {
+  it("recognizes what requireEnv throws for an absent variable", () => {
+    vi.stubEnv("PLATFORM_TEST_VAR", "");
+    let thrown: unknown;
+    try {
+      requireEnv("PLATFORM_TEST_VAR");
+    } catch (error) {
+      thrown = error;
+    }
+    expect(isMissingEnv(thrown)).toBe(true);
+  });
+
+  it("does not mistake an outage — or a non-Error — for missing configuration", () => {
+    expect(isMissingEnv(new Error("connection refused"))).toBe(false);
+    expect(isMissingEnv("Missing required environment variable X")).toBe(false);
+    expect(isMissingEnv(undefined)).toBe(false);
   });
 });
 

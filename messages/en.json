@@ -219,7 +219,7 @@
       },
       "handle": {
         "heading": "Profile address",
-        "current": "Your address: {address}",
+        "current": "Your address: <link>{address}</link>",
         "empty": "You have no profile address yet."
       }
     }
@@ -354,6 +354,17 @@
       "generic": "Verification failed. Try again."
     },
     "backToLogin": "Back to login"
+  },
+  "PublicProfile": {
+    "description": "{name}'s profile on {brand}",
+    "avatarAlt": "{name}'s profile photo",
+    "addressLabel": "Profile address"
+  },
+  "NotFound": {
+    "title": "Page not found",
+    "heading": "Page not found",
+    "body": "This address does not exist or the profile has moved.",
+    "homeLink": "Go to the home page"
   },
   "LanguageSwitcher": {
     "label": "Language selection",

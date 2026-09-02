@@ -6,8 +6,9 @@ import { expect, test } from "@playwright/test";
 // session and a database, so its rules live in src/lib/profile-handle.test.ts
 // and the signed-in journey belongs to #20. The #16 old-address redirect
 // (src/proxy.ts) is covered the same way: without a database its lookup
-// fails open and the request reaches the pages, where no /[handle] route
-// exists until #18 — so a handle-shaped path is a 404, never a 500.
+// fails open and the request reaches the #18 profile page, which maps the
+// missing DATABASE_URL to notFound — so a handle-shaped path is a 404, never
+// a 500. The 404 body itself is e2e/profile.spec.ts's subject.
 
 test.describe("Polish browser", () => {
   test.use({ locale: "pl-PL" });

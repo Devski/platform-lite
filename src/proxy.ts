@@ -3,10 +3,11 @@ import { hasLocale } from "next-intl";
 import { NextResponse, type NextRequest } from "next/server";
 import { getDb } from "@/db/client";
 import { routing, type Locale } from "@/i18n/routing";
+import { isMissingEnv } from "@/lib/env";
 import { checkHandle } from "@/lib/handle";
 import { resolveHandle } from "@/lib/profile-handle";
 
-// Two jobs, in order:
+// Three jobs, in order:
 //
 // 1. A6/§9 — an old profile address answers 301 to the target's current
 //    handle. The redirect is produced here, not in a page: a page can only
@@ -20,11 +21,21 @@ import { resolveHandle } from "@/lib/profile-handle";
 //    same way, on purpose.
 // 2. A8 — locale detection: pathname prefix, then the NEXT_LOCALE cookie,
 //    then the Accept-Language header (next-intl).
+// 3. A7 — the noindex mark outside production, on every answer above.
 
 const intl = createMiddleware(routing);
 
 export default async function proxy(request: NextRequest) {
-  return (await oldAddressRedirect(request)) ?? intl(request);
+  const response = (await oldAddressRedirect(request)) ?? intl(request);
+  // A7/§8: only production is indexed. APP_ENV is set by the deployment;
+  // everything else — a local run, dev, a PR preview — carries the same
+  // content on a different host and must stay out of every index. The header
+  // rides here rather than on each page so no route can forget it; /api is
+  // outside the matcher and needs no robots directive.
+  if (process.env.APP_ENV !== "production") {
+    response.headers.set("x-robots-tag", "noindex");
+  }
+  return response;
 }
 
 // The 301 for an old address; null for every other path, which then takes
@@ -95,13 +106,6 @@ async function redirectTarget(handle: string): Promise<string | null> {
     }
     return null;
   }
-}
-
-function isMissingEnv(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    error.message.startsWith("Missing required environment variable")
-  );
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {

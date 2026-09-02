@@ -17,6 +17,8 @@ const WARMUP_PATHS = [
   "/settings/account",
   "/onboarding",
   "/en/login",
+  // The public profile page (#18) and, through it, the localized 404 body.
+  "/some-profile",
 ];
 
 export default async function globalSetup(config: FullConfig) {

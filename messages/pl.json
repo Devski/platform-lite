@@ -219,7 +219,7 @@
       },
       "handle": {
         "heading": "Adres profilu",
-        "current": "Twój adres: {address}",
+        "current": "Twój adres: <link>{address}</link>",
         "empty": "Nie masz jeszcze adresu profilu."
       }
     }
@@ -354,6 +354,17 @@
       "generic": "Weryfikacja nie powiodła się. Spróbuj ponownie."
     },
     "backToLogin": "Wróć do logowania"
+  },
+  "PublicProfile": {
+    "description": "Profil {name} na {brand}",
+    "avatarAlt": "Zdjęcie profilowe {name}",
+    "addressLabel": "Adres profilu"
+  },
+  "NotFound": {
+    "title": "Nie znaleziono strony",
+    "heading": "Nie znaleziono strony",
+    "body": "Ten adres nie istnieje albo profil został przeniesiony.",
+    "homeLink": "Przejdź na stronę główną"
   },
   "LanguageSwitcher": {
     "label": "Wybór języka",

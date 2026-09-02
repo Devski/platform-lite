@@ -46,10 +46,10 @@ export default async function ProfileSettingsPage({
     userId: session.user.id,
   });
   const handleState = await getHandleState(db, session.user.id);
+  const handle = handleState.handle;
   // No handle yet (an account from before #15, or onboarding left early):
   // the form opens on the same proposal the onboarding step would make.
-  const handleValue =
-    handleState.handle ?? (await suggestHandle(db, session.user.id));
+  const handleValue = handle ?? (await suggestHandle(db, session.user.id));
   const origin = appOrigin();
 
   return (
@@ -88,16 +88,26 @@ export default async function ProfileSettingsPage({
             {t("handle.heading")}
           </h2>
           <p className="mt-2 text-sm text-gray-600">
-            {handleState.handle
-              ? t("handle.current", {
-                  address: `${origin}/${handleState.handle}`,
+            {handle
+              ? // The address is a live page since #18, so the line is the way
+                // to it: the owner sees exactly what a visitor sees.
+                t.rich("handle.current", {
+                  address: `${origin}/${handle}`,
+                  link: (chunks) => (
+                    <Link
+                      href={`/${handle}`}
+                      className="text-blue-700 hover:underline"
+                    >
+                      {chunks}
+                    </Link>
+                  ),
                 })
               : t("handle.empty")}
           </p>
           <HandleForm
             mode="settings"
             origin={origin}
-            currentHandle={handleState.handle}
+            currentHandle={handle}
             initialValue={handleValue}
             nextChangeAt={handleState.nextChangeAt?.toISOString() ?? null}
           />

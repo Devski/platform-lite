@@ -89,9 +89,12 @@ describe("handleCandidate (the one path shape that can be an old address)", () =
 });
 
 describe("proxy: old address → 301", () => {
-  const intlResponse = NextResponse.next();
+  // Rebuilt per test: the proxy sets headers on whatever it returns, and one
+  // shared response would carry them into the next test.
+  let intlResponse: NextResponse;
 
   beforeEach(() => {
+    intlResponse = NextResponse.next();
     mocks.intl.mockReturnValue(intlResponse);
     mocks.getDb.mockReturnValue({});
     mocks.resolveHandle.mockResolvedValue({ kind: "notFound" });
@@ -99,6 +102,7 @@ describe("proxy: old address → 301", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
   });
 
   function request(path: string): NextRequest {
@@ -232,6 +236,35 @@ describe("proxy: old address → 301", () => {
         "[proxy] redirect lookup failed:",
         refused,
       );
+    });
+  });
+
+  // A7/§8: dev, PR previews and local runs serve the same content on another
+  // host — only the production deployment (APP_ENV=production) is indexable.
+  describe("X-Robots-Tag outside production", () => {
+    it("marks the middleware's response when APP_ENV is unset (a local run)", async () => {
+      vi.stubEnv("APP_ENV", undefined);
+      const response = await proxy(request("/"));
+      expect(response).toBe(intlResponse);
+      expect(response.headers.get("x-robots-tag")).toBe("noindex");
+    });
+
+    it("marks the 301 too, so an old address cannot be indexed either", async () => {
+      vi.stubEnv("APP_ENV", "development");
+      redirectsTo("new-studio");
+      const response = await proxy(request("/old-studio"));
+      expect(response.status).toBe(301);
+      expect(response.headers.get("x-robots-tag")).toBe("noindex");
+    });
+
+    it("leaves production untouched — that is the one indexed environment", async () => {
+      vi.stubEnv("APP_ENV", "production");
+      const page = await proxy(request("/live-studio"));
+      expect(page.headers.get("x-robots-tag")).toBeNull();
+      redirectsTo("new-studio");
+      const redirected = await proxy(request("/old-studio"));
+      expect(redirected.status).toBe(301);
+      expect(redirected.headers.get("x-robots-tag")).toBeNull();
     });
   });
 });

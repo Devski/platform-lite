@@ -138,7 +138,8 @@ scripts/                    # bootstrap-dev.sh, cloud-init template, db-tunnel h
 README.md                   # developer onboarding: quick start, pointers to SPEC and docs
 Dockerfile
 .env.example                # DATABASE_URL(_TEST), S3_ENDPOINT/REGION/BUCKET/KEY/SECRET,
-                            # EMAIL_* (TEM), APP_URL, AUTH_SECRET, DEV_SSH_HOST — no values
+                            # EMAIL_* (TEM), APP_URL, APP_ENV, AUTH_SECRET, DEV_SSH_HOST
+                            # — no values
 ```
 
 File environments: the `platform-dev` bucket (per-developer and per-PR prefixes, e.g.
@@ -252,7 +253,8 @@ export function contentKey(hash: string, ext: string, prefix = ""): string {
   `127.0.0.1` and is reachable only through the SSH tunnel — never exposed publicly.
 - Nothing "moves" from dev to prod — both are built from Git; database structure travels
   via migrations, data never does.
-- Outside prod: `X-Robots-Tag: noindex` (A7).
+- Outside prod (`APP_ENV` other than `production`): `X-Robots-Tag: noindex` (A7) — set on
+  every response by `src/proxy.ts`; the deployment provides `APP_ENV`.
 - One time zone for the whole interface: `Europe/Warsaw` (next-intl `timeZone`; decision of
   02.09.2026 with #15). Dates render identically on the server and in the browser; per-user
   zones are not a need yet.
