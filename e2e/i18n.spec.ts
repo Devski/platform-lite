@@ -16,6 +16,11 @@ test.describe("Polish browser", () => {
         "Publiczne profile dla studiów architektury i artystów 3D",
       ),
     ).toBeVisible();
+    await expect(
+      page.getByText(
+        "Stwórz publiczny profil w kilka minut i udostępnij go jednym linkiem.",
+      ),
+    ).toBeVisible();
   });
 
   test("superfluous /pl prefix redirects to the unprefixed path", async ({
@@ -52,6 +57,11 @@ test.describe("English browser", () => {
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
     await expect(
       page.getByText("Public profiles for architecture studios and 3D artists"),
+    ).toBeVisible();
+    await expect(
+      page.getByText(
+        "Build a public profile in a few minutes and share it with a single link.",
+      ),
     ).toBeVisible();
   });
 });

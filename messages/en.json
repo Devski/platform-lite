@@ -39,7 +39,8 @@
   },
   "HomePage": {
     "brand": "platform-lite",
-    "tagline": "Public profiles for architecture studios and 3D artists"
+    "tagline": "Public profiles for architecture studios and 3D artists",
+    "lead": "Build a public profile in a few minutes and share it with a single link."
   },
   "Login": {
     "title": "Log in",

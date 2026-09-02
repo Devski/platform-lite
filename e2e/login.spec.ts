@@ -138,6 +138,15 @@ test.describe("Polish browser", () => {
     // the session panel must still settle on the signed-out links (A11 entry).
     await expect(page.getByRole("link", { name: "Zaloguj się" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Załóż konto" })).toBeVisible();
+    // A11's full-screen photo. The box is CSS-forced (absolute inset-0), so
+    // toBeVisible() would pass with a 404 behind it — assert the bitmap
+    // decoded instead. And decorative means out of the accessibility tree,
+    // whichever way that is spelled in the markup.
+    const photo = page.locator('img[src="/landing-placeholder.webp"]');
+    await expect
+      .poll(() => photo.evaluate((el) => (el as HTMLImageElement).naturalWidth))
+      .toBeGreaterThan(0);
+    await expect(page.getByRole("img")).toHaveCount(0);
   });
 
   test("the register page links back to login", async ({ page }) => {
