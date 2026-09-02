@@ -146,7 +146,9 @@ test.describe("Polish browser", () => {
     await expect
       .poll(() => photo.evaluate((el) => (el as HTMLImageElement).naturalWidth))
       .toBeGreaterThan(0);
-    await expect(page.getByRole("img")).toHaveCount(0);
+    // Scoped to the landmark: Next's dev overlay renders its own role="img"
+    // outside main, and it is not part of the page under test.
+    await expect(page.locator("main").getByRole("img")).toHaveCount(0);
   });
 
   test("the register page links back to login", async ({ page }) => {
