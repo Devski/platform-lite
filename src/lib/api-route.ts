@@ -20,19 +20,60 @@ export async function sessionUserId(): Promise<string | null> {
   }
 }
 
-/** JSON body parsed through the schema; null for malformed or invalid input. */
+// Every body the routes accept is a few hundred bytes (a handle, a name, a
+// file id, a size), so 64 KiB leaves room and refuses the rest before it is
+// buffered: the declared Content-Length first, then the stream itself, which
+// is what a lying or chunked request needs.
+export const JSON_BODY_MAX_BYTES = 64 * 1024;
+
+/**
+ * JSON body parsed through the schema; null for malformed, oversized or
+ * schema-invalid input.
+ */
 export async function parseJsonBody<Schema extends z.ZodType>(
   request: Request,
   schema: Schema,
 ): Promise<z.output<Schema> | null> {
+  const text = await readBounded(request, JSON_BODY_MAX_BYTES);
+  if (text === null) return null;
   let raw: unknown;
   try {
-    raw = await request.json();
+    raw = JSON.parse(text);
   } catch {
     return null;
   }
   const parsed = schema.safeParse(raw);
   return parsed.success ? parsed.data : null;
+}
+
+/** The whole body as text, or null once it exceeds `maxBytes`. */
+async function readBounded(
+  request: Request,
+  maxBytes: number,
+): Promise<string | null> {
+  const declared = Number(request.headers.get("content-length"));
+  if (declared > maxBytes) return null;
+  if (!request.body) return null;
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.byteLength;
+      if (received > maxBytes) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(value);
+    }
+  } catch {
+    // A transport failure mid-body (the client went away) is a bad request,
+    // not a server error — the same mapping request.json() gave before.
+    return null;
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 // Cross-site guard for the state-changing routes. The session cookie is

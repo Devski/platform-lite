@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
   checkRateLimit,
+  JSON_BODY_MAX_BYTES,
   parseJsonBody,
   rejectCrossSite,
   sessionUserId,
@@ -43,12 +44,25 @@ describe("sessionUserId (fail-closed)", () => {
 describe("parseJsonBody", () => {
   const schema = z.object({ value: z.number().int().min(1) });
 
-  function request(body: string): Request {
+  function request(
+    body?: string,
+    headers: Record<string, string> = {},
+  ): Request {
     return new Request("http://localhost/api/x", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...headers },
       body,
     });
+  }
+
+  // A body the schema accepts, padded to exactly `bytes` (ASCII, so length is
+  // byte length). Zod strips the unknown "pad" key, so only the bound can
+  // refuse it — and a string body carries no Content-Length here, so it is
+  // the stream bound that does.
+  function paddedBody(bytes: number): string {
+    const head = '{"value": 7, "pad": "';
+    const tail = '"}';
+    return head + "x".repeat(bytes - head.length - tail.length) + tail;
   }
 
   it("returns the parsed data for a valid body", async () => {
@@ -63,6 +77,29 @@ describe("parseJsonBody", () => {
 
   it("returns null for a schema-invalid body", async () => {
     expect(await parseJsonBody(request('{"value": -3}'), schema)).toBeNull();
+  });
+
+  it("returns null for an empty body", async () => {
+    expect(await parseJsonBody(request(), schema)).toBeNull();
+  });
+
+  it("parses a body exactly at the 64 KiB bound", async () => {
+    const body = paddedBody(JSON_BODY_MAX_BYTES);
+    expect(Buffer.byteLength(body)).toBe(JSON_BODY_MAX_BYTES);
+    expect(await parseJsonBody(request(body), schema)).toEqual({ value: 7 });
+  });
+
+  it("refuses a body one byte over the bound although the schema would accept its shape", async () => {
+    const body = paddedBody(JSON_BODY_MAX_BYTES + 1);
+    expect(await parseJsonBody(request(body), schema)).toBeNull();
+  });
+
+  it("refuses a declared Content-Length above the bound before reading the body", async () => {
+    const oversized = request('{"value": 7}', {
+      "content-length": String(JSON_BODY_MAX_BYTES + 1),
+    });
+    expect(await parseJsonBody(oversized, schema)).toBeNull();
+    expect(oversized.bodyUsed).toBe(false);
   });
 });
 

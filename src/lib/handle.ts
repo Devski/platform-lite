@@ -159,6 +159,16 @@ export const RESERVED_BRAND_TOKENS: readonly string[] = [
   "architektorium",
 ];
 
+// Official-looking addresses: "admin-jan" reads as staff even though the bare
+// word is already reserved. Only the exact prefix with its hyphen is refused
+// ("administracja-x", "jan-admin", "supporter" stay free), and each stem is on
+// RESERVED_HANDLES in its own right, so the two lists cannot disagree.
+export const RESERVED_HANDLE_PREFIXES: readonly string[] = [
+  "admin-",
+  "official-",
+  "support-",
+];
+
 export type HandleProblem = "invalid" | "reserved";
 
 /** Trim and lowercase — what the form submits is exactly what gets stored. */
@@ -171,6 +181,9 @@ export function checkHandle(handle: string): HandleProblem | null {
   if (!HANDLE_PATTERN.test(handle)) return "invalid";
   if (RESERVED_HANDLES.has(handle)) return "reserved";
   if (RESERVED_BRAND_TOKENS.some((token) => handle.includes(token))) {
+    return "reserved";
+  }
+  if (RESERVED_HANDLE_PREFIXES.some((prefix) => handle.startsWith(prefix))) {
     return "reserved";
   }
   return null;

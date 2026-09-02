@@ -11,6 +11,7 @@ import {
   handleSchema,
   nextHandleChangeAt,
   normalizeHandle,
+  RESERVED_HANDLE_PREFIXES,
   RESERVED_HANDLES,
 } from "./handle";
 
@@ -117,6 +118,23 @@ describe("RESERVED_HANDLES (A5)", () => {
     }
     expect(checkHandle("architekt-kowalski")).toBeNull();
     expect(checkHandle("architektura-wnetrz")).toBeNull();
+  });
+
+  it("refuses the official-looking prefixes, but only the exact prefix with its hyphen", () => {
+    for (const handle of ["admin-jan", "official-studio", "support-team"]) {
+      expect(checkHandle(handle)).toBe("reserved");
+    }
+    for (const handle of ["administracja-x", "jan-admin", "supporter"]) {
+      expect(checkHandle(handle)).toBeNull();
+    }
+  });
+
+  it("keeps the prefixes off the set: each carries its hyphen and its stem is reserved on its own", () => {
+    for (const prefix of RESERVED_HANDLE_PREFIXES) {
+      expect(prefix.endsWith("-")).toBe(true);
+      expect(RESERVED_HANDLES.has(prefix)).toBe(false);
+      expect(RESERVED_HANDLES.has(prefix.slice(0, -1))).toBe(true);
+    }
   });
 
   it("holds lowercase values the pattern accepts, plus the short locale codes A5 names", () => {
