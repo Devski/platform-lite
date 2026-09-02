@@ -1,10 +1,8 @@
 import type { Metadata } from "next";
-import type { Database } from "@/db/client";
 import { routing, type Locale } from "@/i18n/routing";
 import { normalizeHandle } from "@/lib/handle";
-import { getProfile } from "@/lib/profile";
+import { getProfile, type ProfileReadDeps } from "@/lib/profile";
 import { resolveHandle } from "@/lib/profile-handle";
-import type { FileStorage } from "@/lib/storage";
 
 // The public face of a profile (#18): what /[handle] renders for an
 // anonymous visitor and what its <head> says. Read-only composition — the
@@ -31,15 +29,11 @@ export type PublicProfileLookup =
   | { kind: "redirect"; handle: string }
   | { kind: "notFound" };
 
-// The read side of the storage only, and only when an avatar exists — the
-// page hands in a lazy publicUrl so it renders without a configured bucket
-// (the settings page does the same).
-export interface PublicProfileDeps {
-  db: Database;
-  storage: Pick<FileStorage, "publicUrl">;
-  /** Environment key prefix (SPEC §4). */
-  prefix: string;
-}
+// Exactly what the read below needs — getProfile's dependencies, minus the
+// user it is about to look up. Storage is the URL half only and touched only
+// when an avatar exists, so the page hands in a lazy publicUrl and renders
+// without a configured bucket (the settings page does the same).
+export type PublicProfileDeps = Omit<ProfileReadDeps, "userId">;
 
 /**
  * §9 for the public page: profile → redirect → notFound on the normalized
@@ -83,10 +77,10 @@ export async function loadPublicProfile(
 // added to routing.ts fails here until it gets its territory code.
 const OG_LOCALES: Record<Locale, string> = { pl: "pl_PL", en: "en_US" };
 
-// The #12 avatar variant the share card uses, and the committed
-// public/og-placeholder.png (1200×630, the Open Graph recommendation) that
-// stands in when there is none — #27 decides the final art.
-const AVATAR_IMAGE_PX = 512;
+// The two share-image shapes: the #12 512 px avatar variant, and the
+// committed public/og-placeholder.png (1200×630, the Open Graph
+// recommendation) that stands in when there is none — #27 decides the art.
+const AVATAR_IMAGE = { width: 512, height: 512 };
 const PLACEHOLDER_IMAGE = { width: 1200, height: 630 };
 
 export interface ProfileMetadataInput {
@@ -98,6 +92,8 @@ export interface ProfileMetadataInput {
   brand: string;
   /** Already translated, e.g. "Profil {name} na {brand}". */
   description: string;
+  /** Already translated alt text for the avatar share image. */
+  avatarAlt: string;
   /** Absolute URL of the placeholder share image. */
   placeholderImage: string;
   /**
@@ -115,21 +111,27 @@ export interface ProfileMetadataInput {
  * placeholder) and a Twitter summary card, which falls back to the OG tags.
  */
 export function profileMetadata(input: ProfileMetadataInput): Metadata {
-  const { profile, origin, locale, brand, description, placeholderImage } =
-    input;
+  const {
+    profile,
+    origin,
+    locale,
+    brand,
+    description,
+    placeholderImage,
+    pathFor,
+  } = input;
   const title = `${profile.displayName} · ${brand}`;
-  const urlIn = (l: Locale) => `${origin}${input.pathFor(profile.handle, l)}`;
+  const urlIn = (target: Locale) =>
+    `${origin}${pathFor(profile.handle, target)}`;
   const canonical = urlIn(locale);
   const languages = Object.fromEntries(
-    routing.locales.map((l) => [l, urlIn(l)]),
+    routing.locales.map((target) => [target, urlIn(target)]),
   );
+  // Alt text on the share card too: a screen reader in a chat client reads
+  // the card, not the page.
   const image = profile.avatar
-    ? {
-        url: profile.avatar.url512,
-        width: AVATAR_IMAGE_PX,
-        height: AVATAR_IMAGE_PX,
-      }
-    : { url: placeholderImage, ...PLACEHOLDER_IMAGE };
+    ? { url: profile.avatar.url512, alt: input.avatarAlt, ...AVATAR_IMAGE }
+    : { url: placeholderImage, alt: brand, ...PLACEHOLDER_IMAGE };
 
   return {
     title,

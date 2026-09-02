@@ -73,8 +73,11 @@ beforeEach(async () => {
   deps = { db: testDb.db, storage, prefix: PREFIX };
 });
 
-/** The #12 pipeline end to end, as profile.test.ts drives it. */
-async function uploadAndSetAvatar(): Promise<{ sha256: string }> {
+/**
+ * The #12 pipeline end to end, as profile.test.ts drives it; returns the
+ * original's sha256, which is what every variant URL is keyed by.
+ */
+async function uploadAndSetAvatar(): Promise<string> {
   const image = await sharp({
     create: {
       width: 400,
@@ -93,14 +96,14 @@ async function uploadAndSetAvatar(): Promise<{ sha256: string }> {
   await storage.putObject(stagingKey, image, "image/png");
   const confirmed = await confirmAvatarUpload(writeDeps, { stagingKey });
   await setAvatar(writeDeps, confirmed.original.fileId);
-  return { sha256: confirmed.original.sha256 };
+  return confirmed.original.sha256;
 }
 
 describe("loadPublicProfile (§9 for the public page)", () => {
   it("resolves a live handle to the name and the two avatar variant URLs", async () => {
     await setHandle(testDb.db, userId, "studio-x", T0);
     await updateDisplayName({ db: testDb.db, userId }, "Studio X");
-    const { sha256 } = await uploadAndSetAvatar();
+    const sha256 = await uploadAndSetAvatar();
 
     // toEqual, not toMatchObject: the public object must carry nothing
     // internal (no file id) — it is what an anonymous visitor's page sees.
@@ -147,7 +150,12 @@ describe("loadPublicProfile (§9 for the public page)", () => {
 
   it("answers redirect to the current handle for an old address", async () => {
     await setHandle(testDb.db, userId, "old-name", T0);
-    await setHandle(testDb.db, userId, "new-name", new Date(T0.getTime() + DAY_MS));
+    await setHandle(
+      testDb.db,
+      userId,
+      "new-name",
+      new Date(T0.getTime() + DAY_MS),
+    );
     expect(await loadPublicProfile(deps, "old-name")).toEqual({
       kind: "redirect",
       handle: "new-name",
@@ -203,6 +211,7 @@ describe("profileMetadata", () => {
       locale,
       brand: BRAND,
       description: `Profil ${profile.displayName} na ${BRAND}`,
+      avatarAlt: `Zdjęcie profilowe ${profile.displayName}`,
       placeholderImage: PLACEHOLDER,
       pathFor,
     });

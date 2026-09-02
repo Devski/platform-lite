@@ -1,30 +1,39 @@
+// The one wording of the failure, shared by the thrower and the predicate
+// below so the two can never drift apart.
+const MISSING_ENV = "Missing required environment variable";
+
 // Fail-loud environment access (SPEC.md §7: secrets only in env vars).
 // Callers ask at first use, not at import, so `next build` and the e2e dev
 // server keep working in environments that provide no runtime configuration.
 export function requireEnv(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) {
-    throw new Error(
-      `Missing required environment variable ${name} (see .env.example)`,
-    );
+    throw new Error(`${MISSING_ENV} ${name} (see .env.example)`);
   }
   return value;
 }
 
 /**
- * True for the failure requireEnv above reports: the variable is simply not
- * there. Callers that must keep working without a piece of configuration —
- * src/proxy.ts (no DATABASE_URL: the redirect lookup fails open) and the
- * public profile page (the same, rendered as 404) — use it to tell a missing
- * environment apart from a real outage, which must never read as "no such
- * profile". Matched by message because the failure surfaces wherever the
- * variable is first used, wrapped by whatever layer asked for it.
+ * True for the failure requireEnv above reports about ONE named variable.
+ * Callers that must keep working without a specific piece of configuration —
+ * src/proxy.ts and the public profile page, both without DATABASE_URL — use
+ * it to tell that missing variable apart from a real outage, which must never
+ * read as "no such profile". The name is required on purpose: an unqualified
+ * match would also swallow a missing S3_* and turn every profile with a photo
+ * into a 404 (#18 review). Matched by message because the failure surfaces
+ * wherever the variable is first used, wrapped by whatever layer asked for it.
  */
-export function isMissingEnv(error: unknown): boolean {
+export function isMissingEnv(error: unknown, name: string): boolean {
   return (
-    error instanceof Error &&
-    error.message.startsWith("Missing required environment variable")
+    error instanceof Error && error.message.startsWith(`${MISSING_ENV} ${name}`)
   );
+}
+
+// A7/§8: only production is indexed and only this exact value says so, so a
+// stray space or a forgotten variable leaves the site marked noindex — the
+// safe direction. The deployment sets it (#21/#24).
+export function isProduction(): boolean {
+  return process.env.APP_ENV?.trim() === "production";
 }
 
 // The canonical origin (APP_URL) as the browser would state it — lower-case

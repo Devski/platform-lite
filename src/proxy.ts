@@ -3,7 +3,7 @@ import { hasLocale } from "next-intl";
 import { NextResponse, type NextRequest } from "next/server";
 import { getDb } from "@/db/client";
 import { routing, type Locale } from "@/i18n/routing";
-import { isMissingEnv } from "@/lib/env";
+import { isMissingEnv, isProduction } from "@/lib/env";
 import { checkHandle } from "@/lib/handle";
 import { resolveHandle } from "@/lib/profile-handle";
 
@@ -32,7 +32,7 @@ export default async function proxy(request: NextRequest) {
   // content on a different host and must stay out of every index. The header
   // rides here rather than on each page so no route can forget it; /api is
   // outside the matcher and needs no robots directive.
-  if (process.env.APP_ENV !== "production") {
+  if (!isProduction()) {
     response.headers.set("x-robots-tag", "noindex");
   }
   return response;
@@ -101,7 +101,7 @@ async function redirectTarget(handle: string): Promise<string | null> {
     // above into "old addresses 404" with nothing in the log. The one
     // expected case stays quiet: no DATABASE_URL at all (the DB-less e2e
     // job), which requireEnv reports by message.
-    if (!isMissingEnv(error)) {
+    if (!isMissingEnv(error, "DATABASE_URL")) {
       console.error("[proxy] redirect lookup failed:", error);
     }
     return null;

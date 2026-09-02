@@ -25,21 +25,37 @@ describe("requireEnv", () => {
 // profile page) tell that case apart from an outage by this predicate only —
 // so it has to recognize exactly what requireEnv throws, and nothing else.
 describe("isMissingEnv", () => {
-  it("recognizes what requireEnv throws for an absent variable", () => {
-    vi.stubEnv("PLATFORM_TEST_VAR", "");
-    let thrown: unknown;
+  function thrownFor(name: string): unknown {
+    vi.stubEnv(name, "");
     try {
-      requireEnv("PLATFORM_TEST_VAR");
+      requireEnv(name);
     } catch (error) {
-      thrown = error;
+      return error;
     }
-    expect(isMissingEnv(thrown)).toBe(true);
+    throw new Error("requireEnv did not throw");
+  }
+
+  it("recognizes what requireEnv throws for the variable it was asked about", () => {
+    expect(
+      isMissingEnv(thrownFor("PLATFORM_TEST_VAR"), "PLATFORM_TEST_VAR"),
+    ).toBe(true);
+  });
+
+  it("refuses a DIFFERENT missing variable: a bucket is not a database (#18)", () => {
+    expect(isMissingEnv(thrownFor("S3_SECRET"), "DATABASE_URL")).toBe(false);
   });
 
   it("does not mistake an outage — or a non-Error — for missing configuration", () => {
-    expect(isMissingEnv(new Error("connection refused"))).toBe(false);
-    expect(isMissingEnv("Missing required environment variable X")).toBe(false);
-    expect(isMissingEnv(undefined)).toBe(false);
+    expect(isMissingEnv(new Error("connection refused"), "DATABASE_URL")).toBe(
+      false,
+    );
+    expect(
+      isMissingEnv(
+        "Missing required environment variable DATABASE_URL",
+        "DATABASE_URL",
+      ),
+    ).toBe(false);
+    expect(isMissingEnv(undefined, "DATABASE_URL")).toBe(false);
   });
 });
 

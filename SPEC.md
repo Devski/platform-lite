@@ -278,6 +278,9 @@ export function contentKey(hash: string, ext: string, prefix = ""): string {
   Resolving `/X`: profile → redirect (301 to the target's current handle, answered by
   `src/proxy.ts` with `Cache-Control: no-store`, so a released address is never served
   from a browser cache) → 404.
+  The page adds two answers of its own, both 308 (a page cannot emit 301): a case variant
+  such as `/Studio-Praga` settles on the canonical lowercase address, and an old address
+  redirects from here when the proxy's lookup failed open or timed out. Both keep the query.
   Registration of handle `X` by anyone **deletes** the redirect row (A6).
 - `files`: `id`, `user_id`, `sha256`, `size_bytes`, `kind` (`avatar-original|avatar-512|avatar-128`),
   `created_at`. The per-user sum of `size_bytes` = quota usage (A9).

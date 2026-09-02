@@ -25,6 +25,7 @@ import { getStorage, keyPrefix } from "@/lib/storage";
 export const dynamic = "force-dynamic";
 
 type Params = Promise<{ locale: string; handle: string }>;
+type Search = Promise<Record<string, string | string[] | undefined>>;
 
 // The committed 1200×630 share image for a profile without an avatar
 // (public/og-placeholder.png); #27 decides the final art.
@@ -48,12 +49,27 @@ const lookup = cache(async (handle: string): Promise<PublicProfileLookup> => {
   } catch (error) {
     // No DATABASE_URL at all (the DB-less e2e job, a preview without a
     // database) is the one failure that may read as "no such profile" — the
-    // same branch src/proxy.ts takes. Everything else is an outage and must
-    // surface as a 500: a broken database must never look like a free handle.
-    if (!isMissingEnv(error)) throw error;
+    // same branch src/proxy.ts takes. Named on purpose: a missing S3_* comes
+    // through the same lazy publicUrl and is an outage, not a free handle
+    // (#18 review). Everything else must surface as a 500 too.
+    if (!isMissingEnv(error, "DATABASE_URL")) throw error;
     return { kind: "notFound" };
   }
 });
+
+// "?a=1&b=2" for a request that had a query, "" for one that had none.
+function queryOf(
+  search: Record<string, string | string[] | undefined>,
+): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(search)) {
+    for (const one of Array.isArray(value) ? value : [value ?? ""]) {
+      if (value !== undefined) params.append(key, one);
+    }
+  }
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
 
 // The middleware routes only the A8 locales here and the layout 404s on
 // anything else; this narrows the raw param for the metadata helper.
@@ -61,6 +77,13 @@ function localeOf(value: string): Locale {
   if (!hasLocale(routing.locales, value)) notFound();
   return value;
 }
+
+// Where a handle lives: `/studio-x` in Polish, `/en/studio-x` in English
+// (A8's as-needed prefix). Every canonical URL and both redirects go through
+// it, and profileMetadata takes it as an argument because next-intl can only
+// answer inside a request — which a unit test has not.
+const handlePath = (handle: string, locale: Locale) =>
+  getPathname({ href: `/${handle}`, locale });
 
 export async function generateMetadata({
   params,
@@ -86,18 +109,18 @@ export async function generateMetadata({
     locale,
     brand,
     description: t("description", { name: result.profile.displayName, brand }),
+    avatarAlt: t("avatarAlt", { name: result.profile.displayName }),
     placeholderImage: `${origin}${OG_PLACEHOLDER_PATH}`,
-    // next-intl needs the request config to localize a path, which only a
-    // render has — so the helper takes the rule, not the router.
-    pathFor: (target, targetLocale) =>
-      getPathname({ href: `/${target}`, locale: targetLocale }),
+    pathFor: handlePath,
   });
 }
 
 export default async function PublicProfilePage({
   params,
+  searchParams,
 }: {
   params: Params;
+  searchParams: Search;
 }) {
   const { locale: requested, handle } = await params;
   const locale = localeOf(requested);
@@ -105,18 +128,21 @@ export default async function PublicProfilePage({
   const result = await lookup(handle);
 
   if (result.kind === "notFound") notFound();
+  // Both redirects below keep the query, as the proxy's 301 does: a shared
+  // link carries its campaign parameters to the address that answers.
+  const query = queryOf(await searchParams);
   // A6/§9: an old address is the proxy's 301. The page sees one only when
   // that lookup failed open or timed out — a 308 from here is the degraded
   // answer, and still the right destination.
   if (result.kind === "redirect") {
-    permanentRedirect(getPathname({ href: `/${result.handle}`, locale }));
+    permanentRedirect(`${handlePath(result.handle, locale)}${query}`);
   }
 
   const { profile } = result;
   // One profile, one URL. The proxy leaves /Studio-Praga alone (the A5
   // pattern is lowercase), so the case variant settles here.
   if (!result.canonical) {
-    permanentRedirect(getPathname({ href: `/${profile.handle}`, locale }));
+    permanentRedirect(`${handlePath(profile.handle, locale)}${query}`);
   }
 
   const t = await getTranslations("PublicProfile");

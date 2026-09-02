@@ -96,7 +96,9 @@ export default async function ProfileSettingsPage({
                   link: (chunks) => (
                     <Link
                       href={`/${handle}`}
-                      className="text-blue-700 hover:underline"
+                      // Inline in a sentence: underlined always, so colour
+                      // is not the only thing marking it as a link.
+                      className="text-blue-700 underline hover:no-underline"
                     >
                       {chunks}
                     </Link>
