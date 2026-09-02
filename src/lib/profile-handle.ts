@@ -1,7 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { eq, inArray } from "drizzle-orm";
 import type { Database } from "@/db/client";
-import { profiles, users } from "@/db/schema";
+import { handleRedirects, profiles, users } from "@/db/schema";
+import type { Locale } from "@/i18n/routing";
+import { sendEmail } from "@/lib/email";
 import {
   checkHandle,
   HANDLE_MAX,
@@ -11,10 +13,12 @@ import {
   normalizeHandle,
 } from "@/lib/handle";
 
-// The #15 database side of a handle: its state, availability, the onboarding
-// proposal and the claim itself. The A5/A6 rules live in handle.ts (pure,
-// client-safe); this module only applies them against profiles. Redirects
-// from old handles and their release are #16.
+// The database side of a handle: its state, availability, the onboarding
+// proposal, the claim itself (#15), and what a change leaves behind (#16) —
+// the redirect row the old address keeps until somebody claims it, its
+// release, the §9 resolution and the A10 notice. The A5/A6 rules live in
+// handle.ts (pure, client-safe); this module only applies them against
+// profiles and handle_redirects.
 
 export interface HandleState {
   handle: string | null;
@@ -166,24 +170,28 @@ function violatesHandleUnique(error: unknown): boolean {
  * Set or change the caller's handle. Transactional, serialized per user with
  * SELECT ... FOR UPDATE on the users row (the setAvatar pattern). Rules:
  *   - the A5 rules (handle.ts) → HandleError("invalid" | "reserved");
- *   - same as the current handle → no-op;
+ *   - same as the current handle → no-op (previousHandle null);
  *   - a change inside the A6 window → HandleError("cooldown", retryAt);
  *   - upsert profiles — the initial assignment leaves handle_changed_at NULL,
  *     a change stamps it with `now`;
- *   - the unique index refuses a duplicate → HandleError("taken").
+ *   - the unique index refuses a duplicate → HandleError("taken");
+ *   - §9: the redirect row of the handle being claimed is deleted, and a
+ *     change writes the row that keeps the old address pointing here.
+ * `previousHandle` is the handle a change replaced, so the caller can send
+ * the A10 notice after the commit; null when nothing changed hands.
  */
 export async function setHandle(
   db: Database,
   userId: string,
   input: string,
   now: Date = new Date(),
-): Promise<{ handle: string }> {
+): Promise<{ handle: string; previousHandle: string | null }> {
   const handle = normalizeHandle(input);
   const problem = checkHandle(handle);
   if (problem) throw new HandleError(problem);
 
   try {
-    await db.transaction(async (tx) => {
+    const previousHandle = await db.transaction(async (tx) => {
       // The read-check-upsert runs serialized per user (FOR UPDATE on the
       // users row, which always exists): two overlapping calls would both
       // pass the cooldown check against the same stale stamp. The row also
@@ -203,7 +211,7 @@ export async function setHandle(
         .from(profiles)
         .where(eq(profiles.userId, userId));
       const current = profile?.handle ?? null;
-      if (current === handle) return;
+      if (current === handle) return null;
 
       // A6: the initial assignment is not a change — only a real change
       // consults and then restarts the cooldown.
@@ -215,10 +223,6 @@ export async function setHandle(
 
       // Upsert, not insert: the first profile write can race a concurrent
       // updateDisplayName upsert, which does not take the user lock.
-      // #16 extends this transaction: on a change, insert the
-      // handle_redirects row (old handle → this user) and delete the redirect
-      // row of the handle being claimed (§9: registering X releases X); the
-      // handleChanged e-mail goes out after the commit.
       await tx
         .insert(profiles)
         .values({ userId, displayName: user.name, handle })
@@ -226,7 +230,37 @@ export async function setHandle(
           target: profiles.userId,
           set: changing ? { handle, handleChangedAt: now } : { handle },
         });
+
+      // §9 release: registering X deletes X's redirect row, whoever it
+      // pointed at — the claimant moving back to their own old address
+      // included (A6: old handles return to circulation at once). Ordered
+      // AFTER the profile upsert on purpose: when X's holder is leaving it
+      // in a concurrent transaction, the upsert blocks on the unique index
+      // until that transaction commits, and only a DELETE issued afterwards
+      // sees the redirect row it inserted (READ COMMITTED snapshots are per
+      // statement). Deleting first could leave a row naming a live handle.
+      await tx
+        .delete(handleRedirects)
+        .where(eq(handleRedirects.oldHandle, handle));
+
+      // On a change the old address keeps pointing here — a 301 in the
+      // proxy — until somebody claims it. The row stores the user, not the
+      // new handle, so a chain a → b → c resolves both old addresses to c
+      // without rewriting rows. Upsert: the invariant says no row for a live
+      // handle exists, so a stray one self-heals instead of failing the
+      // change.
+      if (changing) {
+        await tx
+          .insert(handleRedirects)
+          .values({ oldHandle: current, targetUserId: userId, createdAt: now })
+          .onConflictDoUpdate({
+            target: handleRedirects.oldHandle,
+            set: { targetUserId: userId, createdAt: now },
+          });
+      }
+      return current;
     });
+    return { handle, previousHandle };
   } catch (error) {
     // Two users claiming one free handle both pass every check above; the
     // unique index decides, and the loser learns it here (not by a pre-check,
@@ -234,5 +268,70 @@ export async function setHandle(
     if (violatesHandleUnique(error)) throw new HandleError("taken");
     throw error;
   }
-  return { handle };
+}
+
+export type HandleResolution =
+  | { kind: "profile"; userId: string }
+  /** The target's CURRENT handle — where the old address should 301 to. */
+  | { kind: "redirect"; handle: string }
+  | { kind: "notFound" };
+
+/**
+ * §9 order on a normalized handle: profile → redirect → notFound. Reserved
+ * and invalid input is notFound without a query (such a handle can never
+ * have been stored). A redirect whose target has no current handle is
+ * notFound too; one whose target still holds the looked-up handle cannot
+ * exist here — the profile lookup would have answered first.
+ */
+export async function resolveHandle(
+  db: Database,
+  input: string,
+): Promise<HandleResolution> {
+  const handle = normalizeHandle(input);
+  if (checkHandle(handle) !== null) return { kind: "notFound" };
+
+  const [profile] = await db
+    .select({ userId: profiles.userId })
+    .from(profiles)
+    .where(eq(profiles.handle, handle));
+  if (profile) return { kind: "profile", userId: profile.userId };
+
+  const [redirect] = await db
+    .select({ handle: profiles.handle })
+    .from(handleRedirects)
+    .innerJoin(profiles, eq(profiles.userId, handleRedirects.targetUserId))
+    .where(eq(handleRedirects.oldHandle, handle));
+  if (redirect?.handle) return { kind: "redirect", handle: redirect.handle };
+  return { kind: "notFound" };
+}
+
+/**
+ * The A10 handle-change notice, to the account's e-mail address in the
+ * given locale. Throws on delivery failure — the caller decides whether the
+ * notice is best-effort (the route logs and lets the change stand).
+ */
+export async function notifyHandleChanged(
+  db: Database,
+  options: {
+    userId: string;
+    oldHandle: string;
+    newHandle: string;
+    locale: Locale;
+    profileUrl: string;
+  },
+): Promise<void> {
+  const { userId, oldHandle, newHandle, locale, profileUrl } = options;
+  const [user] = await db
+    .select({ email: users.email })
+    .from(users)
+    .where(eq(users.id, userId));
+  if (!user) throw new Error(`handle notice: unknown user ${userId}`);
+  await sendEmail({
+    to: user.email,
+    locale,
+    template: {
+      kind: "handleChanged",
+      params: { oldHandle, newHandle, profileUrl },
+    },
+  });
 }

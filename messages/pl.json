@@ -92,6 +92,7 @@
     "submitSettings": "Zmień adres",
     "submitting": "Zapisywanie…",
     "saved": "Adres zapisany: {address}",
+    "savedRedirect": "Stary adres przekierowuje na nowy, dopóki ktoś inny go nie zajmie.",
     "cooldownNote": "Następna zmiana możliwa od {date}.",
     "errors": {
       "rateLimited": "Zbyt wiele prób. Odczekaj chwilę i spróbuj ponownie.",

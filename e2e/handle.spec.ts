@@ -4,7 +4,10 @@ import { expect, test } from "@playwright/test";
 // the (app) session gate (fail closed → /login) and both handle routes
 // answer 401, never 500, with no database at all. The picker itself needs a
 // session and a database, so its rules live in src/lib/profile-handle.test.ts
-// and the signed-in journey belongs to #20.
+// and the signed-in journey belongs to #20. The #16 old-address redirect
+// (src/proxy.ts) is covered the same way: without a database its lookup
+// fails open and the request reaches the pages, where no /[handle] route
+// exists until #18 — so a handle-shaped path is a 404, never a 500.
 
 test.describe("Polish browser", () => {
   test.use({ locale: "pl-PL" });
@@ -32,6 +35,18 @@ test.describe("Polish browser", () => {
     expect(set.status()).toBe(401);
   });
 
+  test("a handle-shaped path and a reserved word are 404 without a database", async ({
+    request,
+  }) => {
+    // The proxy's redirect lookup has no DATABASE_URL and falls through
+    // (src/proxy.test.ts proves the branch; this proves the wiring).
+    const oldAddress = await request.get("/some-old-address");
+    expect(oldAddress.status()).toBe(404);
+    // A reserved word never reaches the lookup at all.
+    const reserved = await request.get("/admin");
+    expect(reserved.status()).toBe(404);
+  });
+
   test("the verification landing page offers the onboarding step", async ({
     page,
   }) => {
@@ -53,6 +68,13 @@ test.describe("English browser", () => {
   }) => {
     await page.goto("/en/onboarding");
     await expect(page).toHaveURL(/\/en\/login$/);
+  });
+
+  test("/en/some-old-address is 404 without a database", async ({
+    request,
+  }) => {
+    const response = await request.get("/en/some-old-address");
+    expect(response.status()).toBe(404);
   });
 
   test("/en/register/verified links to the English onboarding step", async ({

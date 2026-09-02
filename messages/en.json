@@ -92,6 +92,7 @@
     "submitSettings": "Change the address",
     "submitting": "Saving…",
     "saved": "Address saved: {address}",
+    "savedRedirect": "The old address redirects to the new one until someone else claims it.",
     "cooldownNote": "The next change is possible from {date}.",
     "errors": {
       "rateLimited": "Too many attempts. Wait a moment and try again.",

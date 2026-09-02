@@ -294,6 +294,9 @@ export function HandleForm({
 
   const note = feedback();
   const problem = note?.tone === "problem";
+  // #16: a change (not the first assignment) leaves the old address
+  // redirecting — say so, and that anyone may claim it (A6).
+  const savedRedirect = currentHandle !== null && saved !== null;
   const describedBy = ["handle-prefix", "handle-hint"]
     .concat(note ? ["handle-feedback"] : [])
     .join(" ");
@@ -358,6 +361,11 @@ export function HandleForm({
       {saved && (
         <p className="text-sm text-green-700" role="status">
           {t("saved", { address: saved })}
+        </p>
+      )}
+      {savedRedirect && (
+        <p className="text-sm text-gray-600" role="status">
+          {t("savedRedirect")}
         </p>
       )}
       <button
