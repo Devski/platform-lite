@@ -29,7 +29,7 @@ export interface ProfileView {
 }
 
 function variantUrl(
-  storage: FileStorage,
+  storage: Pick<FileStorage, "publicUrl">,
   prefix: string,
   sha256: string,
   px: 512 | 128,
@@ -39,7 +39,14 @@ function variantUrl(
   return storage.publicUrl(contentKey(`${sha256}-${px}`, "webp", prefix));
 }
 
-export async function getProfile(deps: ProfileDeps): Promise<ProfileView> {
+// Only the URL side of the storage is needed here, and only when an avatar
+// exists — callers may hand in a lazy publicUrl so a page renders without a
+// configured bucket (the local runner has none; #15).
+export async function getProfile(
+  deps: Omit<ProfileDeps, "storage"> & {
+    storage: Pick<FileStorage, "publicUrl">;
+  },
+): Promise<ProfileView> {
   const { db, storage, prefix, userId } = deps;
   const [row] = await db
     .select({

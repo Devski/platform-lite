@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { checkRateLimit, parseJsonBody, sessionUserId } from "@/lib/api-route";
+import {
+  checkRateLimit,
+  parseJsonBody,
+  rejectCrossSite,
+  sessionUserId,
+} from "@/lib/api-route";
 import { presignAvatarSchema, presignAvatarUpload } from "@/lib/avatar";
 import { getDb } from "@/db/client";
 import { getStorage, keyPrefix } from "@/lib/storage";
@@ -14,7 +19,11 @@ export async function POST(request: Request) {
   if (!userId) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  if (!checkRateLimit(`avatar-presign:${userId}`, { windowSeconds: 60, max: 10 })) {
+  const crossSite = rejectCrossSite(request);
+  if (crossSite) return crossSite;
+  if (
+    !checkRateLimit(`avatar-presign:${userId}`, { windowSeconds: 60, max: 10 })
+  ) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
 

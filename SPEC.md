@@ -253,6 +253,9 @@ export function contentKey(hash: string, ext: string, prefix = ""): string {
 - Nothing "moves" from dev to prod — both are built from Git; database structure travels
   via migrations, data never does.
 - Outside prod: `X-Robots-Tag: noindex` (A7).
+- One time zone for the whole interface: `Europe/Warsaw` (next-intl `timeZone`; decision of
+  02.09.2026 with #15). Dates render identically on the server and in the browser; per-user
+  zones are not a need yet.
 - Resilience: cold standby (snapshot + the G10 procedure). Deliberately no load balancer
   and no second database node — they would triple the cost while protecting near-zero traffic.
 

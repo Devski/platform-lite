@@ -74,6 +74,31 @@
     "loggingOut": "Logging out…",
     "error": "Logging out failed. Try again."
   },
+  "Onboarding": {
+    "title": "Profile address",
+    "heading": "Set your profile address",
+    "intro": "This is the public address of your profile. We prefilled a proposal based on your account — change it if you like."
+  },
+  "HandleForm": {
+    "label": "Profile address",
+    "hint": "{min} to {max} characters: lowercase letters, digits and hyphens.",
+    "checking": "Checking availability…",
+    "available": "This address is free.",
+    "taken": "This address is already taken.",
+    "reserved": "This name is reserved — pick another one.",
+    "invalid": "The address needs {min} to {max} characters: lowercase letters, digits and hyphens, with no hyphen at the start or end.",
+    "own": "This is your current address.",
+    "submitOnboarding": "Set the address",
+    "submitSettings": "Change the address",
+    "submitting": "Saving…",
+    "saved": "Address saved: {address}",
+    "cooldownNote": "The next change is possible from {date}.",
+    "errors": {
+      "rateLimited": "Too many attempts. Wait a moment and try again.",
+      "cooldown": "The address can be changed once every {days} days.",
+      "generic": "Saving failed. Try again."
+    }
+  },
   "Settings": {
     "account": {
       "title": "Account settings",
@@ -112,7 +137,7 @@
           "generic": "Sending failed. Try again."
         }
       },
-      "profileLink": "Public profile: name and photo",
+      "profileLink": "Public profile: name, photo and address",
       "twoFactor": {
         "heading": "Two-factor authentication",
         "status": {
@@ -190,6 +215,11 @@
           "rate_limited": "Too many attempts. Wait a moment and try again.",
           "generic": "Something went wrong. Try again."
         }
+      },
+      "handle": {
+        "heading": "Profile address",
+        "current": "Your address: {address}",
+        "empty": "You have no profile address yet."
       }
     }
   },
@@ -234,6 +264,7 @@
     "verified": {
       "successHeading": "Account active",
       "successBody": "Your e-mail address is confirmed.",
+      "onboardingLink": "Set up your profile address",
       "homeLink": "Go to the homepage",
       "expiredHeading": "The link has expired",
       "expiredBody": "The activation link was valid for 24 hours. Enter your e-mail address and we will send a new one.",

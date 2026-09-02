@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { checkRateLimit, parseJsonBody, sessionUserId } from "@/lib/api-route";
+import {
+  checkRateLimit,
+  parseJsonBody,
+  rejectCrossSite,
+  sessionUserId,
+} from "@/lib/api-route";
 import { getDb } from "@/db/client";
 import { displayNameSchema } from "@/lib/profile-schemas";
 import { updateDisplayName } from "@/lib/profile";
@@ -15,6 +20,8 @@ export async function POST(request: Request) {
   if (!userId) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+  const crossSite = rejectCrossSite(request);
+  if (crossSite) return crossSite;
   if (!checkRateLimit(`profile:${userId}`, { windowSeconds: 60, max: 20 })) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }

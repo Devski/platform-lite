@@ -1,6 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { checkRateLimit, parseJsonBody, sessionUserId } from "./api-route";
+import {
+  checkRateLimit,
+  parseJsonBody,
+  rejectCrossSite,
+  sessionUserId,
+} from "./api-route";
 
 // Unit suite for the shared route plumbing. getAuth is mocked per branch —
 // the real session machinery has its own integration suites.
@@ -61,6 +66,60 @@ describe("parseJsonBody", () => {
   });
 });
 
+describe("rejectCrossSite", () => {
+  beforeEach(() => {
+    vi.stubEnv("APP_URL", "https://app.example/");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  function post(headers: Record<string, string>): Request {
+    return new Request("https://app.example/api/x", {
+      method: "POST",
+      headers,
+    });
+  }
+
+  it("passes a same-origin browser request", () => {
+    expect(
+      rejectCrossSite(
+        post({
+          "sec-fetch-site": "same-origin",
+          origin: "https://app.example",
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("refuses a request the browser labels cross-site", async () => {
+    const response = rejectCrossSite(
+      post({ "sec-fetch-site": "cross-site", origin: "https://app.example" }),
+    );
+    expect(response?.status).toBe(403);
+    expect(await response?.json()).toEqual({ error: "forbidden" });
+  });
+
+  it("refuses a foreign Origin even without the fetch metadata", () => {
+    expect(
+      rejectCrossSite(post({ origin: "https://evil.example" }))?.status,
+    ).toBe(403);
+    // A sibling site is not us either.
+    expect(
+      rejectCrossSite(
+        post({
+          "sec-fetch-site": "same-site",
+          origin: "https://sub.app.example",
+        }),
+      )?.status,
+    ).toBe(403);
+  });
+
+  it("passes a request carrying neither header (a tool, an old client)", () => {
+    expect(rejectCrossSite(post({}))).toBeNull();
+  });
+});
+
 describe("checkRateLimit", () => {
   it("allows up to max within the window, then refuses", () => {
     const key = `test:${Math.random()}`;
@@ -84,7 +143,11 @@ describe("checkRateLimit", () => {
   });
 
   it("keys independently", () => {
-    expect(checkRateLimit(`a:${Math.random()}`, { windowSeconds: 60, max: 1 })).toBe(true);
-    expect(checkRateLimit(`b:${Math.random()}`, { windowSeconds: 60, max: 1 })).toBe(true);
+    expect(
+      checkRateLimit(`a:${Math.random()}`, { windowSeconds: 60, max: 1 }),
+    ).toBe(true);
+    expect(
+      checkRateLimit(`b:${Math.random()}`, { windowSeconds: 60, max: 1 }),
+    ).toBe(true);
   });
 });

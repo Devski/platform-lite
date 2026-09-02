@@ -35,7 +35,9 @@ test.describe("Polish browser", () => {
     ).toBeVisible();
     // Both offered methods plus the backup option are shown as tabs.
     await expect(page.getByRole("button", { name: "Aplikacja" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Kod e-mail" })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Kod e-mail" }),
+    ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Kod zapasowy" }),
     ).toBeVisible();
@@ -58,11 +60,16 @@ test.describe("Polish browser", () => {
     // The code field is locked until a code has been sent.
     await expect(page.getByLabel("Kod")).toBeDisabled();
     await page.getByRole("button", { name: "Wyślij kod na e-mail" }).click();
-    await expect(page.getByText("Kod wysłany — sprawdź skrzynkę.")).toBeVisible();
+    await expect(
+      page.getByText("Kod wysłany — sprawdź skrzynkę."),
+    ).toBeVisible();
 
     await page.getByLabel("Kod").fill("123456");
     await page.getByRole("button", { name: "Potwierdź" }).click();
-    await expect(page).toHaveURL(/\/$/);
+    // #15: a verified challenge lands on /onboarding; with no database there
+    // is no session behind the mocked reply, so the (app) gate forwards to
+    // /login — either way the challenge page is left behind.
+    await expect(page).toHaveURL(/\/login$/);
   });
 
   test("a wrong authenticator code shows an inline error", async ({ page }) => {

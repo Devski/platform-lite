@@ -36,6 +36,12 @@ export default async function VerifiedPage({
             </h1>
             <p className="text-sm text-gray-600">{t("successBody")}</p>
             <Link
+              href="/onboarding"
+              className="text-sm font-semibold text-blue-700 hover:underline"
+            >
+              {t("onboardingLink")}
+            </Link>
+            <Link
               href="/"
               className="text-sm font-semibold text-blue-700 hover:underline"
             >

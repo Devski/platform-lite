@@ -64,7 +64,9 @@ export function LoginForm() {
           router.push(`/two-factor?methods=${encodeURIComponent(methods)}`);
           return;
         }
-        router.push("/");
+        // #15: land on the onboarding step — it forwards users who already
+        // have a handle to /.
+        router.push("/onboarding");
         return;
       }
       if (error.code === "EMAIL_NOT_VERIFIED") {

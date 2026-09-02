@@ -6,5 +6,8 @@ import { routing } from "./i18n/routing";
 export default createMiddleware(routing);
 
 export const config = {
-  matcher: "/((?!api|_next|_vercel|.*\\..*).*)",
+  // Skip Next's own paths and files. The exclusions are whole segments on
+  // purpose: a handle such as `apiary` must still reach the middleware
+  // (#15 review — a bare `api` prefix would swallow it).
+  matcher: "/((?!api(?:/|$)|_next(?:/|$)|_vercel(?:/|$)|.*\\..*).*)",
 };

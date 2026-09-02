@@ -10,3 +10,11 @@ export function requireEnv(name: string): string {
   }
   return value;
 }
+
+// The canonical origin (APP_URL) without a trailing slash — the prefix of
+// every public address, shown verbatim in front of the handle field (#15).
+// Never hard-code the domain: production is architektow3d.pl (#25), the local
+// runner whatever it sets.
+export function appOrigin(): string {
+  return requireEnv("APP_URL").replace(/\/+$/, "");
+}

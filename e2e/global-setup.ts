@@ -15,6 +15,7 @@ const WARMUP_PATHS = [
   "/two-factor",
   "/email-changed",
   "/settings/account",
+  "/onboarding",
   "/en/login",
 ];
 

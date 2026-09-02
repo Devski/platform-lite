@@ -4,8 +4,11 @@ import { getTranslations, setRequestLocale } from "next-intl/server";
 import { Link, redirect } from "@/i18n/navigation";
 import { getDb } from "@/db/client";
 import { getAuth } from "@/lib/auth";
+import { appOrigin } from "@/lib/env";
 import { getProfile } from "@/lib/profile";
+import { getHandleState, suggestHandle } from "@/lib/profile-handle";
 import { getStorage, keyPrefix } from "@/lib/storage";
+import { HandleForm } from "../../handle-form";
 import { AvatarSection } from "./avatar-section";
 import { DisplayNameForm } from "./display-name-form";
 
@@ -33,12 +36,21 @@ export default async function ProfileSettingsPage({
     return null;
   }
   const t = await getTranslations("Settings.profile");
+  const db = getDb();
   const profile = await getProfile({
-    db: getDb(),
-    storage: getStorage(),
+    db,
+    // Resolved on first use: the bucket is needed only to address an
+    // existing avatar, so the page renders without S3_* (the local runner).
+    storage: { publicUrl: (key) => getStorage().publicUrl(key) },
     prefix: keyPrefix(),
     userId: session.user.id,
   });
+  const handleState = await getHandleState(db, session.user.id);
+  // No handle yet (an account from before #15, or onboarding left early):
+  // the form opens on the same proposal the onboarding step would make.
+  const handleValue =
+    handleState.handle ?? (await suggestHandle(db, session.user.id));
+  const origin = appOrigin();
 
   return (
     <main className="flex min-h-screen justify-center bg-gray-50 px-4 py-12">
@@ -69,6 +81,26 @@ export default async function ProfileSettingsPage({
             {t("avatar.heading")}
           </h2>
           <AvatarSection currentUrl={profile.avatar?.url512 ?? null} />
+        </section>
+
+        <section className="rounded-lg border border-gray-200 bg-white p-8">
+          <h2 className="text-lg font-semibold text-gray-900">
+            {t("handle.heading")}
+          </h2>
+          <p className="mt-2 text-sm text-gray-600">
+            {handleState.handle
+              ? t("handle.current", {
+                  address: `${origin}/${handleState.handle}`,
+                })
+              : t("handle.empty")}
+          </p>
+          <HandleForm
+            mode="settings"
+            origin={origin}
+            currentHandle={handleState.handle}
+            initialValue={handleValue}
+            nextChangeAt={handleState.nextChangeAt?.toISOString() ?? null}
+          />
         </section>
       </div>
     </main>

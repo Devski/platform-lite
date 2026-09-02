@@ -1,6 +1,8 @@
 import { headers } from "next/headers";
+import { NextResponse } from "next/server";
 import type { z } from "zod";
 import { getAuth } from "@/lib/auth";
+import { appOrigin } from "@/lib/env";
 
 // Shared plumbing for the JSON API routes (#12+). Kept deliberately tiny:
 // routes stay thin adapters and the logic lives in the lib modules.
@@ -31,6 +33,25 @@ export async function parseJsonBody<Schema extends z.ZodType>(
   }
   const parsed = schema.safeParse(raw);
   return parsed.success ? parsed.data : null;
+}
+
+// Cross-site guard for the state-changing routes. The session cookie is
+// sameSite=lax (A2), which already keeps a cross-site POST from carrying it
+// in current browsers; this is the belt on top (#15 review). A browser labels
+// every request (Sec-Fetch-Site) and sends Origin on every POST, so a request
+// carrying either must name us; one carrying neither (a tool, an old client)
+// passes — the cookie rules still apply to it.
+export function rejectCrossSite(request: Request): NextResponse | null {
+  if (request.headers.get("sec-fetch-site") === "cross-site") {
+    return forbidden();
+  }
+  const origin = request.headers.get("origin");
+  if (origin !== null && origin !== appOrigin()) return forbidden();
+  return null;
+}
+
+function forbidden(): NextResponse {
+  return NextResponse.json({ error: "forbidden" }, { status: 403 });
 }
 
 // Fixed-window limiter for the authenticated /api routes, keyed per user —

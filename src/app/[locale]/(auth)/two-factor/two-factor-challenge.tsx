@@ -58,7 +58,9 @@ export function TwoFactorChallenge({ modes }: { modes: Mode[] }) {
       };
       const { error: verifyError } = await verify[mode]();
       if (!verifyError) {
-        router.push("/");
+        // #15: the same landing as a password-only login — the onboarding
+        // step forwards users who already have a handle to /.
+        router.push("/onboarding");
         return;
       }
       if (verifyError.status === 401) setError(t("errors.invalidCode"));
@@ -76,7 +78,11 @@ export function TwoFactorChallenge({ modes }: { modes: Mode[] }) {
   return (
     <div className="mt-6 flex flex-col gap-4">
       {modes.length > 1 && (
-        <div className="flex flex-wrap gap-2" role="group" aria-label={t("methodsLabel")}>
+        <div
+          className="flex flex-wrap gap-2"
+          role="group"
+          aria-label={t("methodsLabel")}
+        >
           {modes.map((option) => (
             <button
               key={option}

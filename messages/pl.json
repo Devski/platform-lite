@@ -74,6 +74,31 @@
     "loggingOut": "Wylogowywanie…",
     "error": "Nie udało się wylogować. Spróbuj ponownie."
   },
+  "Onboarding": {
+    "title": "Adres profilu",
+    "heading": "Ustaw swój adres profilu",
+    "intro": "To publiczny adres Twojego profilu. Zaproponowaliśmy adres na podstawie Twojego konta — możesz go zmienić."
+  },
+  "HandleForm": {
+    "label": "Adres profilu",
+    "hint": "Od {min} do {max} znaków: małe litery, cyfry i myślniki.",
+    "checking": "Sprawdzanie dostępności…",
+    "available": "Ten adres jest wolny.",
+    "taken": "Ten adres jest już zajęty.",
+    "reserved": "Ta nazwa jest zarezerwowana — wybierz inną.",
+    "invalid": "Adres musi mieć od {min} do {max} znaków: małe litery, cyfry i myślniki, ale bez myślnika na początku ani na końcu.",
+    "own": "To jest Twój obecny adres.",
+    "submitOnboarding": "Ustaw adres",
+    "submitSettings": "Zmień adres",
+    "submitting": "Zapisywanie…",
+    "saved": "Adres zapisany: {address}",
+    "cooldownNote": "Następna zmiana możliwa od {date}.",
+    "errors": {
+      "rateLimited": "Zbyt wiele prób. Odczekaj chwilę i spróbuj ponownie.",
+      "cooldown": "Adres można zmieniać raz na {days} dni.",
+      "generic": "Zapis nie powiódł się. Spróbuj ponownie."
+    }
+  },
   "Settings": {
     "account": {
       "title": "Ustawienia konta",
@@ -112,7 +137,7 @@
           "generic": "Wysyłka nie powiodła się. Spróbuj ponownie."
         }
       },
-      "profileLink": "Profil publiczny: nazwa i zdjęcie",
+      "profileLink": "Profil publiczny: nazwa, zdjęcie i adres",
       "twoFactor": {
         "heading": "Weryfikacja dwuskładnikowa",
         "status": {
@@ -190,6 +215,11 @@
           "rate_limited": "Zbyt wiele prób. Odczekaj chwilę i spróbuj ponownie.",
           "generic": "Coś poszło nie tak. Spróbuj ponownie."
         }
+      },
+      "handle": {
+        "heading": "Adres profilu",
+        "current": "Twój adres: {address}",
+        "empty": "Nie masz jeszcze adresu profilu."
       }
     }
   },
@@ -234,6 +264,7 @@
     "verified": {
       "successHeading": "Konto aktywne",
       "successBody": "Twój adres e-mail został potwierdzony.",
+      "onboardingLink": "Ustaw adres profilu",
       "homeLink": "Przejdź na stronę główną",
       "expiredHeading": "Link wygasł",
       "expiredBody": "Link aktywacyjny był ważny przez 24 godziny. Podaj adres e-mail, a wyślemy nowy.",
