@@ -121,10 +121,26 @@ describe("RESERVED_HANDLES (A5)", () => {
   });
 
   it("refuses the official-looking prefixes, but only the exact prefix with its hyphen", () => {
-    for (const handle of ["admin-jan", "official-studio", "support-team"]) {
+    for (const handle of [
+      "admin-jan",
+      "administrator-jan",
+      "staff-jan",
+      "official-studio",
+      "support-team",
+      "security-x",
+      "root-y",
+    ]) {
       expect(checkHandle(handle)).toBe("reserved");
     }
-    for (const handle of ["administracja-x", "jan-admin", "supporter"]) {
+    // Ordinary words stay claimable as prefixes; the stem in any other
+    // position, and look-alikes, are not chased.
+    for (const handle of [
+      "team-alfa",
+      "mod-design",
+      "administracja-x",
+      "jan-admin",
+      "supporter",
+    ]) {
       expect(checkHandle(handle)).toBeNull();
     }
   });

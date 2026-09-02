@@ -160,14 +160,26 @@ export const RESERVED_BRAND_TOKENS: readonly string[] = [
 ];
 
 // Official-looking addresses: "admin-jan" reads as staff even though the bare
-// word is already reserved. Only the exact prefix with its hyphen is refused
-// ("administracja-x", "jan-admin", "supporter" stay free), and each stem is on
-// RESERVED_HANDLES in its own right, so the two lists cannot disagree.
-export const RESERVED_HANDLE_PREFIXES: readonly string[] = [
-  "admin-",
-  "official-",
-  "support-",
-];
+// word is already reserved. Derived from the official stems on
+// RESERVED_HANDLES, so the two lists cannot disagree; "team" and "mod" stay
+// claimable as prefixes (ordinary words: "team-alfa", "mod-design"). Only the
+// exact prefix with its hyphen is refused — look-alikes ("adm1n-", "admins-")
+// are deliberately not chased: the display name is free text anyway, so staff
+// attribution must never rest on the address alone.
+const OFFICIAL_STEMS = [
+  "admin",
+  "administrator",
+  "moderator",
+  "staff",
+  "official",
+  "support",
+  "security",
+  "system",
+  "root",
+] as const;
+export const RESERVED_HANDLE_PREFIXES: readonly string[] = OFFICIAL_STEMS.map(
+  (stem) => `${stem}-`,
+);
 
 export type HandleProblem = "invalid" | "reserved";
 
@@ -179,14 +191,11 @@ export function normalizeHandle(input: string): string {
 /** A5 verdict on an already-normalized handle; null when it is fine. */
 export function checkHandle(handle: string): HandleProblem | null {
   if (!HANDLE_PATTERN.test(handle)) return "invalid";
-  if (RESERVED_HANDLES.has(handle)) return "reserved";
-  if (RESERVED_BRAND_TOKENS.some((token) => handle.includes(token))) {
-    return "reserved";
-  }
-  if (RESERVED_HANDLE_PREFIXES.some((prefix) => handle.startsWith(prefix))) {
-    return "reserved";
-  }
-  return null;
+  const reserved =
+    RESERVED_HANDLES.has(handle) ||
+    RESERVED_BRAND_TOKENS.some((token) => handle.includes(token)) ||
+    RESERVED_HANDLE_PREFIXES.some((prefix) => handle.startsWith(prefix));
+  return reserved ? "reserved" : null;
 }
 
 // The issue message IS the problem code ("invalid" | "reserved"), so the form

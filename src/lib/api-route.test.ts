@@ -83,7 +83,7 @@ describe("parseJsonBody", () => {
     expect(await parseJsonBody(request(), schema)).toBeNull();
   });
 
-  it("parses a body exactly at the 64 KiB bound", async () => {
+  it("parses a body exactly at the bound", async () => {
     const body = paddedBody(JSON_BODY_MAX_BYTES);
     expect(Buffer.byteLength(body)).toBe(JSON_BODY_MAX_BYTES);
     expect(await parseJsonBody(request(body), schema)).toEqual({ value: 7 });
@@ -100,6 +100,38 @@ describe("parseJsonBody", () => {
     });
     expect(await parseJsonBody(oversized, schema)).toBeNull();
     expect(oversized.bodyUsed).toBe(false);
+  });
+
+  it("strips a UTF-8 BOM the way request.json() did", async () => {
+    const body = "\uFEFF" + '{"value": 7}';
+    expect(await parseJsonBody(request(body), schema)).toEqual({ value: 7 });
+  });
+
+  it("returns null, not an error, for a body whose stream is already locked", async () => {
+    const locked = request('{"value": 7}');
+    locked.body!.getReader();
+    expect(await parseJsonBody(locked, schema)).toBeNull();
+  });
+
+  it("returns null, not an error, for a transport failure mid-body", async () => {
+    // The first chunk arrives, then the connection drops before the rest.
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"value"'));
+      },
+      pull(controller) {
+        controller.error(new Error("connection reset"));
+      },
+    });
+    // Node needs `duplex: "half"` for a stream body; the cast covers a
+    // lib.dom RequestInit that does not declare it.
+    const failing = new Request("http://localhost/api/x", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+      duplex: "half",
+    } as RequestInit);
+    expect(await parseJsonBody(failing, schema)).toBeNull();
   });
 });
 
@@ -150,6 +182,10 @@ describe("rejectCrossSite", () => {
         }),
       )?.status,
     ).toBe(403);
+  });
+
+  it('refuses an opaque Origin ("null" is never ours)', () => {
+    expect(rejectCrossSite(post({ origin: "null" }))?.status).toBe(403);
   });
 
   it("passes a request carrying neither header (a tool, an old client)", () => {

@@ -30,7 +30,7 @@ describe("proxy matcher (A8 locale middleware)", () => {
     }
   });
 
-  it("leaves the API, Next's own paths and files alone", () => {
+  it("keeps /api off the proxy — lib/api-route's body bound relies on seeing the raw stream — and skips Next's own paths and files", () => {
     for (const path of [
       "/api",
       "/api/auth/get-session",

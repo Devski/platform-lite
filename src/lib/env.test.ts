@@ -33,4 +33,14 @@ describe("appOrigin (the prefix of every public address, #15)", () => {
     vi.stubEnv("APP_URL", "https://architektow3d.pl");
     expect(appOrigin()).toBe("https://architektow3d.pl");
   });
+
+  it("normalizes like the browser's Origin: host case, default port, path", () => {
+    vi.stubEnv("APP_URL", "https://App.Example:443/x/");
+    expect(appOrigin()).toBe("https://app.example");
+  });
+
+  it("throws on an unparsable value, like requireEnv on a missing one", () => {
+    vi.stubEnv("APP_URL", "not a url");
+    expect(() => appOrigin()).toThrow(/Invalid URL/);
+  });
 });

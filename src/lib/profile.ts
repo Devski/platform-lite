@@ -23,6 +23,13 @@ export interface ProfileDeps {
   userId: string;
 }
 
+// The read side needs only the URL half of the storage, and only when an
+// avatar exists — callers may hand in a lazy publicUrl so a page renders
+// without a configured bucket (the local runner has none; #15).
+export type ProfileReadDeps = Omit<ProfileDeps, "storage"> & {
+  storage: Pick<FileStorage, "publicUrl">;
+};
+
 export interface ProfileView {
   displayName: string | null;
   avatar: { fileId: string; url512: string; url128: string } | null;
@@ -39,14 +46,7 @@ function variantUrl(
   return storage.publicUrl(contentKey(`${sha256}-${px}`, "webp", prefix));
 }
 
-// Only the URL side of the storage is needed here, and only when an avatar
-// exists — callers may hand in a lazy publicUrl so a page renders without a
-// configured bucket (the local runner has none; #15).
-export async function getProfile(
-  deps: Omit<ProfileDeps, "storage"> & {
-    storage: Pick<FileStorage, "publicUrl">;
-  },
-): Promise<ProfileView> {
+export async function getProfile(deps: ProfileReadDeps): Promise<ProfileView> {
   const { db, storage, prefix, userId } = deps;
   const [row] = await db
     .select({
