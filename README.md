@@ -31,6 +31,34 @@ All commands: SPEC.md §3. The gate before every commit: `pnpm check`.
 | No `.env` values / no access yet                      | Ask whoever runs the dev infra for your per-dev values |
 | Dev infrastructure from scratch (or after a disaster) | [docs/dev-environment.md](docs/dev-environment.md)     |
 
+## Sample data
+
+`pnpm db:seed` creates 14 sample profiles — Polish studios and 3D creators with display
+names, handles and generated avatar photos (initials on a colored square, rasterized by
+sharp; nothing downloaded) — so a fresh environment has real-looking pages within a minute
+(SPEC.md G7). It needs `DATABASE_URL`: from `.env`, like `pnpm db:migrate` (the tunnel per
+SPEC.md §3), or pointed at the local runner while `node scripts/dev-local.mjs` is running:
+
+```bash
+DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5434/postgres pnpm db:seed
+```
+
+```powershell
+$env:DATABASE_URL = "postgresql://postgres:postgres@127.0.0.1:5434/postgres"; pnpm db:seed
+```
+
+- Photos need the five `S3_*` variables (they land under `S3_PREFIX`); without them the
+  seed still creates accounts, names and handles, and says so.
+- Every seed account is `<handle>@seed.example` (verified; the domain can never receive
+  mail) with the password `architekt-seed-2026`, printed at the end.
+- Safe to re-run: a profile whose e-mail already exists (or whose handle another account
+  holds) is skipped and reported; nothing is deleted. For a fresh set, start from a fresh
+  database (delete `.pglite-data/` for the local runner).
+- It refuses to run with `NODE_ENV=production`.
+- G7: the seed is maintained continuously — a new profile field or a changed profile layer
+  changes `scripts/seed-profiles.ts` in the same change; `src/db/seed.test.ts` fails when
+  the two drift apart.
+
 ## Testing
 
 `pnpm test` (Vitest units) · `pnpm test:e2e` (Playwright; starts its own dev server on

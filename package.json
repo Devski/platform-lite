@@ -22,6 +22,7 @@
     "db:tunnel": "node scripts/db-tunnel.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:seed": "tsx scripts/seed.ts",
     "db:studio": "drizzle-kit studio",
     "check": "pnpm typecheck && pnpm lint && pnpm test:coverage"
   },
@@ -52,6 +53,7 @@
     "eslint-config-next": "16.3.3",
     "prettier": "^3.9.6",
     "tailwindcss": "^4",
+    "tsx": "4.23.12",
     "typescript": "^5",
     "vitest": "^4.1.11"
   }
