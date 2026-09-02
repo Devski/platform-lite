@@ -358,7 +358,7 @@ describe("handle redirects (A6, §9)", () => {
     });
   });
 
-  it("a change refused as taken rolls its redirect writes back with the transaction", async () => {
+  it("a change refused as taken leaves both tables untouched", async () => {
     await setHandle(testDb.db, otherUserId, "held", T0);
     await setHandle(testDb.db, userId, "first", T0);
     await expect(

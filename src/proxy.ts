@@ -38,13 +38,22 @@ async function oldAddressRedirect(
   if (!target) return null;
   const url = new URL(localizedPath(target, candidate.locale), request.nextUrl);
   url.search = request.nextUrl.search;
-  return NextResponse.redirect(url, 301);
+  // 301 is the permanent signal search engines want (A6), but a browser
+  // caches a 301 with no freshness information indefinitely — and the old
+  // address may be claimed by somebody else tomorrow (§9 release, the §10
+  // risk). no-store keeps every client re-asking, so the database's answer
+  // is always the one that counts.
+  return NextResponse.redirect(url, {
+    status: 301,
+    headers: { "cache-control": "no-store" },
+  });
 }
 
 // The A8 prefix rule (`localePrefix: "as-needed"`) by hand: next-intl's
 // getPathname would pull the request config (next/root-params) into the
-// proxy bundle, which Next refuses to build.
-function localizedPath(handle: string, locale: Locale): string {
+// proxy bundle, which Next refuses to build. src/proxy.test.ts pins this to
+// the routing config, so a change of the prefix strategy fails a test here.
+export function localizedPath(handle: string, locale: Locale): string {
   return locale === routing.defaultLocale
     ? `/${handle}`
     : `/${locale}/${handle}`;
@@ -64,17 +73,54 @@ export function handleCandidate(
   return { locale: prefixed ? prefix : routing.defaultLocale, handle };
 }
 
+// Fail-open must also be fail-fast: a stalled database would otherwise
+// hold every handle-shaped public GET for as long as the pool waits.
+const LOOKUP_TIMEOUT_MS = 1500;
+
 async function redirectTarget(handle: string): Promise<string | null> {
   try {
-    const resolution = await resolveHandle(getDb(), handle);
+    const resolution = await withTimeout(
+      resolveHandle(getDb(), handle),
+      LOOKUP_TIMEOUT_MS,
+    );
     return resolution.kind === "redirect" ? resolution.handle : null;
   } catch (error) {
-    // Fail open to the page, which 404s — the DB-less e2e job relies on it —
-    // but say so: a silent branch would turn a wrong DATABASE_URL, a dead
-    // pool or a SQL error into "old addresses 404" with nothing in the log.
-    console.error("[proxy] redirect lookup failed:", error);
+    // Fail open to the page, which 404s — but say so: a silent branch would
+    // turn a wrong DATABASE_URL, a dead pool, a SQL error or the timeout
+    // above into "old addresses 404" with nothing in the log. The one
+    // expected case stays quiet: no DATABASE_URL at all (the DB-less e2e
+    // job), which requireEnv reports by message.
+    if (!isMissingEnv(error)) {
+      console.error("[proxy] redirect lookup failed:", error);
+    }
     return null;
   }
+}
+
+function isMissingEnv(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message.startsWith("Missing required environment variable")
+  );
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`redirect lookup timed out after ${ms} ms`)),
+      ms,
+    );
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 export const config = {

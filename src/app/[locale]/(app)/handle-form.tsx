@@ -137,7 +137,14 @@ export function HandleForm({
   const [value, setValue] = useState(initialValue);
   const [remote, setRemote] = useState<RemoteCheck | null>(null);
   const [submitError, setSubmitError] = useState<SubmitError | null>(null);
-  const [saved, setSaved] = useState<string | null>(null);
+  // What the last successful submit stored, and whether it replaced an
+  // address (then the old one keeps redirecting, #16). Decided at submit
+  // time: after router.refresh() the currentHandle prop is set even for a
+  // first assignment, so it cannot tell the two apart.
+  const [saved, setSaved] = useState<{
+    address: string;
+    redirects: boolean;
+  } | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   // The server already applied "still in the future": non-null means locked.
@@ -282,7 +289,10 @@ export function HandleForm({
       }
       // Show what was stored (normalized), not what was typed.
       setValue(response.data.handle);
-      setSaved(`${origin}/${response.data.handle}`);
+      setSaved({
+        address: `${origin}/${response.data.handle}`,
+        redirects: currentHandle !== null,
+      });
       router.refresh();
     } catch {
       // Network-level failure: postJson rethrows when no response arrived.
@@ -294,9 +304,6 @@ export function HandleForm({
 
   const note = feedback();
   const problem = note?.tone === "problem";
-  // #16: a change (not the first assignment) leaves the old address
-  // redirecting — say so, and that anyone may claim it (A6).
-  const savedRedirect = currentHandle !== null && saved !== null;
   const describedBy = ["handle-prefix", "handle-hint"]
     .concat(note ? ["handle-feedback"] : [])
     .join(" ");
@@ -360,10 +367,10 @@ export function HandleForm({
       )}
       {saved && (
         <p className="text-sm text-green-700" role="status">
-          {t("saved", { address: saved })}
+          {t("saved", { address: saved.address })}
         </p>
       )}
-      {savedRedirect && (
+      {saved?.redirects && (
         <p className="text-sm text-gray-600" role="status">
           {t("savedRedirect")}
         </p>

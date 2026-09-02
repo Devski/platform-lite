@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HANDLE_PATTERN } from "@/lib/handle";
 import type { HandleResolution } from "@/lib/profile-handle";
-import proxy, { config, handleCandidate } from "./proxy";
+import { routing } from "@/i18n/routing";
+import proxy, { config, handleCandidate, localizedPath } from "./proxy";
 
 // The locale middleware needs Next's server runtime, which the unit
 // environment does not provide, and the redirect lookup needs a database:
@@ -115,15 +116,37 @@ describe("proxy: old address → 301", () => {
     expect(mocks.intl).toHaveBeenCalledWith(req);
   }
 
-  it("answers 301 to the target's current handle", async () => {
+  it("answers an uncacheable 301 to the target's current handle", async () => {
     redirectsTo("new-studio");
     const response = await proxy(request("/old-studio"));
     expect(response.status).toBe(301);
     expect(response.headers.get("location")).toBe(
       "http://localhost:3000/new-studio",
     );
+    // A cached 301 would outlive the release of the old address (§9).
+    expect(response.headers.get("cache-control")).toBe("no-store");
     expect(mocks.resolveHandle).toHaveBeenCalledWith({}, "old-studio");
     expect(mocks.intl).not.toHaveBeenCalled();
+  });
+
+  it("sends the default-locale prefix form to the unprefixed address", async () => {
+    redirectsTo("new-studio");
+    const response = await proxy(request("/pl/old-studio"));
+    expect(response.status).toBe(301);
+    expect(response.headers.get("location")).toBe(
+      "http://localhost:3000/new-studio",
+    );
+  });
+
+  it("localizedPath follows the routing config's as-needed rule for every locale", () => {
+    // next-intl's own getPathname cannot run here (it needs the request
+    // config), so the hand-written rule is pinned to the config it mirrors.
+    expect(routing.localePrefix).toBe("as-needed");
+    for (const locale of routing.locales) {
+      expect(localizedPath("x", locale)).toBe(
+        locale === routing.defaultLocale ? "/x" : `/${locale}/x`,
+      );
+    }
   });
 
   it("keeps the locale prefix on the new address", async () => {
@@ -159,9 +182,10 @@ describe("proxy: old address → 301", () => {
     expect(mocks.resolveHandle).toHaveBeenCalledTimes(2);
   });
 
-  // Fail-open is deliberate, silence is not: both branches must leave a
-  // trace in the server log (a wrong DATABASE_URL in the proxy's environment
-  // would otherwise show up only as old addresses 404ing).
+  // Fail-open is deliberate, silence is not: a failed lookup leaves a trace
+  // in the server log (a wrong DATABASE_URL in the proxy's environment would
+  // otherwise show up only as old addresses 404ing). The one quiet branch is
+  // the expected no-database case of the DB-less e2e job.
   describe("fails open to the middleware, logging the cause", () => {
     let errorSpy: ReturnType<typeof vi.spyOn>;
 
@@ -173,19 +197,31 @@ describe("proxy: old address → 301", () => {
       errorSpy.mockRestore();
     });
 
-    it("without a database (the DB-less e2e job)", async () => {
-      const missing = new Error(
-        "Missing required environment variable DATABASE_URL",
-      );
+    it("without a database (the DB-less e2e job) — quietly", async () => {
       mocks.getDb.mockImplementation(() => {
-        throw missing;
+        throw new Error("Missing required environment variable DATABASE_URL");
       });
       await expectFallThrough("/old-studio");
       expect(mocks.resolveHandle).not.toHaveBeenCalled();
-      expect(errorSpy).toHaveBeenCalledWith(
-        "[proxy] redirect lookup failed:",
-        missing,
-      );
+      expect(errorSpy).not.toHaveBeenCalled();
+    });
+
+    it("when the lookup stalls, after the timeout", async () => {
+      vi.useFakeTimers();
+      try {
+        mocks.resolveHandle.mockReturnValue(new Promise(() => {}));
+        const pending = proxy(request("/old-studio"));
+        await vi.advanceTimersByTimeAsync(1500);
+        expect(await pending).toBe(intlResponse);
+        expect(errorSpy).toHaveBeenCalledWith(
+          "[proxy] redirect lookup failed:",
+          expect.objectContaining({
+            message: expect.stringContaining("timed out"),
+          }),
+        );
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("when the lookup itself fails", async () => {

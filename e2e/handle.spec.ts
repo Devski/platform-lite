@@ -42,7 +42,8 @@ test.describe("Polish browser", () => {
     // (src/proxy.test.ts proves the branch; this proves the wiring).
     const oldAddress = await request.get("/some-old-address");
     expect(oldAddress.status()).toBe(404);
-    // A reserved word never reaches the lookup at all.
+    // A reserved word is 404 too (src/proxy.test.ts proves it skips the
+    // lookup; this only proves the wiring).
     const reserved = await request.get("/admin");
     expect(reserved.status()).toBe(404);
   });

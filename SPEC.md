@@ -127,7 +127,7 @@ src/
   db/
     schema.ts               # source of truth for drizzle-kit
   i18n/                     # next-intl configuration
-  proxy.ts                  # locale detection: prefix → cookie → Accept-Language (A8)
+  proxy.ts                  # locale detection (A8); the 301 from an old handle (A6, §9)
 messages/
   pl.json  en.json          # ALL interface texts
 drizzle/                    # generated SQL migrations — committed
@@ -273,7 +273,9 @@ export function contentKey(hash: string, ext: string, prefix = ""): string {
   target of a foreign key — all relations point at `users.id`, so a handle change touches
   no relation.
 - `handle_redirects`: `old_handle PK`, `target_user_id`, `created_at`.
-  Resolving `/X`: profile → redirect (301 to the target's current handle) → 404.
+  Resolving `/X`: profile → redirect (301 to the target's current handle, answered by
+  `src/proxy.ts` with `Cache-Control: no-store`, so a released address is never served
+  from a browser cache) → 404.
   Registration of handle `X` by anyone **deletes** the redirect row (A6).
 - `files`: `id`, `user_id`, `sha256`, `size_bytes`, `kind` (`avatar-original|avatar-512|avatar-128`),
   `created_at`. The per-user sum of `size_bytes` = quota usage (A9).
