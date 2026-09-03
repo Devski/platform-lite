@@ -49,8 +49,16 @@ export default async function HomePage({
       {/* Opaque, not translucent: a see-through card over an unknown photo has
           no measurable text contrast (axe reports it as untestable, #20 runs
           axe here) and its border disappears into the scrim — §1 asks for a
-          card with a thin border, so it has to look like one. */}
-      <div className="flex w-full max-w-md flex-col items-center gap-4 rounded-lg border border-white/20 bg-gray-950 p-8 text-center">
+          card with a thin border, so it has to look like one.
+
+          `relative` is what makes that opacity count. Inside a positioned,
+          isolated parent axe cannot resolve the background behind a static
+          child, so every string here came back "could not be determined" and
+          the #20 contrast check passed by measuring nothing: 0 passes and 7
+          undecided on 03.09.2026. Positioning the card turns the same seven
+          into passes. It changes no pixel — z-index stays auto, so the paint
+          order against the two -z-10 layers above is exactly as it was. */}
+      <div className="relative flex w-full max-w-md flex-col items-center gap-4 rounded-lg border border-white/20 bg-gray-950 p-8 text-center">
         <h1 className="text-3xl font-semibold tracking-tight text-white">
           {t("brand")}
         </h1>

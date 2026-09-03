@@ -192,12 +192,24 @@ export function contentKey(hash: string, ext: string, prefix = ""): string {
 | ----------- | ---------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | Unit        | Vitest                 | `lib/handle` (regex, reserved words, cooldown), `lib/quota`, `contentKey`, image variants                      | `src/**/*.test.ts` next to the code                                                         |
 | Integration | Vitest + test database | auth flows, handle change with 301, usage counter                                                              | `DATABASE_URL_TEST` → a separate `platform_test_<github-handle>` database on the dev server |
-| E2E         | Playwright             | happy path: sign-up → verification → profile → public profile page; login and reset smoke; axe on public pages | `e2e/`                                                                                      |
+| E2E         | Playwright             | happy path: sign-up → verification → profile → public profile page; login and reset smoke; axe on public pages | `e2e/` (database optional) and `e2e/db/` (needs one)                                        |
 
 - Coverage: no percentage fetish; a hard minimum of **80% for `src/lib/`** and a test for
   every criterion A1–A10 (A11 — visual, no requirement).
+- E2E splits into two Playwright projects over **one** dev server (Next takes an exclusive
+  lock on its dist directory, so a second one cannot start in the same working tree):
+  `chromium` runs everything outside `e2e/db/`; it proves the fail-closed behaviour in the
+  runs started without `DATABASE_URL_TEST`, which is how CI invokes it — "no database" is a
+  property of the **run**, not of the project. `chromium-db` runs `e2e/db/**` — the journey,
+  the reset round trip and axe on a live profile — and needs `DATABASE_URL_TEST`, which the
+  server's `DATABASE_URL` is taken from: without it a local run reports itself **skipped**,
+  while CI fails rather than report a green suite that executed nothing.
 - CI (GitHub Actions): `pnpm check` + build on every PR; Postgres as a service container;
-  e2e smoke on PRs, full e2e before a prod deployment.
+  e2e smoke on PRs (the `chromium` project, deliberately database-less), full e2e before a
+  prod deployment — the same database-less project first, then `chromium-db` against a
+  throwaway PostgreSQL 17, two Playwright runs so each project gets the server it needs.
+  The full run fires on a `vX.Y.Z` tag (SPEC §8's release path) or on demand, and depends on
+  `check`, so the production build is compiled before the browser ever opens.
 - A bug fix starts with a test that reproduces the bug.
 
 ---

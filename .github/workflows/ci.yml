@@ -6,8 +6,13 @@ permissions:
 on:
   push:
     branches: [main]
+    # SPEC §8 deploys prod manually, from a button in Coolify or a vX.Y.Z tag.
+    # A branches filter excludes tags, so without this line tagging a release
+    # ran no workflow at all and "full e2e before a prod deployment" (SPEC §6)
+    # meant "if someone remembers to press Run workflow".
+    tags: ["v*.*.*"]
   pull_request:
-  workflow_dispatch: # full e2e for the pre-prod-deploy path (SPEC §6)
+  workflow_dispatch: # the same full path, on demand (SPEC §6)
 
 concurrency:
   group: ci-${{ github.event_name }}-${{ github.ref }}
@@ -16,8 +21,10 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Every event, the release tag and the manual dispatch included: this is
+  # the only job that runs `pnpm build`, and the pre-deploy path used to skip
+  # it — leaving a gate that never compiled the production build it gates.
   check:
-    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -52,8 +59,13 @@ jobs:
       - run: pnpm check
       - run: pnpm build
 
+  # Smoke on every push and PR (SPEC §6): the database-less project only. No
+  # DATABASE_URL_TEST here on purpose — that is what makes this job prove the
+  # fail-closed behaviour (401s, redirects to /login, 404s) with no database at
+  # all. The e2e/db specs are not skipped here, they are never collected: the
+  # project's testIgnore keeps them out entirely.
   e2e-smoke:
-    if: github.event_name != 'workflow_dispatch'
+    if: ${{ !(github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -65,20 +77,60 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install chromium --with-deps
-      - run: pnpm test:e2e
+      - run: pnpm test:e2e --project=chromium
+      # The log is the server's whole stdout, and the dev e-mail transport
+      # prints every message body — verification and reset links included. The
+      # database behind those links is a throwaway container today, but the
+      # artifact outlives the job by a week and SPEC §8 puts PR previews on the
+      # shared dev database, so the links never leave the runner intact.
+      - name: Redact action links from the server log
+        if: failure()
+        run: |
+          if [ -f test-results/dev-server.log ]; then
+            sed -i -E 's#https?://[^ ]*(token=|reset-password/)[^ ]*#<redacted>#g' test-results/dev-server.log
+          fi
+      # test-results/ carries the traces and the web server's own log — with
+      # the github reporter there is no HTML report unless a run switches to
+      # it, and the server log is the only copy of its output.
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report-${{ github.job }}
-          path: playwright-report/
+          path: |
+            playwright-report/
+            test-results/
           retention-days: 7
 
-  # Pre-prod-deploy path (SPEC §6). Today it runs the same suite as the smoke
-  # job; the smoke/full split gets real content with task #20.
+  # Pre-prod-deploy path (SPEC §6): a vX.Y.Z tag or a manual dispatch. It
+  # covers BOTH projects, because e2e-smoke stands down on those events — and it runs them as two separate
+  # Playwright invocations on purpose. Each starts its own web server, which
+  # is the only way to give one project a server with no database and the
+  # other a server with one: Next takes an exclusive lock on its dist
+  # directory, so the two servers cannot coexist, only follow each other.
+  # DATABASE_URL and DATABASE_URL_TEST are therefore set per step, never on
+  # the job — a job-level value would reach the database-less server too.
   e2e-full:
-    if: github.event_name == 'workflow_dispatch'
+    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') }}
+    # The gate has to carry the build verdict for the same commit, not just the
+    # browser one; a skipped `check` would skip this job with it.
+    needs: [check]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Two cold `next dev` boots, a browser install and up to two attempts per
+    # database spec do not fit 30 minutes on a bad run.
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: platform_test_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -88,10 +140,39 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install chromium --with-deps
-      - run: pnpm test:e2e
+      # Migrations first: the journey signs an account up against these
+      # relations, so they must exist before the web server takes a request.
+      - name: Apply committed migrations to a fresh PostgreSQL 17 (G6)
+        run: pnpm db:migrate
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/platform_test_ci
+      - name: Fail-closed behaviour, against a server with no database
+        run: pnpm test:e2e --project=chromium
+      - name: The #20 journey and the reset round trip, against the database
+        run: pnpm test:e2e --project=chromium-db
+        env:
+          # What playwright.config.ts hands the web server as DATABASE_URL.
+          # The throwaway service container; it dies with the job.
+          DATABASE_URL_TEST: postgresql://postgres:postgres@localhost:5432/platform_test_ci
+      # The log is the server's whole stdout, and the dev e-mail transport
+      # prints every message body — verification and reset links included. The
+      # database behind those links is a throwaway container today, but the
+      # artifact outlives the job by a week and SPEC §8 puts PR previews on the
+      # shared dev database, so the links never leave the runner intact.
+      - name: Redact action links from the server log
+        if: failure()
+        run: |
+          if [ -f test-results/dev-server.log ]; then
+            sed -i -E 's#https?://[^ ]*(token=|reset-password/)[^ ]*#<redacted>#g' test-results/dev-server.log
+          fi
+      # test-results/ carries the traces and the web server's own log — with
+      # the github reporter there is no HTML report unless a run switches to
+      # it, and the server log is the only copy of its output.
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report-${{ github.job }}
-          path: playwright-report/
+          path: |
+            playwright-report/
+            test-results/
           retention-days: 7
