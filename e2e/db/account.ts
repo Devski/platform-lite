@@ -56,19 +56,46 @@ export async function registerAndVerify(
     what: "account verification",
   });
 
+  // A forged link first, so the success below means something. The success
+  // heading renders for ANY visit without an ?error parameter —
+  // e2e/register.spec.ts reaches it with no token at all — so on its own it
+  // says only that the redirect carried no error. Breaking the signature is
+  // what makes this step load-bearing: the endpoint has to tell a real token
+  // from a forged one, which src/lib/auth.test.ts pins down against the
+  // database and this walks through the browser.
+  //
+  // Not by replaying the real link, which was the first thing tried here:
+  // Better Auth's verification token is a signed JWT, so it carries no
+  // server-side state and keeps working for its whole 24 hours. CI proved that
+  // on 03.09.2026 — a second visit renders "Konto aktywne" again.
+  // The FIRST character of the signature, not the last one. The signature is
+  // 32 bytes in 43 base64url characters, so the final character carries only
+  // four significant bits and its low two are always zero — swapping it lands
+  // on a different string that decodes to the same bytes about one time in
+  // sixteen, and the server accepts the "forged" link. Measured here on
+  // 03.09.2026: 116 of 2000 tokens accepted that way, none when the leading
+  // character of the signature is changed instead.
+  const tampered = new URL(verifyUrl);
+  const [header, payload, signature] = (
+    tampered.searchParams.get("token") ?? ""
+  ).split(".");
+  tampered.searchParams.set(
+    "token",
+    `${header}.${payload}.${(signature?.[0] === "a" ? "b" : "a") + (signature ?? "").slice(1)}`,
+  );
+  await page.goto(tampered.toString());
+  // The page renders one heading for every code except TOKEN_EXPIRED, so the
+  // heading alone would not say which branch answered; the query names it.
+  await expect(page).toHaveURL(/[?&]error=INVALID_TOKEN\b/);
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Nieprawidłowy link" }),
+  ).toBeVisible();
+
+  // The real one activates the account, and leaves the browser on the page the
+  // journey continues from.
   await page.goto(verifyUrl);
   await expect(
     page.getByRole("heading", { level: 1, name: "Konto aktywne" }),
-  ).toBeVisible();
-
-  // The heading above renders for ANY visit without an ?error parameter —
-  // e2e/register.spec.ts reaches it with no token at all — so on its own it
-  // says only that the redirect carried no error. Walking the same link a
-  // second time is what makes this step load-bearing: a consumed token has to
-  // be refused, which also covers A1's reused-token case through the browser.
-  await page.goto(verifyUrl);
-  await expect(
-    page.getByRole("heading", { level: 1, name: "Nieprawidłowy link" }),
   ).toBeVisible();
 }
 
