@@ -150,11 +150,19 @@ jobs:
       - name: compose.yaml resolves
         # The values only have to exist — this proves the file parses and every
         # required variable is declared, not that any particular value is right.
+        #
+        # The empty .env is a stand-in, not a fix: the application's real
+        # environment lives only on the instance (SPEC §7), and compose refuses
+        # to read a file that is not there. Requiring it is the point — a
+        # deployment with no environment must fail, not start half-configured.
         env:
           APP_IMAGE: ghcr.io/example/app:validate
           SITE_ADDRESS: dev.example.invalid
           S3_ORIGIN: https://bucket.example.invalid
-        run: docker compose --file deploy/compose.yaml config --quiet
+        run: |
+          : > deploy/.env
+          docker compose --file deploy/compose.yaml config --quiet
+          rm deploy/.env
       - name: Caddyfile parses
         env:
           SITE_ADDRESS: dev.example.invalid
