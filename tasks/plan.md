@@ -53,6 +53,8 @@ Requirements come from [SPEC.md](../SPEC.md). Plan created on 30.08.2026, approv
 16. [#16](https://github.com/3dbdg/platform-lite/issues/16) Handle change: 30-day cooldown, redirects with 301, immediate release
 17. [#17](https://github.com/3dbdg/platform-lite/issues/17) Seed: pnpm db:seed with sample profiles and photos
 
+- [#30](https://github.com/3dbdg/platform-lite/issues/30) Count staged uploads against the A9 quota — **fix**, added 04.09.2026: staged bytes have no `files` row, so the 1 GB limit does not see them. A bucket lifecycle rule cannot close it (S3 expiration is day-granular; the presign TTL is 120 s), so it is a backstop only. Depends on #12, #13; scheduled after #2, before #21.
+
 **Checkpoint:** display name, photo (WebP variants) and handle settable from the UI;
 quota enforced; `src/lib/` coverage at 80% or higher.
 
@@ -87,6 +89,8 @@ approval, §7).
 Every criterion A1–A11 and every boundary G1–G10 has its task (A11 — visual, no test
 requirement). §10 risks are covered by #23 (deliverability) and inside #16/#24. §12 open
 questions = #25–#27.
+
+#30 is a fix to an A9 gap found while provisioning #2 (04.09.2026), not a new criterion.
 
 Beyond the SPEC criteria: #29 (two-factor authentication) is a post-MVP hardening addition
 (01.09.2026), not tied to an A-criterion — it addresses the "account safety rests on the

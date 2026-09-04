@@ -18,6 +18,10 @@ BUCKET="${BUCKET:-platform-dev}"                                # SPEC.md §4
 S3_ENDPOINT="${S3_ENDPOINT:-https://s3.waw.io.cloud.ovh.net}"
 EXPECTED_REGION="${EXPECTED_REGION:-WAW1}"                      # SPEC.md §8: dev lives in waw
 export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-waw}"
+# Key prefix scoping this environment inside the shared bucket (SPEC.md §4:
+# `devski/` per developer, `pr-7/` per preview, empty in production).
+S3_PREFIX="${S3_PREFIX:-$(printf '%s' "$GITHUB_HANDLE" | tr '[:upper:]' '[:lower:]')/}"
+LIFECYCLE_RULE_ID="expire-staged-uploads"
 
 # Per-developer database suffix: lowercase, "-" -> "_" (SPEC.md §4).
 DB_SUFFIX="$(printf '%s' "$GITHUB_HANDLE" | tr '[:upper:]-' '[:lower:]_')"
@@ -49,7 +53,8 @@ fi
 
 echo "==> Rendering cloud-init (password never touches the repo)"
 TMP_USERDATA="$(mktemp)"
-trap 'rm -f "$TMP_USERDATA"' EXIT
+LIFECYCLE_JSON=""
+trap 'rm -f "$TMP_USERDATA" ${LIFECYCLE_JSON:+"$LIFECYCLE_JSON"}' EXIT
 sed -e "s|@POSTGRES_PASSWORD@|$POSTGRES_PASSWORD|" -e "s|@DB_SUFFIX@|$DB_SUFFIX|" \
   "$(dirname "$0")/cloud-init.yaml.tmpl" >"$TMP_USERDATA"
 
@@ -77,6 +82,59 @@ if ! aws --endpoint-url "$S3_ENDPOINT" s3api create-bucket --bucket "$BUCKET" >/
   fi
 fi
 
+# The avatar flow (#12) has the browser PUT to <prefix>staging/... and the server
+# delete that object once it has verified the bytes and published them. An upload
+# the user abandons — tab closed between the PUT and the confirm — leaves an object
+# with no `files` row, invisible to the A9 quota. This rule sweeps those.
+#
+# It is a BACKSTOP, not the defence: S3 expiration is expressed in whole days
+# (minimum 1) while the presign TTL is 120 s, so the earliest sweep is up to a day
+# late — long enough to park a lot of unaccounted bytes. Issue #30 makes the
+# application account for staged bytes and sweep them in minutes; this rule then
+# only catches what the application can never reach (a crash between the client's
+# PUT and the row write). The day granularity is also why it can never race a live
+# upload. Verified against OVHcloud docs on 04.09.2026: lifecycle is supported on
+# the `.io` endpoints only — which is what SPEC §2 pins.
+#
+# A lifecycle filter is a LITERAL prefix, no wildcards, so `staging/` alone would
+# not match `devski/staging/`: the rule is written per environment prefix.
+if [ -n "${SKIP_LIFECYCLE:-}" ]; then
+  echo "==> Lifecycle rule skipped (SKIP_LIFECYCLE set) — staged residue is on you"
+else
+  echo "==> Lifecycle rule '$LIFECYCLE_RULE_ID' on ${S3_PREFIX}staging/ (expire after 1 day)"
+  # put-bucket-lifecycle-configuration REPLACES the whole configuration, so refuse
+  # to run over rules this script did not write (a PR-preview prefix, say).
+  UNKNOWN_RULES="$(aws --endpoint-url "$S3_ENDPOINT" s3api get-bucket-lifecycle-configuration \
+    --bucket "$BUCKET" 2>/dev/null |
+    grep -oE '"ID"[[:space:]]*:[[:space:]]*"[^"]*"' |
+    sed -E 's/.*"([^"]*)"$/\1/' |
+    grep -vx "$LIFECYCLE_RULE_ID" || true)"
+  if [ -n "$UNKNOWN_RULES" ]; then
+    echo "    Bucket already carries lifecycle rules this script did not write:"
+    printf '      %s\n' $UNKNOWN_RULES
+    echo "    Writing ours would delete them. Merge by hand, or re-run with SKIP_LIFECYCLE=1."
+    exit 1
+  fi
+  LIFECYCLE_JSON="$(mktemp)"
+  cat >"$LIFECYCLE_JSON" <<JSON
+{
+  "Rules": [
+    {
+      "ID": "$LIFECYCLE_RULE_ID",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "${S3_PREFIX}staging/" },
+      "Expiration": { "Days": 1 },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
+    }
+  ]
+}
+JSON
+  # Nothing in the application starts a multipart upload, but a stray one from a
+  # manual `aws s3 cp` of a large file would linger just as invisibly.
+  aws --endpoint-url "$S3_ENDPOINT" s3api put-bucket-lifecycle-configuration \
+    --bucket "$BUCKET" --lifecycle-configuration "file://$LIFECYCLE_JSON"
+fi
+
 cat <<EOF
 
 Done. Fill these into your .env (cp .env.example .env first if needed):
@@ -87,8 +145,12 @@ Done. Fill these into your .env (cp .env.example .env first if needed):
   S3_ENDPOINT=$S3_ENDPOINT
   S3_REGION=waw
   S3_BUCKET=$BUCKET
+  S3_PREFIX=$S3_PREFIX
+  S3_KEY=<the S3 access key you exported>
+  S3_SECRET=<the S3 secret key you exported>
 
-(\$POSTGRES_PASSWORD = the value you exported; it is not echoed here.)
+(\$POSTGRES_PASSWORD and the two S3 keys = the values you exported; none of the
+three is echoed here, so nothing secret lands in your terminal scrollback.)
 
 cloud-init keeps working ~2-3 minutes after boot. Then verify per
 docs/dev-environment.md part 3 (tunnel, database list, bucket listing).

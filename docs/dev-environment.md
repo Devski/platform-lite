@@ -23,16 +23,32 @@ or they touch payment:
    Users & Roles → create a user with the Administrator role (simplest for a solo dev
    project) → download the **OpenRC file** for region `WAW1`. Store it outside the repo,
    e.g. `~/.ovh/openrc.sh` — it is a credential.
-3. **S3 user** — Storage → Object Storage → S3 users → create a user → note the access
-   key and secret key.
+3. **S3 credentials** — Object Storage → the users list → **Create user** → select the
+   OpenStack user from step 2 (it needs the **Administrator** or **ObjectStore operator**
+   role; being one is a precondition for the keys, not the keys themselves). The access
+   key and secret key are shown once; afterwards the access key stays visible in the
+   user's row and the secret is behind the row's **“…”** menu → _View the secret key_.
+   Corrected 04.09.2026 against the console and the OVHcloud documentation: an earlier
+   version of this document pointed at a separate “S3 users” section, which is not
+   where the console puts it. Equivalent without the console, once the OpenRC
+   file works: `openstack ec2 credentials list` (or `create` if the list is empty) —
+   OVH stores these in Keystone.
 
 Nothing from this part ever goes into the repo or the chat: credentials live in the
 OpenRC file and in your `.env` (gitignored).
 
 ## Part 2 — scripted bootstrap
 
-Run from the repo root in bash (Git Bash on Windows). One-time tools:
-`pip install python-openstackclient` and the AWS CLI.
+Run from the repo root in bash (Git Bash on Windows). One-time tools — install them
+into their own virtual environment, not the system Python: on Windows a
+`pip install` into `C:\Python310` fails part-way with a locked-file `OSError`,
+leaving the CLIs half-installed (seen 04.09.2026).
+
+```
+python -m venv ~/.venvs/ovh
+~/.venvs/ovh/Scripts/python.exe -m pip install python-openstackclient awscli
+export PATH="$HOME/.venvs/ovh/Scripts:$PATH"   # every shell that runs the bootstrap
+```
 
 ```
 source ~/.ovh/openrc.sh                            # OpenStack credentials
@@ -54,7 +70,13 @@ What it does:
 4. renders `scripts/cloud-init.yaml.tmpl` (Docker, `postgres:17` on `127.0.0.1`, the two
    per-developer databases) and boots instance `platform-dev` with it,
 5. creates the `platform-dev` bucket,
-6. prints the exact values for your `.env`.
+6. writes the bucket lifecycle rule `expire-staged-uploads`: objects under
+   `<prefix>staging/` expire after 1 day. Abandoned avatar uploads (#12) leave objects
+   with no `files` row, invisible to the A9 quota. The rule is a **backstop only** — S3
+   expiration is expressed in whole days while the presign TTL is 120 s, so issue #30
+   makes the application itself account for and sweep staged bytes. The script refuses
+   to overwrite lifecycle rules it did not write; `SKIP_LIFECYCLE=1` opts out,
+7. prints the exact values for your `.env`.
 
 ## Part 3 — verify (this is the drill)
 
