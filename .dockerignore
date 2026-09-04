@@ -12,6 +12,10 @@ coverage
 playwright-report
 test-results
 e2e
+# Excluded with e2e/, not on its own account: it imports ./e2e/server-log,
+# and `next build` type-checks the whole project — so leaving it behind
+# breaks the image build on a module that is not in the context.
+playwright.config.ts
 docs
 tasks
 scripts/dev-local.mjs
