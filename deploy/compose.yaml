@@ -1,0 +1,52 @@
+# What runs on the instance. Nothing is built here — the image comes from the
+# registry, built in CI (SPEC §3, #21). Copied to the instance by the deploy
+# workflow, which sets APP_IMAGE to the tag it wants running.
+name: platform-lite
+
+services:
+  app:
+    image: ${APP_IMAGE:?set APP_IMAGE to a published image tag}
+    restart: unless-stopped
+    # DATABASE_URL, AUTH_SECRET, S3_*, APP_URL, APP_ENV. Lives on the instance,
+    # never in the repository or the image (SPEC §7).
+    env_file: [.env]
+    # NOT published to the host. The only way in is through Caddy, and that is
+    # load-bearing: the login and resend rate limits key on x-forwarded-for, so
+    # a directly reachable port would let anyone set that header themselves and
+    # guess passwords without limit (the #8 review's trust contract).
+    expose: ["3000"]
+    networks: [platform]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    # The only ports open to the world.
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and their account keys. Losing this volume means
+      # re-issuing on next start, which Let's Encrypt rate-limits.
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS to the hostname to serve}
+      # The bucket origin the browser talks to directly: images are served
+      # from it, and uploads PUT to it (G3, G4). Both need naming in the CSP.
+      S3_ORIGIN: ${S3_ORIGIN:?set S3_ORIGIN to the bucket base URL}
+    depends_on: [app]
+    networks: [platform]
+
+networks:
+  # Created once by the deployment procedure, not by this file, because the
+  # PostgreSQL container predates it: cloud-init started it with `docker run`
+  # (#2). Attaching that container to this network gives the app a route to
+  # the database WITHOUT changing its port binding — it stays published on
+  # 127.0.0.1 only, so the SSH tunnel remains the only way in from outside.
+  platform:
+    external: true
+
+volumes:
+  caddy_data:
+  caddy_config:

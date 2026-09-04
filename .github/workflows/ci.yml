@@ -72,10 +72,21 @@ jobs:
   image:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      # Only this job publishes, and only to this repository's own registry
+      # namespace. The repository is private, so the package is too.
+      packages: write
+    env:
+      # Registry paths are case-sensitive while repository names are not, so
+      # normalize rather than depend on how the repo happens to be spelled.
+      REGISTRY: ghcr.io
     steps:
       - uses: actions/checkout@v7
+      - name: Resolve the image name
+        run: echo "IMAGE=$REGISTRY/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
       - name: Build the production image
-        run: docker build --tag platform-lite:ci .
+        run: docker build --tag "$IMAGE:$GITHUB_SHA" .
       # An image that builds and an image that serves are different claims.
       # No database and no bucket here on purpose: every module that reads the
       # environment does so lazily, so the public landing page must render on
@@ -84,7 +95,7 @@ jobs:
       # dev server.
       - name: The image starts and serves the landing page
         run: |
-          docker run --detach --name smoke --publish 3000:3000             --env APP_ENV=ci             --env APP_URL=https://ci.invalid             platform-lite:ci
+          docker run --detach --name smoke --publish 3000:3000             --env APP_ENV=ci             --env APP_URL=https://ci.invalid             "$IMAGE:$GITHUB_SHA"
           for i in $(seq 1 30); do
             if curl --silent --fail-with-body --output /dev/null http://localhost:3000/; then
               echo "serving after ${i}s"
@@ -105,6 +116,57 @@ jobs:
       - name: Container log
         if: always()
         run: docker logs smoke || true
+      # After the smoke check, never before it: an image that does not serve
+      # must not become something a deployment can reach for. Pull requests
+      # build and check but publish nothing — nothing deploys from them.
+      - name: Publish to the registry
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GH_TOKEN" | docker login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
+          # The commit SHA is the real identity of a build, and what a deploy
+          # pins: rolling back is redeploying an older one (SPEC §8).
+          docker push "$IMAGE:$GITHUB_SHA"
+      - name: Move the `main` tag to this build
+        if: github.ref == 'refs/heads/main'
+        run: |
+          docker tag "$IMAGE:$GITHUB_SHA" "$IMAGE:main"
+          docker push "$IMAGE:main"
+      - name: Tag a release build with its version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          docker tag "$IMAGE:$GITHUB_SHA" "$IMAGE:${GITHUB_REF_NAME}"
+          docker push "$IMAGE:${GITHUB_REF_NAME}"
+
+  # deploy/ is configuration that nothing else exercises: it is read by the
+  # instance, not by the application, so a typo there surfaces as a failed
+  # deployment at the worst moment. Both files are checkable without a server.
+  deploy-config:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: compose.yaml resolves
+        # The values only have to exist — this proves the file parses and every
+        # required variable is declared, not that any particular value is right.
+        env:
+          APP_IMAGE: ghcr.io/example/app:validate
+          SITE_ADDRESS: dev.example.invalid
+          S3_ORIGIN: https://bucket.example.invalid
+        run: docker compose --file deploy/compose.yaml config --quiet
+      - name: Caddyfile parses
+        env:
+          SITE_ADDRESS: dev.example.invalid
+          S3_ORIGIN: https://bucket.example.invalid
+        run: |
+          docker run --rm             --env SITE_ADDRESS --env S3_ORIGIN             --volume "$PWD/deploy:/w" --workdir /w             caddy:2-alpine caddy validate --config Caddyfile
+      # The one line in that file whose absence is silent and expensive: Caddy
+      # APPENDS to x-forwarded-for by default, and every rate limit in the app
+      # keys on it (#8 review). A config that parses but has lost this line
+      # would deploy happily and hand out unlimited password guesses.
+      - name: The proxy overwrites x-forwarded-for
+        run: grep -q 'header_up X-Forwarded-For {remote_host}' deploy/Caddyfile
 
   # Smoke on every push and PR (SPEC §6): the database-less project only. No
   # DATABASE_URL_TEST here on purpose — that is what makes this job prove the
@@ -223,3 +285,74 @@ jobs:
             playwright-report/
             test-results/
           retention-days: 7
+
+  # SPEC §8: dev deploys automatically from `main`. Tags are the production
+  # path and stay manual, so this job deliberately does not run on them.
+  #
+  # Until the instance side of #21 is wired — secrets, open ports, the
+  # /opt/platform-lite directory — this reports itself skipped rather than
+  # failing every push. A red gate everyone learns to ignore is worse than no
+  # gate at all.
+  deploy-dev:
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    # Nothing reaches the instance that has not passed the gate, built a
+    # serving image and cleared the browser smoke.
+    needs: [check, image, deploy-config, e2e-smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # Handed to the instance for the length of this run so it can pull.
+      packages: read
+    steps:
+      - name: Is the instance wired up yet?
+        id: wired
+        env:
+          HOST: ${{ secrets.DEV_SSH_HOST }}
+        run: |
+          if [ -z "$HOST" ]; then
+            echo "::notice::No DEV_SSH_HOST secret yet — nothing to deploy to. See docs/deployment.md."
+            echo "wired=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "wired=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v7
+        if: steps.wired.outputs.wired == 'true'
+      - name: Authorize this run against the instance
+        if: steps.wired.outputs.wired == 'true'
+        env:
+          KEY: ${{ secrets.DEV_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEV_SSH_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          echo "$KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          # Pinned, never StrictHostKeyChecking=no: a deploy that trusts
+          # whatever answers at that address is a deploy anyone on the path
+          # can take over.
+          echo "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+      - name: Ship the deployment files
+        if: steps.wired.outputs.wired == 'true'
+        env:
+          HOST: ${{ secrets.DEV_SSH_HOST }}
+        run: |
+          scp -i ~/.ssh/id_deploy \
+            deploy/compose.yaml deploy/Caddyfile deploy/remote-deploy.sh \
+            "$HOST:/opt/platform-lite/"
+      - name: Pull the image and restart the container
+        if: steps.wired.outputs.wired == 'true'
+        env:
+          HOST: ${{ secrets.DEV_SSH_HOST }}
+          # Short-lived and scoped to this run. The instance is granted a pull
+          # for the length of the deployment and keeps no standing registry
+          # credential of its own (G9).
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_ACTOR: ${{ github.actor }}
+          # The commit SHA is what a deployment pins, so rolling back is
+          # re-running this against an older one (SPEC §8).
+          APP_IMAGE: ghcr.io/${{ github.repository }}:${{ github.sha }}
+        run: |
+          ssh -i ~/.ssh/id_deploy "$HOST" \
+            "APP_IMAGE='$APP_IMAGE' GH_TOKEN='$GH_TOKEN' GH_ACTOR='$GH_ACTOR' \
+             bash /opt/platform-lite/remote-deploy.sh"

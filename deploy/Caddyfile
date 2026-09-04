@@ -1,0 +1,39 @@
+# Caddy terminates TLS and is the only thing the world can reach. It obtains
+# and renews certificates itself; nothing here needs a certificate file.
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	header {
+		# The application sets none of these — it is a Next.js server, and the
+		# #18 review recorded them as the deployment's debt.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# Nothing embeds this site, and there is no reason to allow it.
+		X-Frame-Options "DENY"
+		# Do not advertise the proxy version to scanners.
+		-Server
+	}
+
+	# `unsafe-inline` for scripts and styles is not laziness: Next.js inlines
+	# its bootstrap and Tailwind its critical CSS, and tightening this needs
+	# per-request nonces wired through the app — a task of its own, not a
+	# config line. Everything else is closed.
+	#
+	# The bucket origin appears TWICE on purpose: img-src because avatars are
+	# served straight from it (G3), and connect-src because the browser PUTs
+	# the upload there itself, never through this server (G4). Miss the second
+	# and photo uploads fail in the browser while every server-side path works
+	# — the same failure mode as the missing CORS rule found in #2.
+	header Content-Security-Policy "default-src 'self'; img-src 'self' data: {$S3_ORIGIN}; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' {$S3_ORIGIN}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+
+	reverse_proxy app:3000 {
+		# OVERWRITE, never append. Caddy's default appends the peer address to
+		# whatever the client sent, so an attacker could prepend their own
+		# value and the application would read that as the client IP —
+		# unlimited password guessing and verification-mail bombing, because
+		# every rate limit keys on this header (#8 review).
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Real-IP {remote_host}
+	}
+}
