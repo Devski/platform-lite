@@ -39,68 +39,149 @@ that one line, because losing it is silent.
 
 ## Wiring it up (one time)
 
-Nothing below is done by CI. Until it is, the deploy job reports itself skipped
-rather than failing every push.
+Seven steps, about twenty minutes of work plus one wait. Nothing here is done
+by CI; until it is, the deploy job reports itself skipped rather than failing
+every push. **Run everything in Git Bash**, from the repository root — in
+PowerShell, `bash` is WSL, not Git Bash.
 
-### 1. On the instance
+Have to hand: nothing. Every value is read from your local `.env`.
 
-```
-sudo mkdir -p /opt/platform-lite && sudo chown ubuntu /opt/platform-lite
-docker network create platform
-docker network connect platform postgres
-```
+---
 
-The network is what lets `app` reach the database as `postgres:5432`. It does
-**not** change how Postgres is published: it stays on `127.0.0.1`, so the SSH
-tunnel remains the only way in from outside.
+### Step 1 — Ask OVH to raise the security-group quota
 
-### 2. `/opt/platform-lite/.env`
+Do this first because it is a support ticket and the answer is not immediate.
+Nothing else waits for it; only step 6 has a note attached.
 
-Compose reads this file twice — for its own variable substitution and as the
-application's environment:
+OVH Control Panel → Public Cloud → **Quota & Regions** → _Increase your
+quota!_. Ask for security groups (the documented default is 100; this project
+has 0). Justification: one dev and one production instance, SSH and web ports.
 
-```
-SITE_ADDRESS=<hostname Caddy should serve>
-S3_ORIGIN=https://platform-dev.s3.waw.io.cloud.ovh.net
-DATABASE_URL=postgresql://postgres:<password>@postgres:5432/platform_devski
-AUTH_SECRET=<32 random bytes>
-APP_URL=https://<same hostname as SITE_ADDRESS>
-APP_ENV=dev
-S3_ENDPOINT=  S3_REGION=  S3_BUCKET=  S3_KEY=  S3_SECRET=  S3_PREFIX=
-```
+**Done when:** the ticket is submitted. Carry on with step 2 immediately.
 
-`APP_ENV` must not be `production` here, or dev stops sending
-`X-Robots-Tag: noindex` and Google indexes it (A7). `APP_URL` must be `https://`
-— the application refuses to start otherwise, because the session cookie's
-`Secure` attribute is derived from it (A2).
+---
 
-### 3. Open the web ports
+### Step 2 — Create a deploy key and authorize it
 
-**Read this before doing it.** The project's OpenStack `security_groups` quota
-is 0 (#2), so the instance has no security group and `ufw` is the only inbound
-filter — and `ufw` does not filter ports Docker publishes on `0.0.0.0`. The
-moment Caddy publishes 80 and 443, the security group is the real boundary
-rather than a second layer. Raise the quota first (Control Panel → Quota &
-Regions → "Increase your quota!") and re-run `scripts/bootstrap-dev.sh`, which
-adds the group as soon as the project allows one.
+A key of its own, not the one you log in with: it lives in GitHub's secret
+store, and a key that can deploy should not also be a key that is you.
 
-```
-sudo ufw allow 80/tcp && sudo ufw allow 443/tcp
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/platform-deploy -N "" -C "platform-lite deploy"
 ```
 
-### 4. Repository secrets
+```bash
+ssh ubuntu@54.37.130.136 "cat >> ~/.ssh/authorized_keys" < ~/.ssh/platform-deploy.pub
+```
 
-Generate a **separate** key for deployments — not the one you log in with — and
-add its public half to the instance's `~/.ssh/authorized_keys`:
+**Done when** this prints `ok`:
 
-| Secret                | Value                                 |
-| --------------------- | ------------------------------------- |
-| `DEV_SSH_HOST`        | `ubuntu@<instance ip>`                |
-| `DEV_SSH_KEY`         | the deploy key's **private** half     |
-| `DEV_SSH_KNOWN_HOSTS` | output of `ssh-keyscan <instance ip>` |
+```bash
+ssh -i ~/.ssh/platform-deploy ubuntu@54.37.130.136 "echo ok"
+```
 
-`DEV_SSH_HOST` is also the switch: with it absent the deploy job skips, so the
-secrets can be added in any order and the pipeline goes live when the host does.
+---
+
+### Step 3 — Prepare the instance
+
+One script. It creates `/opt/platform-lite`, creates the `platform` docker
+network, joins the existing Postgres container to it, and writes the
+instance's `.env` derived from your local one — rewriting the database host
+from the tunnel's `localhost:5433` to the container's `postgres:5432`.
+
+Joining that network does **not** change how Postgres is published: it stays
+on `127.0.0.1`, so the SSH tunnel remains the only way in from outside.
+
+```bash
+./scripts/wire-dev-deploy.sh
+```
+
+**Done when** it prints the network members including `postgres`, and the line
+count of the written `.env`. It never echoes a secret.
+
+The address it configures is `https://54.37.130.136.nip.io` — `nip.io`
+resolves `<ip>.nip.io` to that address, so Let's Encrypt can issue a real
+certificate without a domain. The real name arrives with the naming decision;
+until then this is the temporary address SPEC §8 allows.
+
+---
+
+### Step 4 — Add the three repository secrets
+
+```bash
+gh secret set DEV_SSH_HOST --body "ubuntu@54.37.130.136"
+```
+
+```bash
+gh secret set DEV_SSH_KEY < ~/.ssh/platform-deploy
+```
+
+```bash
+gh secret set DEV_SSH_KNOWN_HOSTS --body "$(ssh-keyscan 54.37.130.136 2>/dev/null)"
+```
+
+The last one is why the deploy never uses `StrictHostKeyChecking=no`: it pins
+the instance's host key, so a deploy cannot be taken over by whatever answers
+at that address.
+
+**Done when** `gh secret list` shows all three.
+
+---
+
+### Step 5 — Read this before opening the ports
+
+The instance has **no security group** — the project's quota is 0 (step 1) —
+so `ufw` is the only inbound filter. And `ufw` does not filter ports Docker
+publishes: Docker writes its own iptables rules, below ufw. So from the moment
+Caddy publishes 80 and 443, **the security group is the real boundary, and
+there isn't one.**
+
+What is actually exposed then: Caddy, and through it the application. The
+database stays on `127.0.0.1` regardless, so it is not part of this.
+
+Two honest options:
+
+- **Wait** for the quota, re-run `scripts/bootstrap-dev.sh` — it adds the
+  group as soon as the project allows one — and then open the ports.
+- **Go ahead now** and add the group when the ticket clears. A dev instance
+  serving a placeholder site, with a patched Ubuntu and one Node process
+  behind Caddy, is a thin but not reckless target.
+
+**This is your call, not mine.** If you choose the second, step 6.
+
+---
+
+### Step 6 — Open the web ports
+
+```bash
+ssh ubuntu@54.37.130.136 "sudo ufw allow 80/tcp && sudo ufw allow 443/tcp && sudo ufw status"
+```
+
+**Done when** `ufw status` lists 22, 80 and 443, and nothing else.
+
+---
+
+### Step 7 — Deploy, and check it actually deployed
+
+Any push to `main` now deploys. To trigger one without a code change:
+
+```bash
+git commit --allow-empty -m "Deploy: wire the dev instance (#21)" && git push
+```
+
+**Done when** the run's `deploy-dev` job reports `healthy after Ns` — and when
+this answers `200` with both headers:
+
+```bash
+curl -I https://54.37.130.136.nip.io/
+```
+
+`x-robots-tag: noindex` proves `APP_ENV` is not `production` (A7).
+`strict-transport-security` proves the response came through Caddy rather than
+from somewhere unexpected.
+
+If the certificate is not ready yet, give it a minute — Caddy fetches it on
+first request and port 80 has to be reachable for the challenge.
 
 ## Rolling back
 
