@@ -1,11 +1,28 @@
 #cloud-config
 # Template rendered by scripts/bootstrap-dev.sh (@PLACEHOLDERS@ substituted with sed).
 # Docker + PostgreSQL 17 bound to 127.0.0.1 only: the database is reachable
-# exclusively through the SSH tunnel (docs/dev-environment.md).
+# exclusively through the SSH tunnel (docs/dev-environment.md). ufw denies every
+# other inbound port on the host.
 package_update: true
 packages:
   - docker.io
+  - ufw
 runcmd:
+  # Host firewall: the enforcing layer for inbound traffic. sshd is the only
+  # service that listens publicly here — the database below is published on
+  # 127.0.0.1, so it never reaches the network even with the firewall off.
+  # This runs before Docker so there is no open window at first boot.
+  #
+  # It carries the whole job while the project's OpenStack security-group
+  # quota is zero (seen on this project 04.09.2026; OVH's documented default
+  # is 100, and raising it is a manually processed ticket). bootstrap-dev.sh
+  # adds the network-level group as a second layer as soon as the quota
+  # allows it. Note ufw does not filter ports Docker publishes on 0.0.0.0 —
+  # which is exactly why the database is pinned to loopback below.
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow 22/tcp
+  - ufw --force enable
   - systemctl enable --now docker
   - docker volume create pgdata
   - >

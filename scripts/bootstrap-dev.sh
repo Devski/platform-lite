@@ -45,10 +45,37 @@ echo "==> SSH keypair 'platform-dev' (reused if present)"
 openstack keypair show platform-dev >/dev/null 2>&1 ||
   openstack keypair create --public-key "$SSH_PUBLIC_KEY_FILE" platform-dev >/dev/null
 
-echo "==> Security group 'platform-dev-ssh': inbound TCP 22 only (reused if present)"
-if ! openstack security group show platform-dev-ssh >/dev/null 2>&1; then
-  openstack security group create --description "platform-lite dev: SSH only" platform-dev-ssh >/dev/null
-  openstack security group rule create --proto tcp --dst-port 22 platform-dev-ssh >/dev/null
+# The instance's inbound protection is ufw, configured by cloud-init: sshd is
+# the only service listening publicly, and the database is published on
+# 127.0.0.1 so it never reaches the network at all. A security group adds a
+# second, network-level layer on top of that.
+#
+# It is OPTIONAL because a Public Cloud project can carry a security_groups
+# quota of 0 — this one did on 04.09.2026, against OVH's documented default of
+# 100 — and raising it is a manually processed support ticket. Rather than
+# block the bootstrap on that ticket, boot without the group and let ufw stand
+# alone; re-run once the quota clears to add the layer back.
+SG_NAME=platform-dev-ssh
+# Succeeds only when the group exists AND carries the port 22 rule: a group
+# without it would silently lock SSH out of the instance we are creating.
+ensure_ssh_group() {
+  openstack security group show "$SG_NAME" >/dev/null 2>&1 ||
+    openstack security group create --description "platform-lite dev: SSH only" "$SG_NAME" >/dev/null 2>&1 ||
+    return 1
+  openstack security group rule list "$SG_NAME" 2>/dev/null | grep -qE '[^0-9]22[^0-9]' && return 0
+  openstack security group rule create --proto tcp --dst-port 22 "$SG_NAME" >/dev/null 2>&1
+}
+
+echo "==> Security group '$SG_NAME': inbound TCP 22 only (optional, reused if present)"
+SECURITY_GROUP_ARGS=()
+if ensure_ssh_group; then
+  SECURITY_GROUP_ARGS=(--security-group "$SG_NAME")
+  echo "    in place"
+else
+  echo "    SKIPPED — this project cannot create one (security_groups quota is 0)."
+  echo "    The instance boots into 'default' and ufw on the host is the only layer"
+  echo "    denying inbound traffic. Raise the quota (Control Panel -> Quota & Regions,"
+  echo "    'Increase your quota!') and re-run this script to add the group."
 fi
 
 echo "==> Rendering cloud-init (password never touches the repo)"
@@ -58,16 +85,24 @@ trap 'rm -f "$TMP_USERDATA" ${LIFECYCLE_JSON:+"$LIFECYCLE_JSON"}' EXIT
 sed -e "s|@POSTGRES_PASSWORD@|$POSTGRES_PASSWORD|" -e "s|@DB_SUFFIX@|$DB_SUFFIX|" \
   "$(dirname "$0")/cloud-init.yaml.tmpl" >"$TMP_USERDATA"
 
-echo "==> Creating instance $INSTANCE_NAME ($FLAVOR) — THIS STEP STARTS THE ~7 EUR/MONTH BILLING"
-openstack server create \
-  --flavor "$FLAVOR" \
-  --image "$IMAGE_ID" \
-  --key-name platform-dev \
-  --network Ext-Net \
-  --security-group platform-dev-ssh \
-  --user-data "$TMP_USERDATA" \
-  --wait \
-  "$INSTANCE_NAME" >/dev/null
+# OpenStack does not enforce unique instance names: a plain re-run of this
+# script would happily boot a SECOND platform-dev and start a second bill.
+# Every other step here is re-runnable, so this one has to be too.
+echo "==> Instance $INSTANCE_NAME ($FLAVOR)"
+if openstack server show "$INSTANCE_NAME" >/dev/null 2>&1; then
+  echo "    already exists — reusing it (no second instance, no second bill)"
+else
+  echo "    creating — THIS STEP STARTS THE ~7 EUR/MONTH BILLING"
+  openstack server create \
+    --flavor "$FLAVOR" \
+    --image "$IMAGE_ID" \
+    --key-name platform-dev \
+    --network Ext-Net \
+    ${SECURITY_GROUP_ARGS[@]+"${SECURITY_GROUP_ARGS[@]}"} \
+    --user-data "$TMP_USERDATA" \
+    --wait \
+    "$INSTANCE_NAME" >/dev/null
+fi
 
 IP="$(openstack server show "$INSTANCE_NAME" -f value -c addresses | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -1)"
 [ -n "$IP" ] || { echo "Could not read the instance IP — check: openstack server show $INSTANCE_NAME"; exit 1; }
@@ -131,8 +166,17 @@ else
 JSON
   # Nothing in the application starts a multipart upload, but a stray one from a
   # manual `aws s3 cp` of a large file would linger just as invisibly.
+  # Git Bash hands native Windows programs a converted path for arguments that
+  # look like paths — but not for one hidden inside a file:// URL, where aws
+  # then fails to open /tmp/tmp.XXXX. cygpath -m yields C:/... with forward
+  # slashes, which is both a valid Windows path and a valid URL; on Linux
+  # cygpath does not exist and the path is already correct.
+  LIFECYCLE_PARAM="$LIFECYCLE_JSON"
+  if command -v cygpath >/dev/null 2>&1; then
+    LIFECYCLE_PARAM="$(cygpath -m "$LIFECYCLE_JSON")"
+  fi
   aws --endpoint-url "$S3_ENDPOINT" s3api put-bucket-lifecycle-configuration \
-    --bucket "$BUCKET" --lifecycle-configuration "file://$LIFECYCLE_JSON"
+    --bucket "$BUCKET" --lifecycle-configuration "file://$LIFECYCLE_PARAM"
 fi
 
 cat <<EOF
