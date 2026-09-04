@@ -12,12 +12,12 @@ Requirements come from [SPEC.md](../SPEC.md). Plan created on 30.08.2026, approv
   always in English (SPEC.md §5). Chat communication stays in Polish.
 - Milestone = phase; checkpoint criteria live in the milestone description and below.
 - Dependencies in the issue body ("Depends on #N"). Issue-number order = recommended work order.
-- Labels: `infra` (console work at OVH/Scaleway/Coolify), `decision` (open questions from §12),
+- Labels: `infra` (console work at OVH/Scaleway, servers and DNS), `decision` (open questions from §12),
   `blocked` (waiting on the domain decision — #25).
 - Quality gate for every code task: **`pnpm check` green before every commit** (§7);
   written into the Verification section of every issue.
 - The dev e-mail transport is a logger (#6), so the missing domain (#25) blocks no
-  application code — it only blocks #21 (final addresses), #22 and #24.
+  application code — it only blocks #22, #24 and #31; #21 deploys to a temporary address.
 
 ## Phases and checkpoints
 
@@ -69,7 +69,10 @@ in under 5 minutes (manual walkthrough); e2e green.
 
 ### [Phase 4 - Deployments and transactional email](https://github.com/3dbdg/platform-lite/milestone/5)
 
-21. [#21](https://github.com/3dbdg/platform-lite/issues/21) Dockerfile (standalone) + Coolify on dev: auto-deploy, PR previews, G9 (`infra`)
+21. [#21](https://github.com/3dbdg/platform-lite/issues/21) Dockerfile (standalone) + deploy on push to the dev instance, G9 (`infra`)
+
+- [#31](https://github.com/3dbdg/platform-lite/issues/31) PR preview deployments on the dev instance (`infra`, `blocked`) — split out of #21 on 05.09.2026: previews need a wildcard DNS record, so they wait on #25 while #21 does not.
+
 22. [#22](https://github.com/3dbdg/platform-lite/issues/22) Scaleway TEM + SPF/DKIM/DMARC + switch email.ts to TEM (`infra`, `blocked`)
 23. [#23](https://github.com/3dbdg/platform-lite/issues/23) Deliverability test: Gmail / Onet / WP / Interia (`infra`)
 24. [#24](https://github.com/3dbdg/platform-lite/issues/24) Production environment: instance, managed Postgres, prod bucket, CDN, G10 drill (`infra`, `blocked`)
@@ -80,7 +83,7 @@ approval, §7).
 
 ### Open decisions (label `decision`, §12)
 
-- [#25](https://github.com/3dbdg/platform-lite/issues/25) Decision: product name and domain — **blocks #21 (addresses), #22, #24**; before the first dev deployment
+- [#25](https://github.com/3dbdg/platform-lite/issues/25) Decision: product name and domain — **blocks #22, #24 and #31 (wildcard DNS for previews)**; #21 starts on a temporary address
 - [#26](https://github.com/3dbdg/platform-lite/issues/26) Decision: landing page design (photo, source, license) — the placeholder in #19 does not wait for it
 - [#27](https://github.com/3dbdg/platform-lite/issues/27) Decision: default OG image for profiles without avatar — #18 starts with a placeholder
 

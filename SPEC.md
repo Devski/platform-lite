@@ -65,7 +65,7 @@ official documentation (source-driven rule).
 | Styling     | **Tailwind CSS 4** + our own primitives                        | Small design system, full control over the LinkedIn-like style.                                           |
 | Validation  | **Zod** — the same schemas client/server                       |                                                                                                           |
 | Tests       | **Vitest** + **Playwright** (+ @axe-core/playwright)           |                                                                                                           |
-| Deployments | **Docker + Coolify**                                           | `git push` = deploy, a preview for every PR, rollback = previous image.                                   |
+| Deployments | **Docker + GitHub Actions**                                    | `git push` = deploy; the image is built in CI, never on the instance; rollback = redeploy an older tag.   |
 | Servers     | **OVHcloud Public Cloud**                                      | Prod: `eu-west-par` (3-AZ). Dev: `waw` (lowest latency from Poland).                                      |
 
 The overriding rule behind these choices: **no layer may have an exit cost greater than one
@@ -103,7 +103,11 @@ pnpm check            # typecheck && lint && test:coverage  ← the gate before 
 
 Locally **without Docker** — work against the remote database (through the SSH tunnel,
 `pnpm db:tunnel`) and remote S3 (region `waw`).
-The production image is built by Coolify from the `Dockerfile` in the repo root (Next.js `standalone`).
+The production image is built **in CI** from the `Dockerfile` in the repo root (Next.js
+`standalone`) and published to a container registry; the instance only pulls and runs it.
+Decision of 05.09.2026, replacing Coolify: a Next.js build wants more CPU and memory than the
+whole dev instance has, while the running app is one Node process of ~200 MB — so the box that
+comfortably _runs_ the application cannot _build_ it, and the build does not need to be there.
 
 ---
 
@@ -227,7 +231,11 @@ export function contentKey(hash: string, ext: string, prefix = ""): string {
 - **G6** Database schema changes exclusively via migrations in files.
 - **G7** `pnpm db:seed` kept current — a fresh environment in a minute.
 - **G8** SPF, DKIM, DMARC configured before the first real e-mail.
-- **G9** Coolify panel: 2FA + IP restriction; never open to the world.
+- **G9** No deployment control panel on the servers. Inbound is `80/443` for the application
+  and `22` for SSH with key authentication only; deployment credentials live in the CI
+  secret store, never on the instance. (The decision card's R9 named Coolify's panel — the
+  rule was always "the deployment control surface is not exposed", and after 05.09.2026 the
+  surface is CI, so it is protected where CI lives.)
 - **G10** Instance restore procedure written down in `docs/` and drilled once.
 - Additionally: `pnpm check` before every commit; all texts via dictionaries;
   descriptive commits; secrets only in environment variables.
@@ -252,19 +260,30 @@ export function contentKey(hash: string, ext: string, prefix = ""): string {
 
 ## 8. Environments and deployments
 
-| Environment | Where                         | Database                                                                                                 | Deployment                                        |
-| ----------- | ----------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| Local       | developer machine             | remote `waw` over an SSH tunnel (per developer: `platform_<github-handle>`, for Dawid `platform_devski`) | —                                                 |
-| PR preview  | dev instance                  | shared dev                                                                                               | automatic on PR open, deleted after merge         |
-| Dev         | OVH `waw`, d2-2 (€7)          | Postgres in a container                                                                                  | automatic from `main`                             |
-| Prod        | OVH `eu-west-par`, b3-8 (€35) | Managed PostgreSQL (€59)                                                                                 | **manual**: a button in Coolify or a `vX.Y.Z` tag |
+| Environment | Where                         | Database                                                                                                 | Deployment                                                                                                               |
+| ----------- | ----------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Local       | developer machine             | remote `waw` over an SSH tunnel (per developer: `platform_<github-handle>`, for Dawid `platform_devski`) | —                                                                                                                        |
+| PR preview  | dev instance                  | shared dev                                                                                               | automatic on PR open, deleted after merge — **needs the domain** (wildcard DNS), so deferred until §12's naming decision |
+| Dev         | OVH `waw`, d2-2 (€7)          | Postgres in a container                                                                                  | automatic from `main`                                                                                                    |
+| Prod        | OVH `eu-west-par`, b3-8 (€35) | Managed PostgreSQL (€59)                                                                                 | **manual**: an approval gate in the deploy workflow, or a `vX.Y.Z` tag                                                   |
 
 - Dev infrastructure is bootstrapped by script (`scripts/bootstrap-dev.sh`; manual console
   prerequisites and the full procedure in `docs/dev-environment.md`) — executing that
   document verbatim doubles as the G10 drill for dev. The database container binds to
   `127.0.0.1` and is reachable only through the SSH tunnel — never exposed publicly.
+- **How a deployment happens** (decision of 05.09.2026): a push builds the image in CI,
+  publishes it to a container registry, then connects to the instance over SSH and restarts
+  the container against the new tag. On the instance itself there is only Docker: the
+  application container, a reverse proxy terminating TLS, and — on dev — the Postgres
+  container. Nothing is compiled on the servers. Rolling back is redeploying an older tag.
 - Nothing "moves" from dev to prod — both are built from Git; database structure travels
   via migrations, data never does.
+- **Prod sizing is a launch-day estimate, not a measurement.** `b3-8` and the managed
+  database were priced for a launch that has no traffic yet; the application is one Node
+  process. Both can start smaller and grow — the exit cost is low by design (plain Postgres,
+  plain Docker image). The one line worth paying from day one is the managed database, and
+  not for performance: prod holds real accounts and photos, so someone else's backups and
+  patching is the product being bought. To settle with #24.
 - Outside prod (`APP_ENV` other than `production`): `X-Robots-Tag: noindex` (A7) — set on
   every response by `src/proxy.ts`; the deployment provides `APP_ENV`.
 - One time zone for the whole interface: `Europe/Warsaw` (next-intl `timeZone`; decision of
