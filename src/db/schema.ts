@@ -211,6 +211,58 @@ export const fileKind = pgEnum("file_kind", [
   "avatar-128",
 ]);
 
+// #30: a staged upload is bytes that already exist in the bucket but have no
+// `files` row yet, so without this table the A9 quota cannot see them — and
+// presign is rate-limited to 10/min at 10 MB each, which is 100 MB a minute
+// per account outside the accounting. The bucket lifecycle rule cannot close
+// that: S3 expiration is expressed in whole days while the staging TTL is 120
+// seconds, so it sweeps up to a day late and stays a backstop only.
+//
+// A row is written when the URL is minted and dropped when the upload is
+// confirmed or discarded; anything still here past `expires_at` is a browser
+// that walked away, swept by the application on that user's next presign.
+export const pendingUploads = pgTable(
+  "pending_uploads",
+  {
+    // The staging key is the identity: random, user-bound, one per presign.
+    stagingKey: text("staging_key").primaryKey(),
+    // restrict like `files`, and for the same reason: the row points at an S3
+    // object, so removing a user has to go through code that deletes objects.
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    // The DECLARED size. The presign signature pins content-length, so the
+    // bucket cannot accept a different byte count — which is what makes
+    // charging for bytes that have not arrived yet honest.
+    sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
+    // Past this the row stops counting against the quota even before the
+    // sweep removes it, so a walked-away browser never holds quota hostage.
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    // Covering index for the quota SUM, mirroring files(user_id, size_bytes).
+    index("pending_uploads_user_id_size_bytes_idx").on(
+      table.userId,
+      table.sizeBytes,
+    ),
+    // The sweep selects this user's expired rows.
+    index("pending_uploads_user_id_expires_at_idx").on(
+      table.userId,
+      table.expiresAt,
+    ),
+    // This table's whole purpose is to be summed into a security decision, so
+    // it defends its own arithmetic: a negative size would MANUFACTURE quota
+    // rather than consume it. The upper bound stays in the Zod schema (A4) —
+    // pinning 10 MB here would make changing the limit a migration.
+    check("pending_uploads_size_positive", sql`${table.sizeBytes} > 0`),
+    check(
+      "pending_uploads_window_forward",
+      sql`${table.expiresAt} >= ${table.createdAt}`,
+    ),
+  ],
+);
+
 export const files = pgTable(
   "files",
   {

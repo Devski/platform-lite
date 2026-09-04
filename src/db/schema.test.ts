@@ -18,17 +18,38 @@ function tableByName(name: string) {
 }
 
 describe("schema tables (SPEC §9)", () => {
-  it("defines exactly the §9 tables plus Better Auth's accounts and two_factors", () => {
+  it("defines exactly the §9 tables plus accounts, two_factors and pending_uploads", () => {
+    // §9 lists the six; `accounts` and `two_factors` come from Better Auth
+    // (#7, #29) and `pending_uploads` from #30 — a staged upload has no
+    // `files` row yet, so without it the A9 quota cannot see those bytes.
     expect(pgTables.map((t) => t.name).sort()).toEqual([
       "accounts",
       "files",
       "handle_redirects",
+      "pending_uploads",
       "profiles",
       "sessions",
       "two_factors",
       "users",
       "verifications",
     ]);
+  });
+
+  it("pending_uploads reserves declared bytes against the quota (#30)", () => {
+    const pending = tableByName("pending_uploads");
+    expect(pending.columns.map((c) => c.name).sort()).toEqual([
+      "created_at",
+      "expires_at",
+      "size_bytes",
+      "staging_key",
+      "user_id",
+    ]);
+    // Like `files`: the row points at an S3 object, so removing a user has to
+    // go through code that deletes objects first (G2), never a cascade.
+    const userRef = pending.foreignKeys.find((fk) =>
+      fk.reference().columns.some((c) => c.name === "user_id"),
+    );
+    expect(userRef?.onDelete).toBe("restrict");
   });
 
   it("two_factors carries the plugin fields and points at users.id, one row per user (#29)", () => {

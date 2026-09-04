@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { eq } from "drizzle-orm";
 import sharp from "sharp";
 import {
   afterAll,
@@ -9,7 +10,7 @@ import {
   it,
   vi,
 } from "vitest";
-import { files, users } from "@/db/schema";
+import { files, pendingUploads, users } from "@/db/schema";
 import { createTestDb, type TestDb } from "@/db/test-db";
 import {
   AVATAR_MAX_BYTES,
@@ -17,7 +18,7 @@ import {
   confirmAvatarUpload,
   presignAvatarUpload,
 } from "./avatar";
-import { QUOTA_BYTES } from "./quota";
+import { QUOTA_BYTES, quotaUsageBytes } from "./quota";
 import { createMemoryStorage } from "./storage";
 
 // Unit + integration suite for the #12 avatar pipeline, on the G1 memory fake
@@ -440,5 +441,188 @@ describe("confirmAvatarUpload (A4, G2, G5)", () => {
 
     expect(second.original.fileId).toBe(first.original.fileId);
     expect(await testDb.db.select().from(files)).toHaveLength(3);
+  });
+});
+
+const MB = 1024 * 1024;
+
+describe("A9 accounting for staged uploads (#30)", () => {
+  // The hole this closes: usage was SUM(files.size_bytes), and a staged upload
+  // has no `files` row until it is confirmed. Presign is capped at 10/min at
+  // 10 MB each — 100 MB a minute per account that nothing was counting.
+
+  /** Fill the quota to within `roomBytes` with already-stored bytes. */
+  async function fillQuotaLeaving(roomBytes: number): Promise<void> {
+    await testDb.db.insert(files).values({
+      userId,
+      sha256: "a".repeat(64),
+      sizeBytes: QUOTA_BYTES - roomBytes,
+      kind: "avatar-original",
+      ext: "png",
+    });
+  }
+
+  it("refuses a presign that only fits if staged bytes are ignored", async () => {
+    const d = deps();
+    await fillQuotaLeaving(8 * MB);
+    // Two staged uploads fill the remaining room exactly. Nothing is uploaded
+    // and nothing is confirmed — before #30 both were invisible and the third
+    // presign would have been minted just as happily as the first.
+    await presignAvatarUpload(d.common, {
+      sizeBytes: 4 * MB,
+      contentType: "image/png",
+    });
+    await presignAvatarUpload(d.common, {
+      sizeBytes: 4 * MB,
+      contentType: "image/png",
+    });
+    expect(await quotaUsageBytes(testDb.db, userId)).toBe(QUOTA_BYTES);
+    await expect(
+      presignAvatarUpload(d.common, {
+        sizeBytes: 1024,
+        contentType: "image/png",
+      }),
+    ).rejects.toMatchObject({ code: "quota_exceeded" });
+  });
+
+  it("stops counting an abandoned upload, then sweeps its object away", async () => {
+    const d = deps();
+    const stagingKey = await staged(d, Buffer.alloc(4 * MB, 7));
+    expect(await quotaUsageBytes(testDb.db, userId)).toBe(4 * MB);
+
+    // The browser walked away and the upload window closed. Both timestamps
+    // move: a row whose window ended before it began is a state the CHECK
+    // constraint rightly forbids, so simulate an old reservation, not an
+    // impossible one.
+    await testDb.db
+      .update(pendingUploads)
+      .set({
+        createdAt: new Date(Date.now() - 600_000),
+        expiresAt: new Date(Date.now() - 60_000),
+      })
+      .where(eq(pendingUploads.stagingKey, stagingKey));
+
+    // Freed immediately: expiry is evaluated in the query, so a walked-away
+    // browser never holds the quota hostage until someone sweeps.
+    expect(await quotaUsageBytes(testDb.db, userId)).toBe(0);
+    expect(d.objects.has(stagingKey)).toBe(true);
+
+    // The sweep is lazy — this user's next presign pays for their own mess.
+    await presignAvatarUpload(d.common, {
+      sizeBytes: 1024,
+      contentType: "image/png",
+    });
+    expect(d.objects.has(stagingKey)).toBe(false);
+    expect(
+      await testDb.db
+        .select()
+        .from(pendingUploads)
+        .where(eq(pendingUploads.stagingKey, stagingKey)),
+    ).toHaveLength(0);
+  });
+
+  it("charges a confirmed upload once, not twice", async () => {
+    const d = deps();
+    const png = await makeImage("png");
+    const stagingKey = await staged(d, png);
+    // Reserved on the declared size while the bytes sit in staging.
+    expect(await quotaUsageBytes(testDb.db, userId)).toBe(png.length);
+
+    await confirmAvatarUpload(d.common, { stagingKey });
+
+    const rows = await testDb.db
+      .select()
+      .from(files)
+      .where(eq(files.userId, userId));
+    const storedBytes = rows.reduce((total, row) => total + row.sizeBytes, 0);
+    // Exactly the published bytes: the reservation was settled, not stacked
+    // on top of the rows it turned into.
+    expect(await quotaUsageBytes(testDb.db, userId)).toBe(storedBytes);
+    // Settled, NOT deleted: the presigned URL outlives the confirm, so the row
+    // has to stay as the sweep's only handle on that key.
+    expect(await testDb.db.select().from(pendingUploads)).toHaveLength(1);
+  });
+
+  it("releases the reservation when the upload is refused", async () => {
+    const d = deps();
+    const stagingKey = await staged(d, Buffer.from("definitely not an image"));
+    await expect(
+      confirmAvatarUpload(d.common, { stagingKey }),
+    ).rejects.toMatchObject({ code: "not_an_image" });
+    // Refused bytes are deleted, so charging for them would be indefensible.
+    expect(await quotaUsageBytes(testDb.db, userId)).toBe(0);
+    // But the row stays: see the re-upload regression below.
+    expect(await testDb.db.select().from(pendingUploads)).toHaveLength(1);
+  });
+
+  // The regression the #30 review caught: settling by DELETE stopped the
+  // charge but also destroyed the sweep's only record of the key, while the
+  // presigned URL stayed live and reusable. A client could re-upload into a
+  // key that neither the quota nor the sweep could ever see again — the very
+  // hole #30 exists to close, reopened one step later in the same function.
+  it.each([
+    ["a refused confirm", false],
+    ["a successful confirm", true],
+  ])("sweeps a re-upload made after %s", async (_label, succeed) => {
+    const d = deps();
+    const body = succeed
+      ? await makeImage("png")
+      : Buffer.from("definitely not an image");
+    const stagingKey = await staged(d, body);
+    if (succeed) {
+      await confirmAvatarUpload(d.common, { stagingKey });
+    } else {
+      await expect(
+        confirmAvatarUpload(d.common, { stagingKey }),
+      ).rejects.toThrow(AvatarUploadError);
+    }
+    expect(d.objects.has(stagingKey)).toBe(false);
+
+    // The URL has not expired, so the client PUTs the same bytes again.
+    await d.storage.putObject(stagingKey, body, "image/png");
+    expect(d.objects.has(stagingKey)).toBe(true);
+
+    // The settled reservation is what makes this reachable — and the sweep
+    // must catch a row settled moments ago, not only one that aged out.
+    await presignAvatarUpload(d.common, {
+      sizeBytes: 1024,
+      contentType: "image/png",
+    });
+    expect(d.objects.has(stagingKey)).toBe(false);
+  });
+
+  it("does not let two parallel presigns overshoot the quota", async () => {
+    const d = deps();
+    await fillQuotaLeaving(4 * MB);
+    // Room for exactly one. Read-then-insert as two statements let both pass.
+    const results = await Promise.allSettled([
+      presignAvatarUpload(d.common, {
+        sizeBytes: 4 * MB,
+        contentType: "image/png",
+      }),
+      presignAvatarUpload(d.common, {
+        sizeBytes: 4 * MB,
+        contentType: "image/png",
+      }),
+    ]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(await quotaUsageBytes(testDb.db, userId)).toBeLessThanOrEqual(
+      QUOTA_BYTES,
+    );
+  });
+
+  it("keeps the reservation when the client has not uploaded yet", async () => {
+    const d = deps();
+    const { stagingKey, uploadUrl } = await presignAvatarUpload(d.common, {
+      sizeBytes: 4 * MB,
+      contentType: "image/png",
+    });
+    expect(uploadUrl).toContain(stagingKey);
+    // The presigned URL is still live, so the bytes can still arrive: an early
+    // confirm must not hand the room back and let the caller reserve it twice.
+    await expect(
+      confirmAvatarUpload(d.common, { stagingKey }),
+    ).rejects.toMatchObject({ code: "not_found" });
+    expect(await quotaUsageBytes(testDb.db, userId)).toBe(4 * MB);
   });
 });

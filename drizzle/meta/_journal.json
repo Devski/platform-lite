@@ -36,6 +36,20 @@
       "when": 1788281775281,
       "tag": "0004_damp_snowbird",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788560209724,
+      "tag": "0005_rich_romulus",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788561597275,
+      "tag": "0006_hesitant_gorgon",
+      "breakpoints": true
     }
   ]
 }

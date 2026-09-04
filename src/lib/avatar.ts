@@ -1,9 +1,9 @@
 import { createHash, randomBytes } from "node:crypto";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, like, lte, sql } from "drizzle-orm";
 import sharp from "sharp";
 import type { Database } from "@/db/client";
-import { files } from "@/db/schema";
-import { quotaAllows } from "@/lib/quota";
+import { files, pendingUploads } from "@/db/schema";
+import { quotaAllows, reservePendingUpload } from "@/lib/quota";
 import { contentKey, ObjectNotFoundError, type FileStorage } from "@/lib/storage";
 
 // The #12 avatar pipeline, following the staging contract recorded on the
@@ -32,6 +32,14 @@ export const AVATAR_MAX_PIXELS = 64_000_000;
 // A browser PUT needs seconds; a short window shrinks the replay surface of
 // the multi-use presigned URL (issue note from the #11 audit).
 const STAGING_TTL_SECONDS = 120;
+
+// The reservation must outlive the URL it guards, never the other way round:
+// the presign is stamped on the app server's clock and validated on OVH's,
+// while `expires_at` is set by the database's, and S3 checks expiry when a
+// PUT is RECEIVED, not when its body finishes arriving. Without slack a slow
+// or skewed upload could land after its reservation stopped counting — which
+// over-counts an abandoned upload for a few minutes, the safe direction.
+const STAGING_RESERVATION_GRACE_SECONDS = 300;
 
 // G5/A4: square cover crops — the avatar is displayed as a square/round chip.
 export const AVATAR_VARIANTS = [
@@ -76,19 +84,90 @@ function sha256(buffer: Buffer): string {
   return createHash("sha256").update(buffer).digest("hex");
 }
 
+// Deleting a staged object is always best-effort. It may never have arrived,
+// and the bucket's lifecycle rule is the backstop for a delete that fails —
+// so nothing here is worth failing a request that otherwise succeeded, and
+// every caller carries on regardless.
+async function discardStagedObject(
+  storage: FileStorage,
+  key: string,
+): Promise<boolean> {
+  try {
+    await storage.deleteObject(key);
+    return true;
+  } catch (error) {
+    console.error("[avatar] staging cleanup failed:", error);
+    return false;
+  }
+}
+
+// #30: staged uploads are swept by the APPLICATION, lazily, on the next
+// presign from the same user — no cron, and the cost of the cleanup lands on
+// the account that created the mess. The bucket lifecycle rule stays as the
+// backstop for what this can never reach: a crash between the browser's PUT
+// and any row this code writes.
+async function sweepExpiredUploads(deps: AvatarDeps): Promise<void> {
+  const expired = await deps.db
+    .select({ stagingKey: pendingUploads.stagingKey })
+    .from(pendingUploads)
+    .where(
+      and(
+        eq(pendingUploads.userId, deps.userId),
+        // `lte`, not `lt`: the quota counts a row while `expires_at > now()`,
+        // so at equality it already stops counting. The two predicates have to
+        // be exact complements or a row settled in this very tick would be
+        // uncounted AND unsweepable — invisible on both sides at once.
+        lte(pendingUploads.expiresAt, sql`now()`),
+        // Scoped to THIS environment's keys, exactly as confirm is: dev and
+        // every PR preview share one database and one bucket, separated only
+        // by prefix (SPEC §4), so an unscoped sweep would let one deployment
+        // delete the same user's staged objects in another.
+        like(pendingUploads.stagingKey, `${deps.prefix}staging/%`),
+      ),
+    );
+  // Load-bearing, not an optimization: inArray() on an empty list has no
+  // sensible SQL to emit, so the delete below must never see one.
+  if (expired.length === 0) return;
+  const swept: string[] = [];
+  for (const row of expired) {
+    // Only drop the row once its object is actually gone. Keeping a row whose
+    // delete failed costs nothing — it already stopped counting against the
+    // quota — and it is the only record that would make a later sweep retry.
+    if (await discardStagedObject(deps.storage, row.stagingKey)) {
+      swept.push(row.stagingKey);
+    }
+  }
+  if (swept.length === 0) return;
+  await deps.db
+    .delete(pendingUploads)
+    .where(inArray(pendingUploads.stagingKey, swept));
+}
+
 export async function presignAvatarUpload(
   deps: AvatarDeps,
   input: { sizeBytes: number; contentType: string },
 ): Promise<{ stagingKey: string; uploadUrl: string }> {
   const parsed = presignAvatarSchema.parse(input);
-  // A9, checked before any URL is minted (the #12 obligation): the signature
-  // pins declared == uploaded bytes, so the declared size is trustworthy.
-  if (!(await quotaAllows(deps.db, deps.userId, parsed.sizeBytes))) {
-    throw new AvatarUploadError("quota_exceeded");
-  }
+  // Free what this user abandoned before judging them for it.
+  await sweepExpiredUploads(deps);
   // Random and user-bound: confirm accepts only keys from this namespace, so
   // one user can never confirm (or guess) another user's staged upload.
   const stagingKey = `${deps.prefix}staging/${deps.userId}/${randomBytes(16).toString("hex")}`;
+  // A9, decided BEFORE the URL exists (the #12 obligation), so there is no
+  // instant in which a caller can upload bytes nobody is counting. The check
+  // and the reservation are one atomic step — two parallel presigns reading
+  // the same pre-insert usage would otherwise both pass. Since #30 the usage
+  // includes bytes staged and not yet confirmed; the signature pins declared
+  // == uploaded bytes, so the declared size is trustworthy.
+  const reserved = await reservePendingUpload(deps.db, {
+    userId: deps.userId,
+    stagingKey,
+    sizeBytes: parsed.sizeBytes,
+    windowSeconds: STAGING_TTL_SECONDS + STAGING_RESERVATION_GRACE_SECONDS,
+  });
+  if (!reserved) {
+    throw new AvatarUploadError("quota_exceeded");
+  }
   const uploadUrl = await deps.storage.presignUpload(stagingKey, {
     maxBytes: parsed.sizeBytes,
     contentType: parsed.contentType,
@@ -116,11 +195,35 @@ export async function confirmAvatarUpload(
     throw new AvatarUploadError("invalid_key");
   }
 
+  // #30: the presign reserved this upload's declared size against the A9
+  // quota. SETTLING expires the row rather than deleting it — the two are not
+  // interchangeable. The presigned URL stays live and reusable for the rest of
+  // its window, so a deleted row would leave a key the client can re-upload to
+  // that neither the quota (no row to sum) nor the sweep (it reads only this
+  // table) could ever see again: exactly the hole #30 closes, one step later.
+  // Expiring stops the charge immediately and keeps the row as a sweep target
+  // until the URL is dead. Scoped by user as well as key, so the row query
+  // stands on its own rather than leaning on the regex above.
+  const settleReservation = () =>
+    db
+      .update(pendingUploads)
+      .set({ expiresAt: sql`now()` })
+      .where(
+        and(
+          eq(pendingUploads.stagingKey, input.stagingKey),
+          eq(pendingUploads.userId, userId),
+        ),
+      );
+
   let original: Buffer;
   try {
     original = await storage.getObject(input.stagingKey);
   } catch (error) {
     if (error instanceof ObjectNotFoundError) {
+      // Deliberately NOT releasing the reservation (#30): the presigned URL is
+      // still live, so the client can upload after this. Releasing here would
+      // let a caller reserve, ask early, reserve again and then upload both —
+      // the reservation has to outlive the URL, and it expires with it.
       throw new AvatarUploadError("not_found");
     }
     throw error;
@@ -129,11 +232,10 @@ export async function confirmAvatarUpload(
   // staged object — a retry needs a fresh presign anyway — so discard it
   // (best-effort) instead of leaving it for the lifecycle sweep.
   const discarded = async (code: AvatarErrorCode): Promise<AvatarUploadError> => {
-    try {
-      await storage.deleteObject(input.stagingKey);
-    } catch (error) {
-      console.error("[avatar] staging cleanup failed:", error);
-    }
+    await discardStagedObject(storage, input.stagingKey);
+    // Stop charging for bytes we just refused, but keep the row: the URL is
+    // still live, so a re-upload to this key must remain sweepable (#30).
+    await settleReservation();
     return new AvatarUploadError(code);
   };
 
@@ -241,7 +343,16 @@ export async function confirmAvatarUpload(
   const newBytes = plannedRows
     .filter((row) => !alreadyRecorded.has(`${row.sha256}:${row.kind}`))
     .reduce((total, row) => total + row.sizeBytes, 0);
-  if (!(await quotaAllows(db, userId, newBytes))) {
+  // Discount this upload's own reservation rather than releasing it: the
+  // declared bytes it holds are the very bytes about to become `files` rows,
+  // so counting both would weigh the upload against itself. Releasing early
+  // instead would leave the bytes accounted by nothing at all across the puts
+  // and inserts below — and unaccounted forever if any of them throws.
+  if (
+    !(await quotaAllows(db, userId, newBytes, {
+      ignoreStagingKey: input.stagingKey,
+    }))
+  ) {
     throw await discarded("quota_exceeded");
   }
 
@@ -290,18 +401,20 @@ export async function confirmAvatarUpload(
     )
     .onConflictDoNothing();
 
+  // Settled only now that the bytes exist as `files` rows: until this line
+  // the reservation is what keeps them accounted, so a throw anywhere above
+  // leaves the upload counted rather than invisible. A replayed confirm
+  // settles an already-settled row, which is a no-op.
+  await settleReservation();
+
   // Best-effort: the published state is complete; a failed cleanup only
-  // leaves a staging object behind. Residue classes, none user-visible:
-  // uploads NEVER confirmed at all (the presign TTL kills the URL, not the
-  // object — the bucket needs a lifecycle rule on the staging/ prefix,
-  // recorded on #2/#24); an undeleted staging object from this best-effort
-  // pass; published `a/` objects with no rows (puts succeeded, the insert
-  // failed — a client retry heals it, since staging still exists).
-  try {
-    await storage.deleteObject(input.stagingKey);
-  } catch (error) {
-    console.error("[avatar] staging cleanup failed:", error);
-  }
+  // leaves a staging object behind. Residue classes, none user-visible: an
+  // undeleted staging object from this pass, and published `a/` objects with
+  // no rows (puts succeeded, the insert failed — a client retry heals it,
+  // since staging still exists). Both are reached by the settled reservation
+  // above on this user's next presign, with the bucket's `staging/` lifecycle
+  // rule (provisioned with #2) as the outer backstop.
+  await discardStagedObject(storage, input.stagingKey);
 
   return {
     original: {

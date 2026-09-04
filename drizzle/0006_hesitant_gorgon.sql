@@ -1,0 +1,2 @@
+ALTER TABLE "pending_uploads" ADD CONSTRAINT "pending_uploads_size_positive" CHECK ("pending_uploads"."size_bytes" > 0);--> statement-breakpoint
+ALTER TABLE "pending_uploads" ADD CONSTRAINT "pending_uploads_window_forward" CHECK ("pending_uploads"."expires_at" >= "pending_uploads"."created_at");
