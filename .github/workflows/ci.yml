@@ -6,7 +6,7 @@ permissions:
 on:
   push:
     branches: [main]
-    # SPEC §8 deploys prod manually, from a button in Coolify or a vX.Y.Z tag.
+    # SPEC §8 deploys prod manually, from an approval gate or a vX.Y.Z tag.
     # A branches filter excludes tags, so without this line tagging a release
     # ran no workflow at all and "full e2e before a prod deployment" (SPEC §6)
     # meant "if someone remembers to press Run workflow".
@@ -58,6 +58,53 @@ jobs:
         run: pnpm db:migrate
       - run: pnpm check
       - run: pnpm build
+
+  # #21: the image is built HERE and never on the machine it deploys to. A
+  # Next.js build wants more CPU and memory than the dev instance has (1 vCPU,
+  # 1.9 GB, Postgres already resident), while the running app is one Node
+  # process of ~200 MB — so the box that comfortably runs the application
+  # cannot build it, and does not have to (SPEC §3).
+  #
+  # Building on every event is what keeps the Dockerfile honest: nothing else
+  # in the gate compiles it, and a broken image would otherwise surface at
+  # deploy time. Publishing to a registry and the deploy itself arrive with
+  # the instance side of #21 — this job proves the artifact, not the delivery.
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the production image
+        run: docker build --tag platform-lite:ci .
+      # An image that builds and an image that serves are different claims.
+      # No database and no bucket here on purpose: every module that reads the
+      # environment does so lazily, so the public landing page must render on
+      # nothing but the image — the same property the database-less e2e job
+      # relies on, checked here against the production compile instead of the
+      # dev server.
+      - name: The image starts and serves the landing page
+        run: |
+          docker run --detach --name smoke --publish 3000:3000             --env APP_ENV=ci             --env APP_URL=https://ci.invalid             platform-lite:ci
+          for i in $(seq 1 30); do
+            if curl --silent --fail-with-body --output /dev/null http://localhost:3000/; then
+              echo "serving after ${i}s"
+              break
+            fi
+            if [ "$i" = "30" ]; then
+              echo "the container never served:"
+              docker logs smoke
+              exit 1
+            fi
+            sleep 1
+          done
+          # A7: anything whose APP_ENV is not `production` must say so in the
+          # headers. The image is the last place that can get this wrong, and
+          # it fails silently — a preview quietly indexed by Google.
+          curl --silent --head http://localhost:3000/ | tee /tmp/headers
+          grep -qi '^x-robots-tag: noindex' /tmp/headers
+      - name: Container log
+        if: always()
+        run: docker logs smoke || true
 
   # Smoke on every push and PR (SPEC §6): the database-less project only. No
   # DATABASE_URL_TEST here on purpose — that is what makes this job prove the

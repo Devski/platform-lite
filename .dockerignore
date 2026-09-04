@@ -1,0 +1,21 @@
+# Everything the image must not carry. The build context is uploaded to the
+# builder, so this is both a size and a secrets concern.
+.git
+.github
+node_modules
+.next
+.env
+.env.*
+.pglite-data
+.design
+coverage
+playwright-report
+test-results
+e2e
+docs
+tasks
+scripts/dev-local.mjs
+**/*.test.ts
+**/*.test.tsx
+Dockerfile
+.dockerignore
