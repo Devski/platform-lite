@@ -179,6 +179,38 @@ JSON
     --bucket "$BUCKET" --lifecycle-configuration "file://$LIFECYCLE_PARAM"
 fi
 
+# CORS on the bucket. The avatar flow has the BROWSER PUT straight to a
+# presigned URL (G4), which is a cross-origin request: without this the
+# preflight is refused with 403 and the upload never leaves the page, while
+# every server-side call keeps working — so it stays invisible until a real
+# browser tries. Found exactly that way on 05.09.2026.
+#
+# The signature, not the origin, is what authorizes the write: an allowed
+# origin without a valid presigned URL still gets nothing. That is why the
+# dev bucket can accept any origin — developer machines, PR previews and
+# phones on the LAN all differ, and CORS is not the access control here.
+# Production (#24) should still narrow this to its own domain.
+echo "==> CORS on $BUCKET: browser PUT to presigned URLs (G4)"
+CORS_JSON="$(mktemp)"
+cat >"$CORS_JSON" <<JSON
+{
+  "CORSRules": [
+    {
+      "AllowedOrigins": ["*"],
+      "AllowedMethods": ["PUT"],
+      "AllowedHeaders": ["content-type", "cache-control", "content-length"],
+      "MaxAgeSeconds": 3000
+    }
+  ]
+}
+JSON
+CORS_PARAM="$CORS_JSON"
+if command -v cygpath >/dev/null 2>&1; then
+  CORS_PARAM="$(cygpath -m "$CORS_JSON")"
+fi
+aws --endpoint-url "$S3_ENDPOINT" s3api put-bucket-cors \
+  --bucket "$BUCKET" --cors-configuration "file://$CORS_PARAM"
+rm -f "$CORS_JSON"
 cat <<EOF
 
 Done. Fill these into your .env (cp .env.example .env first if needed):

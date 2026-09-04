@@ -96,6 +96,12 @@ Two OVHcloud facts, both found the hard way against the real bucket on 04.09.202
   signed. Public addresses therefore use the virtual-host form
   `https://platform-dev.s3.waw.io.cloud.ovh.net/<key>`, which is what
   `storage.publicUrl` emits; signed traffic keeps path style.
+- **The bucket needs a CORS rule for uploads.** The browser PUTs straight to a
+  presigned URL (G4), which is cross-origin: with no CORS configuration the preflight
+  is refused with 403 and the upload never leaves the page, while every server-side
+  call keeps working. The signature, not the origin, authorizes the write, so the dev
+  bucket accepts any origin — developer machines, PR previews and phones on the LAN all
+  differ. Production (#24) should narrow it to its own domain.
 - **There are no bucket policies.** `PutBucketPolicy` answers `NotImplemented`, so
   public access is a **per-object ACL**. `putObject` takes an explicit `publicRead`
   flag, and only the 512/128 variants get it — the full-resolution original and every
