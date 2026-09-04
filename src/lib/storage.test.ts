@@ -74,14 +74,42 @@ describe("S3 storage (offline: URL composition and signing)", () => {
     secretAccessKey: "test-secret-key",
   };
 
-  it("publicUrl is the stable unsigned path-style address (G3)", () => {
+  it("publicUrl is the stable unsigned virtual-host address (G3)", () => {
     const storage = createS3Storage(config);
     expect(storage.publicUrl("devski/a/abc.webp")).toBe(
-      "https://s3.waw.io.cloud.ovh.net/platform-dev/devski/a/abc.webp",
+      "https://platform-dev.s3.waw.io.cloud.ovh.net/devski/a/abc.webp",
     );
     // Stable across calls and free of any signature material.
     expect(storage.publicUrl("devski/a/abc.webp")).toBe(
       storage.publicUrl("devski/a/abc.webp"),
+    );
+  });
+
+  it("refuses a bucket name that would break virtual-host TLS", () => {
+    // The public address puts the bucket in the hostname, so a dot would land
+    // the photo outside the provider's wildcard certificate. Failing at
+    // construction beats emitting addresses no browser will load.
+    expect(() => createS3Storage({ ...config, bucket: "platform.dev" })).toThrow(
+      /must not contain a dot/,
+    );
+  });
+
+  it("keeps the SIGNED path in path style while the public one is not", async () => {
+    // Not a redundant pair: OVHcloud serves a path-style GET when it carries a
+    // signature and refuses the identical anonymous one with `Not S3 request`
+    // (verified against the real bucket, 04.09.2026). The two addressing
+    // styles therefore have to coexist, and neither may drift into the other.
+    const storage = createS3Storage(config);
+    const signed = new URL(
+      await storage.presignUpload("devski/a/abc.webp", {
+        maxBytes: 10,
+        contentType: "image/webp",
+      }),
+    );
+    expect(signed.hostname).toBe("s3.waw.io.cloud.ovh.net");
+    expect(signed.pathname).toBe("/platform-dev/devski/a/abc.webp");
+    expect(new URL(storage.publicUrl("devski/a/abc.webp")).hostname).toBe(
+      "platform-dev.s3.waw.io.cloud.ovh.net",
     );
   });
 
@@ -91,7 +119,7 @@ describe("S3 storage (offline: URL composition and signing)", () => {
       endpoint: "https://s3.waw.io.cloud.ovh.net/",
     });
     expect(storage.publicUrl("a/x.bin")).toBe(
-      "https://s3.waw.io.cloud.ovh.net/platform-dev/a/x.bin",
+      "https://platform-dev.s3.waw.io.cloud.ovh.net/a/x.bin",
     );
   });
 
@@ -100,7 +128,7 @@ describe("S3 storage (offline: URL composition and signing)", () => {
     // Nothing in this system mints such keys (contentKey is URL-safe), but a
     // hostile one must not truncate or escape the bucket path.
     expect(storage.publicUrl("a/we ird#?.bin")).toBe(
-      "https://s3.waw.io.cloud.ovh.net/platform-dev/a/we%20ird%23%3F.bin",
+      "https://platform-dev.s3.waw.io.cloud.ovh.net/a/we%20ird%23%3F.bin",
     );
   });
 
@@ -256,7 +284,7 @@ describe("getStorage environment wiring", () => {
   it("builds a memoized instance from the S3_* variables", async () => {
     const getStorage = await loadGetStorage();
     const first = getStorage();
-    expect(first.publicUrl("a/x.bin")).toContain("/platform-dev/");
+    expect(first.publicUrl("a/x.bin")).toContain("//platform-dev.s3.");
     expect(getStorage()).toBe(first);
   });
 

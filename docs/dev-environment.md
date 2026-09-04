@@ -66,9 +66,17 @@ What it does:
 
 1. verifies the `d2-2` flavor and the Ubuntu 24.04 image exist in the region,
 2. uploads your SSH public key as keypair `platform-dev`,
-3. creates security group `platform-dev-ssh` — inbound TCP 22 only,
-4. renders `scripts/cloud-init.yaml.tmpl` (Docker, `postgres:17` on `127.0.0.1`, the two
-   per-developer databases) and boots instance `platform-dev` with it,
+3. creates security group `platform-dev-ssh` — inbound TCP 22 only — **if the project
+   can**. A Public Cloud project may carry a `security_groups` quota of **0**, against
+   OVH's documented default of 100; this one did on 04.09.2026, and the bootstrap failed
+   on it with a misleading `409 Quota exceeded`. Raising the quota is a manually
+   processed support ticket (Control Panel → _Quota & Regions_ → _Increase your quota!_),
+   so the step is optional: the script says loudly when it skips, the instance boots into
+   `default`, and the host firewall below carries the job alone. Re-run once the quota
+   clears and the group is added,
+4. renders `scripts/cloud-init.yaml.tmpl` (**ufw denying every inbound port but 22**,
+   Docker, `postgres:17` on `127.0.0.1`, the two per-developer databases) and boots
+   instance `platform-dev` with it,
 5. creates the `platform-dev` bucket,
 6. writes the bucket lifecycle rule `expire-staged-uploads`: objects under
    `<prefix>staging/` expire after 1 day. Abandoned avatar uploads (#12) leave objects
@@ -77,6 +85,34 @@ What it does:
    makes the application itself account for and sweep staged bytes. The script refuses
    to overwrite lifecycle rules it did not write; `SKIP_LIFECYCLE=1` opts out,
 7. prints the exact values for your `.env`.
+
+### How a photo becomes publicly readable
+
+Two OVHcloud facts, both found the hard way against the real bucket on 04.09.2026:
+
+- **Path-style addresses are not served to the public.** An anonymous
+  `GET https://s3.waw.io.cloud.ovh.net/platform-dev/<key>` is refused with
+  `InvalidRequest` / `Reason: Not S3 request`, while the identical address works when
+  signed. Public addresses therefore use the virtual-host form
+  `https://platform-dev.s3.waw.io.cloud.ovh.net/<key>`, which is what
+  `storage.publicUrl` emits; signed traffic keeps path style.
+- **There are no bucket policies.** `PutBucketPolicy` answers `NotImplemented`, so
+  public access is a **per-object ACL**. `putObject` takes an explicit `publicRead`
+  flag, and only the 512/128 variants get it — the full-resolution original and every
+  staged upload stay private. Nothing renders the original, and a public address for it
+  would be derivable from any variant URL.
+
+### Where the inbound boundary lives
+
+`ufw` on the instance is the **enforcing** layer: default deny inbound, port 22 open,
+configured by cloud-init before Docker starts. The OpenStack security group is a second,
+network-level layer on top — valuable, but not what the safety rests on.
+
+That ordering is deliberate rather than a workaround. The only service listening publicly
+on this instance is `sshd`: PostgreSQL is published on `127.0.0.1:5432`, so it is
+unreachable from the network with or without a firewall. Note that ufw does **not** filter
+ports Docker publishes on `0.0.0.0` — Docker writes its own iptables rules — which is
+precisely why the database is pinned to loopback rather than trusted to the firewall.
 
 ## Part 3 — verify (this is the drill)
 

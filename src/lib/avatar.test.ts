@@ -179,6 +179,15 @@ describe("confirmAvatarUpload (A4, G2, G5)", () => {
       expect(meta.height).toBe(px);
     }
 
+    // Only the two variants carry the public ACL; the original and anything
+    // staged stay private (G3 covers what the page renders, not the upload).
+    for (const [key, stored] of d.objects) {
+      expect({ key, publicRead: stored.publicRead }).toEqual({
+        key,
+        publicRead: /-(?:512|128)[.]webp$/.test(key),
+      });
+    }
+
     // The staging object is gone; exactly the three published objects remain.
     expect(d.objects.has(stagingKey)).toBe(false);
     expect(d.objects.size).toBe(3);

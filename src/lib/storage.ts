@@ -41,7 +41,19 @@ export interface FileStorage {
     key: string,
     opts: { maxBytes: number; contentType: string; expiresInSeconds?: number },
   ): Promise<string>;
-  putObject(key: string, body: Buffer, contentType: string): Promise<void>;
+  /**
+   * Writes an object. It is PRIVATE unless `publicRead` says otherwise: the
+   * avatar flow also writes staging keys through here (the seed does), and a
+   * default of public would silently expose them. OVHcloud does not implement
+   * PutBucketPolicy (`NotImplemented`, verified 04.09.2026), so a per-object
+   * ACL is the mechanism that makes G3's unsigned addresses readable at all.
+   */
+  putObject(
+    key: string,
+    body: Buffer,
+    contentType: string,
+    opts?: { publicRead?: boolean },
+  ): Promise<void>;
   /** Rejects with ObjectNotFoundError when the key does not exist. */
   getObject(key: string): Promise<Buffer>;
   deleteObject(key: string): Promise<void>;
@@ -96,6 +108,26 @@ export function createS3Storage(config: {
 }): FileStorage {
   const endpoint = config.endpoint.replace(/\/+$/, "");
   const { bucket } = config;
+  // A public photo is unsigned by definition (G3) — and OVHcloud refuses an
+  // ANONYMOUS path-style GET outright, answering `InvalidRequest` with
+  // `Reason: Not S3 request`, while the very same address works when signed.
+  // Verified against the real bucket on 04.09.2026: only the virtual-host form
+  // `https://<bucket>.<endpoint-host>/<key>` is served to the public. Signed
+  // traffic keeps path style below, which is what the presigned uploads use.
+  const publicOrigin = (() => {
+    const url = new URL(endpoint);
+    // A dot in the bucket name would put the host outside the provider's
+    // wildcard certificate and break TLS for every photo. SPEC §4's names
+    // never contain one; fail loudly rather than emit unreachable addresses.
+    if (bucket.includes(".")) {
+      throw new Error(
+        `S3_BUCKET must not contain a dot (breaks virtual-host TLS): ${bucket}`,
+      );
+    }
+    url.hostname = `${bucket}.${url.hostname}`;
+    return url.origin;
+  })();
+
   const client = new S3Client({
     endpoint,
     region: config.region,
@@ -103,8 +135,9 @@ export function createS3Storage(config: {
       accessKeyId: config.accessKeyId,
       secretAccessKey: config.secretAccessKey,
     },
-    // Path-style addressing works on every S3-compatible provider and keeps
-    // publicUrl trivially derivable from the same endpoint.
+    // Path-style addressing works on every S3-compatible provider for SIGNED
+    // requests, which is every request this client makes. It is NOT what
+    // publicUrl emits — see the note there.
     forcePathStyle: true,
     // Without this the SDK pins x-amz-checksum-crc32 of an EMPTY body into
     // every presigned PUT (the body does not exist at presign time), which a
@@ -144,7 +177,7 @@ export function createS3Storage(config: {
       });
     },
 
-    async putObject(key, body, contentType) {
+    async putObject(key, body, contentType, opts) {
       await client.send(
         new PutObjectCommand({
           Bucket: bucket,
@@ -152,6 +185,8 @@ export function createS3Storage(config: {
           Body: body,
           ContentType: contentType,
           CacheControl: IMMUTABLE_CACHE_CONTROL,
+          // Only when asked. Everything else stays readable to this key alone.
+          ...(opts?.publicRead ? { ACL: "public-read" as const } : {}),
         }),
       );
     },
@@ -181,7 +216,7 @@ export function createS3Storage(config: {
       // the public address always names the object the upload created — an
       // identity transform for the URL-safe keys contentKey produces.
       const encodedKey = key.split("/").map(encodeURIComponent).join("/");
-      return `${endpoint}/${bucket}/${encodedKey}`;
+      return `${publicOrigin}/${encodedKey}`;
     },
   };
 }
@@ -191,9 +226,15 @@ export function createS3Storage(config: {
 // the same move as createMemoryTransport in lib/email.ts.
 export function createMemoryStorage(): {
   storage: FileStorage;
-  objects: Map<string, { body: Buffer; contentType: string }>;
+  objects: Map<
+    string,
+    { body: Buffer; contentType: string; publicRead: boolean }
+  >;
 } {
-  const objects = new Map<string, { body: Buffer; contentType: string }>();
+  const objects = new Map<
+    string,
+    { body: Buffer; contentType: string; publicRead: boolean }
+  >();
   return {
     objects,
     storage: {
@@ -202,8 +243,12 @@ export function createMemoryStorage(): {
         // through putObject directly.
         return `memory://upload/${key}?maxBytes=${opts.maxBytes}&contentType=${encodeURIComponent(opts.contentType)}`;
       },
-      async putObject(key, body, contentType) {
-        objects.set(key, { body, contentType });
+      async putObject(key, body, contentType, opts) {
+        objects.set(key, {
+          body,
+          contentType,
+          publicRead: opts?.publicRead === true,
+        });
       },
       async getObject(key) {
         const stored = objects.get(key);

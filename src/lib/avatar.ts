@@ -245,9 +245,18 @@ export async function confirmAvatarUpload(
     throw await discarded("quota_exceeded");
   }
 
+  // Only the variants are served to the world (G3). The original is kept
+  // private: nothing renders it — pages build their URLs from the 512/128
+  // keys — and it is the full-resolution file the user handed us, which a
+  // public address derivable from any variant URL would hand back to anyone.
+  // Decision of 04.09.2026, with the G3 mechanism itself: OVHcloud has no
+  // bucket policies, so public access is a per-object ACL and this is where
+  // the choice is made.
   await storage.putObject(originalKey, scrubbed, known.contentType);
   for (const variant of variants) {
-    await storage.putObject(variant.key, variant.body, "image/webp");
+    await storage.putObject(variant.key, variant.body, "image/webp", {
+      publicRead: true,
+    });
   }
 
   // Idempotent by content (unique user_id+sha256+kind): a replayed confirm —
