@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { routing, type Locale } from "@/i18n/routing";
 import { normalizeHandle } from "@/lib/handle";
 import { getProfile, type ProfileReadDeps } from "@/lib/profile";
+import { MONOGRAM_CARD } from "@/lib/monogram";
 import { resolveHandle } from "@/lib/profile-handle";
 
 // The public face of a profile (#18): what /[handle] renders for an
@@ -78,10 +79,10 @@ export async function loadPublicProfile(
 const OG_LOCALES: Record<Locale, string> = { pl: "pl_PL", en: "en_US" };
 
 // The two share-image shapes: the #12 512 px avatar variant, and the
-// committed public/og-placeholder.png (1200×630, the Open Graph
-// recommendation) that stands in when there is none — #27 decides the art.
+// generated monogram card (1200×630, the Open Graph recommendation) that
+// stands in when there is none (#27).
 const AVATAR_IMAGE = { width: 512, height: 512 };
-const PLACEHOLDER_IMAGE = { width: 1200, height: 630 };
+const PLACEHOLDER_IMAGE = MONOGRAM_CARD;
 
 export interface ProfileMetadataInput {
   profile: PublicProfile;
@@ -128,10 +129,12 @@ export function profileMetadata(input: ProfileMetadataInput): Metadata {
     routing.locales.map((target) => [target, urlIn(target)]),
   );
   // Alt text on the share card too: a screen reader in a chat client reads
-  // the card, not the page.
+  // the card, not the page. The placeholder gets the SAME alt as a photo
+  // would: the card is about this person either way, and "platform-lite" —
+  // what it used to say — told the listener nothing about the link.
   const image = profile.avatar
     ? { url: profile.avatar.url512, alt: input.avatarAlt, ...AVATAR_IMAGE }
-    : { url: placeholderImage, alt: brand, ...PLACEHOLDER_IMAGE };
+    : { url: placeholderImage, alt: input.avatarAlt, ...PLACEHOLDER_IMAGE };
 
   return {
     title,
@@ -147,6 +150,9 @@ export function profileMetadata(input: ProfileMetadataInput): Metadata {
       locale: OG_LOCALES[locale],
       images: [image],
     },
-    twitter: { card: "summary" },
+    // A square avatar belongs in the small card; the 1200×630 monogram is
+    // built for the wide one, and cropping it to a square would cut the name
+    // off the side.
+    twitter: { card: profile.avatar ? "summary" : "summary_large_image" },
   };
 }

@@ -267,4 +267,21 @@ describe("profileMetadata", () => {
       images: [{ url: PLACEHOLDER, width: 1200, height: 630 }],
     });
   });
+
+  it("describes the placeholder card as the PERSON, not the product (#27)", () => {
+    // It used to be labelled with the brand. A screen reader in a chat client
+    // reads the card, and "Architektów 3d" said nothing about the link.
+    const meta = metadataFor(withoutAvatar, "pl");
+    const [image] = meta.openGraph?.images as { alt: string }[];
+    expect(image.alt).toBe(`Zdjęcie profilowe ${withoutAvatar.displayName}`);
+  });
+
+  it("asks for the wide card only when the image is the wide one (#27)", () => {
+    // A 512 px square cropped into a large card loses its sides; a 1200×630
+    // monogram squeezed into the small one loses the name.
+    expect(metadataFor(withAvatar, "pl").twitter).toEqual({ card: "summary" });
+    expect(metadataFor(withoutAvatar, "pl").twitter).toEqual({
+      card: "summary_large_image",
+    });
+  });
 });

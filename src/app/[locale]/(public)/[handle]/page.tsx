@@ -8,6 +8,12 @@ import { getPathname } from "@/i18n/navigation";
 import { routing, type Locale } from "@/i18n/routing";
 import { appOrigin, isMissingEnv } from "@/lib/env";
 import {
+  initialsFrom,
+  monogramImagePath,
+  MONOGRAM_BACKGROUND,
+  MONOGRAM_FOREGROUND,
+} from "@/lib/monogram";
+import {
   loadPublicProfile,
   profileMetadata,
   type PublicProfileLookup,
@@ -29,7 +35,7 @@ type Search = Promise<Record<string, string | string[] | undefined>>;
 
 // The committed 1200×630 share image for a profile without an avatar
 // (public/og-placeholder.png); #27 decides the final art.
-const OG_PLACEHOLDER_PATH = "/og-placeholder.png";
+// The share card is generated per profile (#27) — see the /api/og route.
 
 // One §9 lookup per request: generateMetadata and the render ask for the same
 // handle, and React's cache() answers the second one from the first.
@@ -110,7 +116,7 @@ export async function generateMetadata({
     brand,
     description: t("description", { name: result.profile.displayName, brand }),
     avatarAlt: t("avatarAlt", { name: result.profile.displayName }),
-    placeholderImage: `${origin}${OG_PLACEHOLDER_PATH}`,
+    placeholderImage: `${origin}${monogramImagePath(result.profile.handle)}`,
     pathFor: handlePath,
   });
 }
@@ -164,11 +170,19 @@ export default async function PublicProfilePage({
             className="h-32 w-32 rounded-full border border-gray-200 object-cover"
           />
         ) : (
+          // The same monogram the share card draws (#27), so the page a
+          // visitor lands on looks like the preview that brought them here.
           // Decorative: the name below already says whose profile this is.
           <div
             aria-hidden="true"
-            className="h-32 w-32 rounded-full border border-gray-200 bg-gray-100"
-          />
+            className="flex h-32 w-32 items-center justify-center rounded-full border border-gray-200 text-4xl font-semibold"
+            style={{
+              backgroundColor: MONOGRAM_BACKGROUND,
+              color: MONOGRAM_FOREGROUND,
+            }}
+          >
+            {initialsFrom(profile.displayName)}
+          </div>
         )}
         <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
           {profile.displayName}
