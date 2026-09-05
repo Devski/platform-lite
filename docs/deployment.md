@@ -149,10 +149,12 @@ which discards incoming mail, so without it a reply to a verification e-mail
 disappears with no bounce and no trace. Point it at a mailbox on the apex
 domain — the one on OVHcloud Zimbra — which keeps its own MX untouched.
 
-The address it configures is `https://54.37.130.136.nip.io` — `nip.io`
-resolves `<ip>.nip.io` to that address, so Let's Encrypt can issue a real
-certificate without a domain. The real name arrives with the naming decision;
-until then this is the temporary address SPEC §8 allows.
+The address it configures comes from `SITE_ADDRESS` in your `.env` — for dev,
+`dev.architektow3d.pl` (SPEC §8), which needs one `A` record pointing at the
+instance. Leave the variable empty and it falls back to `<ip>.nip.io`, which
+resolves to the instance with no DNS of your own, so Let's Encrypt can still
+issue a real certificate. That is what a rebuilt instance should use until its
+record exists.
 
 ---
 
@@ -223,7 +225,7 @@ git commit --allow-empty -m "Deploy: wire the dev instance (#21)" && git push
 this answers `200` with both headers:
 
 ```bash
-curl -I https://54.37.130.136.nip.io/
+curl -I https://dev.architektow3d.pl/
 ```
 
 `x-robots-tag: noindex` proves `APP_ENV` is not `production` (A7).

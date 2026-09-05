@@ -28,9 +28,12 @@ HOST=$(value DEV_SSH_HOST)
 [ -n "$HOST" ] || { echo "STOP: DEV_SSH_HOST is empty in .env"; exit 1; }
 IP=${HOST#*@}
 
-# The temporary address until the naming decision lands (SPEC §12). nip.io
-# resolves <ip>.nip.io to that ip, so Let's Encrypt can issue a real
-# certificate for it over the HTTP-01 challenge — no domain required.
+# The hostname this environment answers on, from .env (SPEC §8). The fallback
+# is the address used before the naming decision (#25) landed: nip.io resolves
+# <ip>.nip.io to that ip, so Let's Encrypt can issue a real certificate over
+# the HTTP-01 challenge with no domain at all — still the right answer for a
+# rebuilt instance whose DNS is not in place yet.
+SITE_ADDRESS=$(optional SITE_ADDRESS)
 SITE_ADDRESS=${SITE_ADDRESS:-${IP}.nip.io}
 
 DB_URL=$(value DATABASE_URL)
