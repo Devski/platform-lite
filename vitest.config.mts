@@ -11,6 +11,10 @@ export default defineConfig({
   test: {
     include: ["src/**/*.test.{ts,tsx}"],
     environment: "node",
+    // Pinned so the unit suite never depends on a developer's .env: with real
+    // EMAIL_* present, an unpinned APP_ENV would let lib/email.ts resolve the
+    // real provider transport and post to it from a test run.
+    env: { APP_ENV: "test" },
     // With DATABASE_URL_TEST set (CI, tunnelled dev) every database-bound
     // test file truncates the same database — parallel workers would race.
     // The suite is small; serial files cost little and stay deterministic.

@@ -79,6 +79,35 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
   }
 }
 
+// Tasks the handler above has started but not finished. Delivery no longer
+// blocks the response, so nothing else would keep a reference to it — and a
+// test asserting "the message arrived" would race the send it triggered.
+const inFlightBackgroundTasks = new Set<Promise<void>>();
+
+function trackBackgroundTask(task: Promise<unknown>): void {
+  const tracked = task.then(
+    () => {},
+    (error: unknown) => {
+      // The only place this is visible now: SPEC §10 counts a swallowed 2FA
+      // code as a lockout, so it must be findable in the logs.
+      console.error("[auth] background e-mail delivery failed:", error);
+    },
+  );
+  inFlightBackgroundTasks.add(tracked);
+  void tracked.finally(() => inFlightBackgroundTasks.delete(tracked));
+}
+
+/**
+ * Waits for every background delivery started so far. For tests, which must
+ * observe a message the request deliberately stopped waiting for. Loops
+ * because settling one task can start another (a hook that sends in turn).
+ */
+export async function flushBackgroundTasks(): Promise<void> {
+  while (inFlightBackgroundTasks.size > 0) {
+    await Promise.all([...inFlightBackgroundTasks]);
+  }
+}
+
 export function createAuth(options: {
   db: Database;
   baseURL: string;
@@ -106,6 +135,15 @@ export function createAuth(options: {
     advanced: {
       // §9: ids come from the database (gen_random_uuid()), never the app.
       database: { generateId: "uuid" },
+      // #22 closes the gap sendResetPassword used to carry: the library
+      // awaits delivery on the response path unless this handler exists, so
+      // with a real provider a registered address answers a network
+      // round-trip slower than an unknown one. That is an enumeration
+      // oracle, and it defeats work the library does deliberately —
+      // sign-up returns an identical body for a taken address and hashes
+      // the password anyway to equalise timing. Delivery is best-effort;
+      // the response must not wait for it.
+      backgroundTasks: { handler: trackBackgroundTask },
       ...(options.enforceOriginChecks ? { disableOriginCheck: false } : {}),
     },
     verification: {
@@ -140,12 +178,9 @@ export function createAuth(options: {
       // consumed on submit). Explicit even though it equals the 1.7.2 default,
       // so the criterion cannot drift with a library upgrade.
       resetPasswordTokenExpiresIn: 60 * 60,
-      // KNOWN GAP until #22: with advanced.backgroundTasks unset the library
-      // awaits this send on the response path, so a known address answers
-      // slower than an unknown one by a full delivery round-trip — a timing
-      // channel for account enumeration. Negligible with the dev log
-      // transport; the production transport must deliver off-path
-      // (backgroundTasks.handler or a queueing transport) — recorded on #22.
+      // Delivered off the response path (advanced.backgroundTasks above), so
+      // this send does not answer "is that address registered" in its
+      // timing. Closed in #22, when the transport stopped being a no-op.
       async sendResetPassword({ user, url }, request) {
         await sendEmail({
           to: user.email,
@@ -365,6 +400,15 @@ export function createAuth(options: {
         // potentially shared IPs; a true per-user bound needs app state (#22).
         // Same x-forwarded-for trust contract and IP-rotation caveat as above.
         "/two-factor/send-otp": { window: 60 * 60, max: 20 },
+        // #22: sign-up is a sender too — it mails a verification link to
+        // whatever address it is handed. Until the transport was real that
+        // only wrote to a log; now the built-in default (3 per 10 s, so
+        // ~1000/hour) would let one IP post that many messages from our
+        // domain to third parties, burning the TEM quota real users need
+        // for verification and reset, and the sender reputation with it.
+        // Higher than the 3/hour senders because a shared IP (an office, a
+        // carrier NAT) may hold several genuine sign-ups in a day.
+        "/sign-up/email": { window: 60 * 60, max: 10 },
       },
     },
     // #29: optional two-factor authentication, opt-in per user (decision of
