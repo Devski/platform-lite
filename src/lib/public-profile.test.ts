@@ -230,8 +230,9 @@ describe("profileMetadata", () => {
     });
     expect(meta.openGraph).toMatchObject({
       type: "profile",
-      title: "Studio X · platform-lite",
-      description: "Profil Studio X na platform-lite",
+      // The card names the profile, with the product as its subtitle.
+      title: "Studio X",
+      description: "platform-lite",
       url: "https://app.example/studio-x",
       locale: "pl_PL",
       images: [
@@ -261,10 +262,42 @@ describe("profileMetadata", () => {
     );
   });
 
-  it("falls back to the 1200×630 placeholder as the OG image without an avatar", () => {
+  it("falls back to the square placeholder as the OG image without an avatar", () => {
     const meta = metadataFor(withoutAvatar, "pl");
     expect(meta.openGraph).toMatchObject({
-      images: [{ url: PLACEHOLDER, width: 1200, height: 630 }],
+      images: [{ url: PLACEHOLDER, width: 512, height: 512 }],
     });
+  });
+
+  it("shares a square card whether or not there is a photo (#27)", () => {
+    // A 1200×630 card is legible on its own and unreadable in the small tile
+    // a chat client actually draws — the monogram shrank to a smudge next to
+    // a photo profile rendered large. Seen on WhatsApp 05.09.2026. Both cases
+    // are square now, so both are drawn the same way.
+    const withPhoto = metadataFor(withAvatar, "pl").openGraph?.images;
+    const without = metadataFor(withoutAvatar, "pl").openGraph?.images;
+    expect(withPhoto).toMatchObject([{ width: 512, height: 512 }]);
+    expect(without).toMatchObject([{ width: 512, height: 512 }]);
+  });
+
+  it("captions a shared link with the profile, then the brand (#27)", () => {
+    // The card names the profile and puts the product underneath as a
+    // subtitle (decision of 05.09.2026): a shared link is about the person,
+    // and the reader already sees the domain on the third line.
+    const meta = metadataFor(withAvatar, "pl");
+    expect(meta.openGraph).toMatchObject({
+      title: "Studio X",
+      description: BRAND,
+    });
+    // The page title keeps both, in the same order.
+    expect(meta.title).toBe("Studio X · platform-lite");
+  });
+
+  it("describes the placeholder card as the PERSON, not the product (#27)", () => {
+    // It used to be labelled with the brand. A screen reader in a chat client
+    // reads the card, and "Architektów 3d" said nothing about the link.
+    const meta = metadataFor(withoutAvatar, "pl");
+    const [image] = meta.openGraph?.images as { alt: string }[];
+    expect(image.alt).toBe(`Zdjęcie profilowe ${withoutAvatar.displayName}`);
   });
 });
