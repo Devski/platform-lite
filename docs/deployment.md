@@ -126,6 +126,23 @@ on `127.0.0.1`, so the SSH tunnel remains the only way in from outside.
 **Done when** it prints the network members including `postgres`, and the line
 count of the written `.env`. It never echoes a secret.
 
+Your local `.env` must already carry the e-mail settings (#22), because the
+script only copies what is there:
+
+```
+EMAIL_API_KEY=       # Scaleway calls this SCW_SECRET_KEY
+EMAIL_PROJECT_ID=    # Scaleway calls this SCW_DEFAULT_PROJECT_ID
+EMAIL_FROM=          # an address on a domain verified in TEM
+EMAIL_REGION=        # optional, defaults to fr-par
+```
+
+A deployed environment (`APP_ENV` anything but `local`/`ci`/`test`) **requires**
+the first three and refuses to start a send without them. That is deliberate:
+the fallback it replaced wrote the verification and password-reset links into
+the container log, where anyone with log access could redeem them. The script
+also stops if a key appears twice in your `.env` — it would otherwise splice
+both lines into the instance file and leave the value empty.
+
 The address it configures is `https://54.37.130.136.nip.io` — `nip.io`
 resolves `<ip>.nip.io` to that address, so Let's Encrypt can issue a real
 certificate without a domain. The real name arrives with the naming decision;

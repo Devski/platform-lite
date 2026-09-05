@@ -9,7 +9,20 @@ set -euo pipefail
 
 [ -f .env ] || { echo "STOP: no .env here — run from the repo root"; exit 1; }
 
+# A key repeated in .env is ambiguous — dotenv keeps one occurrence and the
+# helpers below would splice BOTH into the instance file, writing an empty
+# value plus an orphan line. Seen for real on 05.09.2026 when a new EMAIL_FROM
+# was added while the old empty one was still there, which would have left the
+# deployment silently logging e-mail instead of sending it. Fail here instead.
+DUPLICATES=$(grep -oE "^[A-Za-z0-9_]+=" .env | sort | uniq -d | tr -d "=" | tr "
+" " ")
+[ -z "$DUPLICATES" ] || { echo "STOP: .env defines these twice: $DUPLICATES"; exit 1; }
+
 value() { grep -E "^$1=" .env | cut -d= -f2- ; }
+# Same, but an absent key yields an empty string instead of aborting the run
+# (set -o pipefail turns grep's "no match" into a failed pipeline). For
+# settings a working instance may legitimately not have yet.
+optional() { grep -E "^$1=" .env | cut -d= -f2- || true ; }
 
 HOST=$(value DEV_SSH_HOST)
 [ -n "$HOST" ] || { echo "STOP: DEV_SSH_HOST is empty in .env"; exit 1; }
@@ -53,6 +66,12 @@ docker network inspect platform --format '{{range .Containers}}{{.Name}} {{end}}
 echo "    network members: $(docker network inspect platform --format '{{range .Containers}}{{.Name}} {{end}}')"
 REMOTE
 
+# This file is rewritten wholesale below, and APP_IMAGE is not ours to invent
+# — the deployment writes it (deploy/remote-deploy.sh) with the tag it just
+# rolled out. Carry the running value across so `docker compose` on the
+# instance keeps working between a re-wire and the next deploy.
+APP_IMAGE_LINE=$(ssh "$HOST" 'grep -E "^APP_IMAGE=" /opt/platform-lite/.env 2>/dev/null' || true)
+
 echo "==> Writing /opt/platform-lite/.env (0600, never echoed here)"
 {
   echo "# Written by scripts/wire-dev-deploy.sh from the local .env."
@@ -72,6 +91,14 @@ echo "==> Writing /opt/platform-lite/.env (0600, never echoed here)"
   echo "S3_KEY=$(value S3_KEY)"
   echo "S3_SECRET=$(value S3_SECRET)"
   echo "S3_PREFIX=$(value S3_PREFIX)"
+  # #22: with EMAIL_API_KEY empty the app logs every message instead of
+  # sending it, so a half-filled .env degrades to the old behaviour rather
+  # than erroring at boot.
+  echo "EMAIL_API_KEY=$(optional EMAIL_API_KEY)"
+  echo "EMAIL_PROJECT_ID=$(optional EMAIL_PROJECT_ID)"
+  echo "EMAIL_FROM=$(optional EMAIL_FROM)"
+  echo "EMAIL_REGION=$(optional EMAIL_REGION)"
+  if [ -n "$APP_IMAGE_LINE" ]; then echo "$APP_IMAGE_LINE"; fi
 } | ssh "$HOST" 'umask 077 && cat > /opt/platform-lite/.env && echo "    written: $(wc -l < /opt/platform-lite/.env) lines"'
 
 echo

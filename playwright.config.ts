@@ -115,7 +115,17 @@ export default defineConfig({
     command: `pnpm dev --port ${PORT} > ${SERVER_LOG_RELATIVE_PATH} 2>&1`,
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,
-    env: databaseServerEnv,
+    env: {
+      // Pinned, and NOT overridable by the .env loaded above: the specs
+      // register accounts at @platform-lite.test, a TLD that cannot
+      // resolve. With real EMAIL_* in a developer's .env — the only way to
+      // configure #22 — an unpinned APP_ENV would send every one of those
+      // for real and aim a run's worth of hard bounces at a brand-new
+      // sending domain. It also keeps the log transport, which is what
+      // e2e/server-log.ts reads the verification links out of.
+      APP_ENV: "ci",
+      ...databaseServerEnv,
+    },
     // Cold Turbopack compile of the first page can exceed the 60 s default.
     timeout: 120_000,
   },

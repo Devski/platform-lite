@@ -12,7 +12,7 @@ import {
 } from "vitest";
 import { accounts, sessions, users } from "@/db/schema";
 import { createTestDb, type TestDb } from "@/db/test-db";
-import { createAuth } from "./auth";
+import { createAuth, flushBackgroundTasks } from "./auth";
 import {
   createMemoryTransport,
   logTransport,
@@ -62,12 +62,12 @@ afterEach(() => {
   setEmailTransport(logTransport);
 });
 
-function post(
+async function post(
   path: string,
   body: Record<string, unknown>,
   headers: Record<string, string> = {},
 ): Promise<Response> {
-  return auth.handler(
+  const response = await auth.handler(
     new Request(`${BASE_URL}/api/auth${path}`, {
       method: "POST",
       headers: {
@@ -79,6 +79,10 @@ function post(
       body: JSON.stringify(body),
     }),
   );
+  // #22: delivery no longer blocks the response, so a test that asserts on
+  // the message would race the send its own request started.
+  await flushBackgroundTasks();
+  return response;
 }
 
 function signUp(
@@ -206,15 +210,21 @@ describe("sign-up (A1)", () => {
   });
 
   it("rate limits sign-up attempts from one address (A1)", async () => {
+    // The explicit rule added in #22 (10 per hour), not the library default
+    // of 3 per 10 s it replaced: looser inside a burst on purpose, because a
+    // shared IP holds several genuine sign-ups, and roughly a hundredfold
+    // tighter over an hour — which is the bound that matters once sign-up
+    // mails a real message to any address it is handed.
     const headers = { "x-forwarded-for": "203.0.113.7" };
-    for (const n of [1, 2, 3]) {
+    const allowed = 10;
+    for (let n = 1; n <= allowed; n++) {
       const response = await signUp(`burst-${n}@example.com`, headers);
       expect(response.status).toBe(200);
     }
-    const fourth = await signUp("burst-4@example.com", headers);
-    expect(fourth.status).toBe(429);
-    expect(fourth.headers.get("x-retry-after")).toBeTruthy();
-  }, 15_000);
+    const overLimit = await signUp("burst-over@example.com", headers);
+    expect(overLimit.status).toBe(429);
+    expect(overLimit.headers.get("x-retry-after")).toBeTruthy();
+  }, 40_000);
 });
 
 describe("e-mail verification (A1)", () => {

@@ -1,6 +1,7 @@
 import { createTranslator, hasLocale } from "next-intl";
 import en from "../../messages/en.json";
 import pl from "../../messages/pl.json";
+import { requireEnv } from "@/lib/env";
 import { routing, type Locale } from "@/i18n/routing";
 
 // The ONLY place that composes and delivers e-mail — same principle as G1 for
@@ -82,13 +83,133 @@ export const logTransport: EmailTransport = {
   },
 };
 
+const TEM_TIMEOUT_MS = 10_000;
+
+// #22: Scaleway Transactional Email over its HTTP API rather than SMTP.
+// Sending by SMTP from Node needs a mailer library; this needs `fetch`, which
+// the runtime already has — a whole production dependency is a lot to carry
+// for six short messages, and `lib/email.ts` is the thin interface that keeps
+// the provider swappable either way (the G1 pattern, applied to mail).
+export function createScalewayTransport(config: {
+  apiKey: string;
+  projectId: string;
+  from: string;
+  region: string;
+}): EmailTransport {
+  // Interpolated into the URL, so it is checked rather than trusted. There is
+  // no exfiltration path (the origin is a literal and this lands in the path),
+  // but an unchecked typo would surface much later as a puzzling 404 on the
+  // first real send instead of a clear failure here.
+  if (!/^[a-z]{2}-[a-z]{3}$/.test(config.region)) {
+    throw new Error(`EMAIL_REGION is not a Scaleway region: ${config.region}`);
+  }
+  const endpoint = `https://api.scaleway.com/transactional-email/v1alpha1/regions/${config.region}/emails`;
+  return {
+    async deliver(message) {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        // undici gives no overall deadline (its headers timeout is 300 s), and
+        // this call sits on the sign-up/reset/2FA response path. Mail is
+        // best-effort; holding an auth request for minutes because the
+        // provider is degraded is not.
+        signal: AbortSignal.timeout(TEM_TIMEOUT_MS),
+        headers: {
+          "X-Auth-Token": config.apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          project_id: config.projectId,
+          from: { email: config.from },
+          to: [{ email: message.to }],
+          subject: message.subject,
+          // Plain text only, deliberately: every template is a short message
+          // with one link, and an HTML part would double what has to be
+          // translated and reviewed for no gain (A10 is seven transactional
+          // messages, not a newsletter).
+          text: message.body,
+        }),
+      }).catch((cause: unknown) => {
+        // DNS, TLS, a reset connection or the timeout above all arrive here as
+        // a bare `TypeError: fetch failed` with nothing naming the mail path.
+        throw new Error("Scaleway TEM could not be reached", { cause });
+      });
+      if (!response.ok) {
+        // The body carries the provider's reason; the address does not, and
+        // a rejected verification e-mail is a lost account (SPEC §10), so the
+        // caller gets something actionable rather than a bare status.
+        const detail = await response.text().catch(() => "");
+        throw new Error(
+          `Scaleway TEM refused the message (${response.status}): ${detail.slice(0, 300)}`,
+        );
+      }
+    },
+  };
+}
+
+const EMAIL_VARIABLES = {
+  apiKey: "EMAIL_API_KEY",
+  projectId: "EMAIL_PROJECT_ID",
+  from: "EMAIL_FROM",
+} as const;
+
+/** True when every variable the provider transport needs is present. */
+export function isEmailConfigured(): boolean {
+  return Object.values(EMAIL_VARIABLES).every(
+    (name) => (process.env[name]?.trim() ?? "") !== "",
+  );
+}
+
+// APP_ENV values whose runs must never reach a real mailbox, whatever happens
+// to be in the environment. The e2e suite registers accounts at
+// `@platform-lite.test`, a TLD that cannot resolve: sending those for real
+// would aim a stream of hard bounces at a brand-new sending domain and burn
+// the reputation SPEC §10 depends on. Credentials in a developer .env are
+// there to configure a DEPLOYMENT, not to arm `pnpm dev`; e2e also reads the
+// delivered message back out of the log (e2e/db/email-log.ts), so the log
+// transport is what those environments are built around (#6).
+// Note this is an allowlist of harnesses, not a list of "real" environments:
+// a typo in APP_ENV therefore fails towards sending rather than towards
+// silently logging tokens.
+const HARNESS_ENVIRONMENTS = new Set(["local", "ci", "test"]);
+
+function isHarnessEnvironment(): boolean {
+  return HARNESS_ENVIRONMENTS.has(process.env.APP_ENV?.trim() ?? "");
+}
+
 // Module-level slot so code that cannot thread a transport through (Better
-// Auth callbacks in #7-#10) stays testable, and #22 can wire Scaleway TEM
-// (EMAIL_SMTP_*) here without touching the callers.
-let activeTransport: EmailTransport = logTransport;
+// Auth callbacks in #7-#10) stays testable. Resolved on first use, not at
+// import: route modules are evaluated at build time and by the database-less
+// e2e job, where no EMAIL_* exists and none is needed.
+let activeTransport: EmailTransport | undefined;
 
 export function setEmailTransport(transport: EmailTransport): void {
   activeTransport = transport;
+}
+
+/** Drops back to environment-driven selection. For tests. */
+export function resetEmailTransport(): void {
+  activeTransport = undefined;
+}
+
+function resolveTransport(): EmailTransport {
+  if (activeTransport) return activeTransport;
+  // A deployed environment ALWAYS sends. It must not quietly fall back to the
+  // log: logTransport prints the whole body, so an incomplete .env in
+  // production would both stop every verification e-mail (sign-up still
+  // answers 200 — nothing reports the failure) and write live verification
+  // and password-reset links into the container log, where anyone with log
+  // access could complete a reset for any address. requireEnv names the
+  // variable that is missing, the way every other secret in this codebase
+  // fails (lib/env.ts).
+  activeTransport = isHarnessEnvironment()
+    ? logTransport
+    : createScalewayTransport({
+        apiKey: requireEnv(EMAIL_VARIABLES.apiKey),
+        projectId: requireEnv(EMAIL_VARIABLES.projectId),
+        from: requireEnv(EMAIL_VARIABLES.from),
+        region: process.env.EMAIL_REGION?.trim() || "fr-par",
+      });
+  return activeTransport;
 }
 
 // Test helper: capture deliveries instead of logging them.
@@ -112,7 +233,7 @@ export async function sendEmail(
   transport?: EmailTransport,
 ): Promise<void> {
   const { subject, body } = renderEmail(options.template, options.locale);
-  await (transport ?? activeTransport).deliver({
+  await (transport ?? resolveTransport()).deliver({
     to: options.to,
     subject,
     body,

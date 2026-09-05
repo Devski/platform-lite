@@ -10,7 +10,7 @@ import {
 } from "vitest";
 import { sessions, users, verifications } from "@/db/schema";
 import { createTestDb, type TestDb } from "@/db/test-db";
-import { createAuth } from "./auth";
+import { createAuth, flushBackgroundTasks } from "./auth";
 import {
   createMemoryTransport,
   logTransport,
@@ -59,12 +59,12 @@ afterEach(() => {
   setEmailTransport(logTransport);
 });
 
-function post(
+async function post(
   path: string,
   body: Record<string, unknown>,
   headers: Record<string, string> = {},
 ): Promise<Response> {
-  return auth.handler(
+  const response = await auth.handler(
     new Request(`${BASE_URL}/api/auth${path}`, {
       method: "POST",
       headers: {
@@ -76,6 +76,10 @@ function post(
       body: JSON.stringify(body),
     }),
   );
+  // #22: delivery no longer blocks the response, so a test that asserts on
+  // the message would race the send its own request started.
+  await flushBackgroundTasks();
+  return response;
 }
 
 /** Register the address and click the verification link from the e-mail. */

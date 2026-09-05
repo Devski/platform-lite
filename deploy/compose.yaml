@@ -7,7 +7,9 @@ services:
   app:
     image: ${APP_IMAGE:?set APP_IMAGE to a published image tag}
     restart: unless-stopped
-    # DATABASE_URL, AUTH_SECRET, S3_*, APP_URL, APP_ENV. Lives on the instance,
+    # DATABASE_URL, AUTH_SECRET, S3_*, APP_URL, APP_ENV, EMAIL_* (#22 — with
+    # APP_ENV set to a deployed value the app REQUIRES them and refuses to
+    # send rather than falling back to the log). Lives on the instance,
     # never in the repository or the image (SPEC §7).
     env_file: [.env]
     # NOT published to the host. The only way in is through Caddy, and that is
