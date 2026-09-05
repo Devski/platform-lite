@@ -2,7 +2,8 @@
 
 Repository: https://github.com/3dbdg/platform-lite
 Status: **awaiting approval** · 30 August 2026 · nothing is implemented yet.
-Working name: _platform-lite_ (product name and domain — open, see §12).
+Product: **Architektów 3D**, at `architektow3d.pl` (decided 05.09.2026, §12).
+`platform-lite` stays the repository and working name.
 
 Source documents with the full rationale behind the decisions (in Polish):
 
@@ -260,12 +261,12 @@ export function contentKey(hash: string, ext: string, prefix = ""): string {
 
 ## 8. Environments and deployments
 
-| Environment | Where                         | Database                                                                                                 | Deployment                                                                                                               |
-| ----------- | ----------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Local       | developer machine             | remote `waw` over an SSH tunnel (per developer: `platform_<github-handle>`, for Dawid `platform_devski`) | —                                                                                                                        |
-| PR preview  | dev instance                  | shared dev                                                                                               | automatic on PR open, deleted after merge — **needs the domain** (wildcard DNS), so deferred until §12's naming decision |
-| Dev         | OVH `waw`, d2-2 (€7)          | Postgres in a container                                                                                  | automatic from `main`                                                                                                    |
-| Prod        | OVH `eu-west-par`, b3-8 (€35) | Managed PostgreSQL (€59)                                                                                 | **manual**: an approval gate in the deploy workflow, or a `vX.Y.Z` tag                                                   |
+| Environment | Where                                             | Database                                                                                                 | Deployment                                                                |
+| ----------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Local       | developer machine                                 | remote `waw` over an SSH tunnel (per developer: `platform_<github-handle>`, for Dawid `platform_devski`) | —                                                                         |
+| PR preview  | dev instance, `*.dev.architektow3d.pl`            | shared dev                                                                                               | automatic on PR open, deleted after merge; `*.dev.architektow3d.pl` (#31) |
+| Dev         | OVH `waw`, d2-2 (€7), `dev.architektow3d.pl`      | Postgres in a container                                                                                  | automatic from `main`                                                     |
+| Prod        | OVH `eu-west-par`, b3-8 (€35), `architektow3d.pl` | Managed PostgreSQL (€59)                                                                                 | **manual**: an approval gate in the deploy workflow, or a `vX.Y.Z` tag    |
 
 - Dev infrastructure is bootstrapped by script (`scripts/bootstrap-dev.sh`; manual console
   prerequisites and the full procedure in `docs/dev-environment.md`) — executing that
@@ -344,13 +345,16 @@ HA/multicloud/Terraform · Docker and MinIO locally.
 
 ## 12. Open questions
 
-- [ ] **Product name and domain** — blocks the e-mail sender address (G8), the panel and
-      profile-page addresses. To resolve before the first dev deployment.
-      Update 30.08.2026: naming structure decided — product **"Architektów 3D"**
-      (architektów3d.pl; ASCII twin architektow3d.pl also registered), company
-      **"Architectorium"** (architectorium.com); architektorium.pl/.com (with "k") =
-      typo fallbacks, 301 → product. Before ticking: pick the canonical form
-      (recommendation: ASCII architektow3d.pl serves and sends e-mail — G8; IDN 301s).
+- [x] **Product name and domain** — resolved 05.09.2026. The product is
+      **"Architektów 3D"**, and the canonical domain is the ASCII form
+      **`architektow3d.pl`**: it serves, and it sends e-mail (G8), exactly as the
+      30.08.2026 recommendation proposed. The IDN twin `architektów3d.pl` and the
+      "k" typo variants redirect to it with 301. Company: **"Architectorium"**
+      (architectorium.com). Per-environment hostnames are in §8.
+      Note for #22: the domain already carries mailboxes (OVHcloud Zimbra), so
+      there must remain exactly **one** SPF record — Scaleway is merged into the
+      existing one, never added beside it. Two records fail both, taking the
+      existing mail down with ours.
 - [ ] Design of the signed-out homepage (A11): the full-screen photo — which one, from
       where, under what license.
 - [ ] Choice of the specific OG image for profile pages without an avatar.

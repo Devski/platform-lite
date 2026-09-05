@@ -17,7 +17,7 @@ Requirements come from [SPEC.md](../SPEC.md). Plan created on 30.08.2026, approv
 - Quality gate for every code task: **`pnpm check` green before every commit** (§7);
   written into the Verification section of every issue.
 - The dev e-mail transport is a logger (#6), so the missing domain (#25) blocks no
-  application code — it only blocks #22, #24 and #31; #21 deploys to a temporary address.
+  application code, and since 05.09.2026 it blocks nothing: the domain is decided (§12).
 
 ## Phases and checkpoints
 
@@ -83,7 +83,7 @@ approval, §7).
 
 ### Open decisions (label `decision`, §12)
 
-- [#25](https://github.com/3dbdg/platform-lite/issues/25) Decision: product name and domain — **blocks #22, #24 and #31 (wildcard DNS for previews)**; #21 starts on a temporary address
+- ~~[#25](https://github.com/3dbdg/platform-lite/issues/25) Decision: product name and domain~~ — **resolved 05.09.2026**: `architektow3d.pl`, production on the apex, dev on `dev.`, previews on `*.dev.`. Unblocked #22, #24 and #31.
 - [#26](https://github.com/3dbdg/platform-lite/issues/26) Decision: landing page design (photo, source, license) — the placeholder in #19 does not wait for it
 - [#27](https://github.com/3dbdg/platform-lite/issues/27) Decision: default OG image for profiles without avatar — #18 starts with a placeholder
 
