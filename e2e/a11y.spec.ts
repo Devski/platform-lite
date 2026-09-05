@@ -14,7 +14,7 @@ test.describe("Polish browser", () => {
   }, testInfo) => {
     await page.goto("/");
     await expect(
-      page.getByRole("heading", { level: 1, name: "Architektów 3d" }),
+      page.getByRole("heading", { level: 1, name: "Architektów 3D" }),
     ).toBeVisible();
     await expectNoAxeViolations(page, testInfo, "landing-pl");
   });
