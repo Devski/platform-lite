@@ -74,9 +74,21 @@ test("a new user goes from the landing page to a live public profile", async ({
     ).toBeVisible();
   });
 
+  await test.step("#36 step one: the name, before the address", async () => {
+    // Onboarding asks for the name FIRST and derives the address from it
+    // (#36). Nothing can be submitted without one — which is the point:
+    // registration no longer invents a name from the e-mail address.
+    const next = page.getByRole("button", { name: "Dalej" });
+    await expect(next).toBeDisabled();
+    await page.getByLabel("Twoja nazwa").fill(identity.displayName);
+    await expect(next).toBeEnabled();
+    await next.click();
+  });
+
   await test.step("A5: claim the profile address", async () => {
     const field = page.getByLabel("Adres profilu");
-    // The field opens on a suggestion derived from the account; replace it.
+    // Opens on the address derived from the name just typed; replace it.
+    await expect(field).not.toHaveValue("");
     await field.fill(identity.handle);
     // A5's live check: debounced, then a round trip to the server. Given more
     // room than the default — the form shows no message at all when the check

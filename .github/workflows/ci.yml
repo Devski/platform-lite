@@ -152,12 +152,18 @@ jobs:
           # pins: rolling back is redeploying an older one (SPEC §8).
           docker push "$IMAGE:$GITHUB_SHA"
       - name: Move the `main` tag to this build
-        if: github.ref == 'refs/heads/main'
+        # Only when the step above actually published: it is what logs in to
+        # the registry, and it is skipped for a manual run. A dispatch on
+        # main used to reach this and fail with an unauthorised push — a
+        # latent fault that only surfaced the first time anyone dispatched
+        # from main rather than from a branch.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           docker tag "$IMAGE:$GITHUB_SHA" "$IMAGE:main"
           docker push "$IMAGE:main"
       - name: Tag a release build with its version
-        if: startsWith(github.ref, 'refs/tags/v')
+        # Same reason as above: no publish, no login, no push.
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         run: |
           docker tag "$IMAGE:$GITHUB_SHA" "$IMAGE:${GITHUB_REF_NAME}"
           docker push "$IMAGE:${GITHUB_REF_NAME}"
