@@ -84,7 +84,7 @@ approval, §7).
 ### Open decisions (label `decision`, §12)
 
 - ~~[#25](https://github.com/3dbdg/platform-lite/issues/25) Decision: product name and domain~~ — **resolved 05.09.2026**: `architektow3d.pl`, production on the apex, dev on `dev.`, previews on `*.dev.`. Unblocked #22, #24 and #31.
-- [#26](https://github.com/3dbdg/platform-lite/issues/26) Decision: landing page design (photo, source, license) — the placeholder in #19 does not wait for it
+- [#26](https://github.com/3dbdg/platform-lite/issues/26) Decision: landing page design (photo, source, license) (`ux`) — the placeholder in #19 does not wait for it. **Deferred 05.09.2026**: visual polish comes after the functionality. The licence half is not cosmetic — it must permit commercial use.
 - [#27](https://github.com/3dbdg/platform-lite/issues/27) Decision: default OG image for profiles without avatar — #18 starts with a placeholder
 
 ### After the MVP
@@ -98,7 +98,7 @@ they are not rediscovered later.
   bucket objects were left unfindable. With real users this is a legal obligation, not
   tidiness. Shares its object-removal path with sweeping preview prefixes (#31).
 - [#35](https://github.com/3dbdg/platform-lite/issues/35) Transactional e-mail in the
-  product's visual identity (`enhancement`, `blocked`) — waits on #26/#27, because the
+  product's visual identity (`enhancement`, `blocked`, `ux`) — deferred with #26; waits on #26/#27, because the
   identity has to exist first. Re-run the #23 deliverability matrix afterwards: images and
   links raise the spam score against a young sending domain.
 
