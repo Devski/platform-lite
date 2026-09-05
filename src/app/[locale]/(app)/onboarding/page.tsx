@@ -6,7 +6,7 @@ import { getDb } from "@/db/client";
 import { getAuth } from "@/lib/auth";
 import { appOrigin } from "@/lib/env";
 import { getHandleState, suggestHandle } from "@/lib/profile-handle";
-import { HandleForm } from "../handle-form";
+import { OnboardingSteps } from "./onboarding-steps";
 
 // #15: the one step between login and the app. Login and the 2FA challenge
 // land here; a user who already has a handle is forwarded to /, everyone
@@ -55,13 +55,7 @@ export default async function OnboardingPage({
           {t("heading")}
         </h1>
         <p className="mt-2 text-sm text-gray-600">{t("intro")}</p>
-        <HandleForm
-          mode="onboarding"
-          origin={appOrigin()}
-          initialValue={suggestion}
-          currentHandle={null}
-          nextChangeAt={null}
-        />
+        <OnboardingSteps origin={appOrigin()} fallbackHandle={suggestion} />
       </div>
     </main>
   );

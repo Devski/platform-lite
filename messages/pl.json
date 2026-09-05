@@ -78,11 +78,12 @@
   "Onboarding": {
     "title": "Adres profilu",
     "heading": "Ustaw swój adres profilu",
-    "intro": "To publiczny adres Twojego profilu. Zaproponowaliśmy adres na podstawie Twojego konta — możesz go zmienić."
+    "intro": "To publiczny adres Twojego profilu. Zaproponowaliśmy adres na podstawie Twojego konta — możesz go zmienić.",
+    "next": "Dalej",
+    "nameLabel": "Twoja nazwa",
+    "nameHint": "Tak podpiszemy Twój profil. Adres poniżej podpowiadamy z niej — możesz go zmienić."
   },
   "HandleForm": {
-    "nameLabel": "Twoja nazwa",
-    "nameHint": "Tak podpiszemy Twój profil. Adres poniżej podpowiadamy z niej — możesz go zmienić.",
     "label": "Adres profilu",
     "hint": "Od {min} do {max} znaków: małe litery, cyfry i myślniki.",
     "checking": "Sprawdzanie dostępności…",
@@ -103,7 +104,8 @@
       "generic": "Zapis nie powiódł się. Spróbuj ponownie."
     },
     "addressPreviewLabel": "Twój adres profilu:",
-    "cooldownAhead": "Pierwsze ustawienie było bez ograniczeń. Jeśli zmienisz adres teraz, kolejna zmiana będzie możliwa dopiero za {days} dni, a stary adres będzie przekierowywał na nowy, dopóki nie zajmie go ktoś inny."
+    "cooldownAhead": "Pierwsze ustawienie było bez ograniczeń. Jeśli zmienisz adres teraz, kolejna zmiana będzie możliwa dopiero za {days} dni, a stary adres będzie przekierowywał na nowy, dopóki nie zajmie go ktoś inny.",
+    "back": "Wstecz"
   },
   "Settings": {
     "account": {

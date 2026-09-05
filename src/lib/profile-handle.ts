@@ -214,6 +214,7 @@ export async function setHandle(
         .select({
           handle: profiles.handle,
           changedAt: profiles.handleChangedAt,
+          displayName: profiles.displayName,
         })
         .from(profiles)
         .where(eq(profiles.userId, userId));
@@ -232,10 +233,17 @@ export async function setHandle(
       // updateDisplayName upsert, which does not take the user lock.
       await tx
         .insert(profiles)
-        // users.name is the fallback, not the source: registration no
-        // longer invents one from the e-mail address (#36), so on a fresh
-        // account it is empty and the name arrives with the claim.
-        .values({ userId, displayName: displayName ?? user.name, handle })
+        // The name spelled into the INSERT matters even on a CHANGE:
+        // PostgreSQL evaluates constraints on the tuple being inserted
+        // BEFORE ON CONFLICT turns it into an update, so a blank here fails
+        // the not-blank CHECK on an update that was never going to touch the
+        // name. Since #36 registration leaves users.name empty, that broke
+        // every address change until the existing row was consulted first.
+        .values({
+          userId,
+          displayName: displayName ?? profile?.displayName ?? user.name,
+          handle,
+        })
         .onConflictDoUpdate({
           target: profiles.userId,
           set: changing ? { handle, handleChangedAt: now } : { handle },
