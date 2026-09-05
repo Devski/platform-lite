@@ -94,13 +94,13 @@ they are not rediscovered later.
 
 - [#34](https://github.com/3dbdg/platform-lite/issues/34) Account deletion, including the
 - ~~[#36](https://github.com/3dbdg/platform-lite/issues/36) The public profile showed the user's e-mail address as their name~~ — **done 05.09.2026**: registration stopped inventing a name from the address; onboarding asks for one in two steps and derives the address from it. A migration cleared what the old flow wrote, keeping handles — they may already have been shared. Found two faults of my own on the way, both recorded on the issue and generalised as #39.
-  objects behind it (`enhancement`, `compliance`) — opened 05.09.2026: there is no code path for
+  objects behind it (`compliance`) — opened 05.09.2026: there is no code path for
   removing a user at all. Clearing test accounts from dev meant hand-written SQL, and the
   bucket objects were left unfindable. With real users this is a legal obligation, not
   tidiness. Shares its object-removal path with sweeping preview prefixes (#31).
 - [#35](https://github.com/3dbdg/platform-lite/issues/35) Transactional e-mail in the
 - [#39](https://github.com/3dbdg/platform-lite/issues/39) Make the UI airtight against what the backend and the database will accept (`enhancement`) — opened 05.09.2026: a rule can live in the form, the API schema and a database constraint, and nothing keeps the three in agreement. Two instances on one screen in #36: a submit the form could not know would fail, and a `CHECK` nothing above the database could see — both surfacing as "try again".
-  product's visual identity (`enhancement`, `blocked`, `ux`) — deferred with #26; waits on #26/#27, because the
+  product's visual identity (`blocked`, `ux`) — deferred with #26; waits on #26/#27, because the
   identity has to exist first. Re-run the #23 deliverability matrix afterwards: images and
   links raise the spam score against a young sending domain.
 
