@@ -117,7 +117,11 @@ jobs:
           # container serves fine with an unwritable .next — it just
           # re-renders every request and logs EACCES forever, which is
           # invisible to any check that only looks at status codes.
-          curl --silent --fail-with-body --output /dev/null http://localhost:3000/robots.txt
+          # Status deliberately ignored: this app has no robots route (A7
+          # sends the header instead), so it 404s — and that 404 is exactly
+          # what makes Next attempt the cache write being tested. What
+          # matters is the log line, not the code.
+          curl --silent --output /dev/null http://localhost:3000/robots.txt || true
           sleep 2
           if docker logs smoke 2>&1 | grep -qiE 'EACCES|permission denied'; then
             echo 'the container cannot write its own cache:'
