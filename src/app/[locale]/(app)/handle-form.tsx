@@ -389,12 +389,21 @@ export function HandleForm({
       {/* Forward-looking, and only where a change is what is happening: the
           first assignment does not start the clock, so onboarding has
           nothing to warn about. Told BEFORE the change, not after it — the
-          note above only appears once the limit is already spent. */}
-      {mode !== "onboarding" && !cooldownUntil && !saved && (
-        <p className="text-sm text-gray-600">
-          {t("cooldownAhead", { days: HANDLE_CHANGE_COOLDOWN_DAYS })}
-        </p>
-      )}
+          note above only appears once the limit is already spent.
+
+          Only once a DIFFERENT address is actually typed. Shown on arrival,
+          beside a submit button that is greyed out because the field still
+          holds the current address, it read as "you are blocked for 30
+          days" — which is the opposite of what it says. */}
+      {mode !== "onboarding" &&
+        !cooldownUntil &&
+        !saved &&
+        normalized !== "" &&
+        normalized !== currentHandle && (
+          <p className="text-sm text-gray-600">
+            {t("cooldownAhead", { days: HANDLE_CHANGE_COOLDOWN_DAYS })}
+          </p>
+        )}
       {saved && (
         <p className="text-sm text-green-700" role="status">
           {t("saved", { address: saved.address })}
