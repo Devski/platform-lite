@@ -12,8 +12,11 @@ Requirements come from [SPEC.md](../SPEC.md). Plan created on 30.08.2026, approv
   always in English (SPEC.md §5). Chat communication stays in Polish.
 - Milestone = phase; checkpoint criteria live in the milestone description and below.
 - Dependencies in the issue body ("Depends on #N"). Issue-number order = recommended work order.
-- Labels: `infra` (console work at OVH/Scaleway, servers and DNS), `decision` (open questions from §12),
-  `blocked` (waiting on the domain decision — #25).
+- Labels: `infra` (console work at OVH/Scaleway, servers and DNS), `ux` (visual polish, deferred
+  until the functionality is done), `compliance` (a legal obligation, not a product choice),
+  `blocked` (waiting on something named in Depends on), `enhancement` (everything else).
+  `decision` is retired — it described §12's open questions, and the ones still open are
+  visual, so `ux` says more.
 - Quality gate for every code task: **`pnpm check` green before every commit** (§7);
   written into the Verification section of every issue.
 - The dev e-mail transport is a logger (#6), so the missing domain (#25) blocks no
@@ -81,7 +84,7 @@ in under 5 minutes (manual walkthrough); e2e green.
 tests; G10 restore procedure drilled; prod ready for manual deployment (each one — with
 approval, §7).
 
-### Open decisions (label `decision`, §12)
+### Open decisions (§12)
 
 - ~~[#25](https://github.com/3dbdg/platform-lite/issues/25) Decision: product name and domain~~ — **resolved 05.09.2026**: `architektow3d.pl`, production on the apex, dev on `dev.`, previews on `*.dev.`. Unblocked #22, #24 and #31.
 - [#26](https://github.com/3dbdg/platform-lite/issues/26) Decision: landing page design (photo, source, license) (`ux`) — the placeholder in #19 does not wait for it. **Deferred 05.09.2026**: visual polish comes after the functionality. The licence half is not cosmetic — it must permit commercial use.
