@@ -21,3 +21,12 @@ FROM users u
 WHERE u.id = p.user_id
   AND p.handle IS NOT NULL
   AND p.display_name = split_part(u.email, '@', 1);
+
+-- And any row that is already blank, for the same reason and before the next
+-- migration adds the CHECK that forbids it: an empty name would fail that
+-- migration on a database that has one, turning a data problem into a
+-- deployment that will not start.
+UPDATE profiles
+SET display_name = handle
+WHERE handle IS NOT NULL
+  AND length(btrim(display_name)) = 0;

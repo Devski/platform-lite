@@ -183,6 +183,14 @@ describe("generated migration SQL (G6 — migrations are the source of truth)", 
     );
   });
 
+  it("a display name can never be blank (#36)", () => {
+    // NOT NULL does not stop the empty string, and the public page renders
+    // this column. Registration now sends an empty name deliberately, so
+    // the one thing that must not happen is that emptiness reaching a
+    // profile row and a shared link as a nameless card.
+    expect(sql).toContain('length(btrim("profiles"."display_name")) > 0');
+  });
+
   it("emails are guarded unique case-insensitively at the database", () => {
     expect(sql).toContain(
       'CREATE UNIQUE INDEX "users_email_lower_unique" ON "users" USING btree (lower("email"))',
