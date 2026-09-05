@@ -29,6 +29,14 @@ company-page structure — no cover photo, tabs or "About us" section).
 **MVP success:** a new user, with no assistance, goes from landing on the homepage to a
 working public link with their name and photo in under 5 minutes.
 
+**Experience is a foundation, not a finish.** "Without assistance" is the whole
+criterion: a product nobody can use unaided is a product nobody uses. The same standard
+covers moving a button, enlarging a photo, refusing what the database would refuse
+anyway, and writing an error somebody can act on — they differ in urgency, never in
+kind. The test is that the person is never lost and never has to guess. Work labelled
+`ux` may be sequenced late; it is not optional, and "cosmetic" is not a reason to drop
+it (Dawid, 06.09.2026).
+
 ### Acceptance criteria
 
 | #   | Criterion                                                                                                                                                                                                                                                        |
