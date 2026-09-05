@@ -98,6 +98,7 @@ they are not rediscovered later.
   bucket objects were left unfindable. With real users this is a legal obligation, not
   tidiness. Shares its object-removal path with sweeping preview prefixes (#31).
 - [#35](https://github.com/3dbdg/platform-lite/issues/35) Transactional e-mail in the
+- [#39](https://github.com/3dbdg/platform-lite/issues/39) Make the UI airtight against what the backend and the database will accept (`enhancement`) — opened 05.09.2026: a rule can live in the form, the API schema and a database constraint, and nothing keeps the three in agreement. Two instances on one screen in #36: a submit the form could not know would fail, and a `CHECK` nothing above the database could see — both surfacing as "try again".
   product's visual identity (`enhancement`, `blocked`, `ux`) — deferred with #26; waits on #26/#27, because the
   identity has to exist first. Re-run the #23 deliverability matrix afterwards: images and
   links raise the spam score against a young sending domain.
