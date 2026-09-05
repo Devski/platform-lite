@@ -60,6 +60,16 @@ export const users = pgTable(
   "users",
   {
     id: uuid("id").defaultRandom().primaryKey(),
+    // NOT the display name and NOT the handle — three fields, two of them
+    // called "name", and the confusion has already cost a debugging session.
+    // Better Auth requires this column on sign-up; nothing in this product
+    // reads it and nobody sees it. Since #36 it is written EMPTY on purpose:
+    // it used to hold the e-mail local part, which then leaked into
+    // profiles.display_name and into the proposed handle.
+    //
+    //   profiles.handle        the public address, in the URL
+    //   profiles.display_name  the name shown on the profile and in links
+    //   users.name             this. A library requirement, kept blank.
     name: text("name").notNull(),
     email: text("email").notNull().unique(),
     emailVerified: boolean("email_verified").notNull().default(false),

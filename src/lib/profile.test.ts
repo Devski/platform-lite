@@ -106,6 +106,27 @@ describe("updateDisplayName (A4)", () => {
 });
 
 describe("setAvatar + getProfile (A4, G2)", () => {
+  it("attaches a photo to an account whose users.name is empty (#36)", async () => {
+    // The exact sequence a real user takes now: finish onboarding (which sets
+    // the display name), then upload a photo. Registration leaves users.name
+    // empty since #36, and this upsert spelled it into the INSERT values —
+    // PostgreSQL checks constraints on the tuple being inserted BEFORE ON
+    // CONFLICT turns it into an update, so the not-blank CHECK fired on an
+    // update that never touched the name. Every photo upload failed with
+    // "something went wrong". Found by hand on dev, not here, because every
+    // fixture account in this file still carries a name.
+    await testDb.db.update(users).set({ name: "" }).where(eq(users.id, userId));
+    await updateDisplayName({ db: testDb.db, userId }, "Pracownia Żółć");
+    const d = makeDeps();
+    const uploaded = await uploadAvatar(d, 1);
+
+    await expect(setAvatar(d.deps, uploaded.original.fileId)).resolves
+      .toBeUndefined();
+    const view = await getProfile(d.deps);
+    expect(view.displayName).toBe("Pracownia Żółć");
+    expect(view.avatar?.fileId).toBe(uploaded.original.fileId);
+  });
+
   it("wires the confirmed upload into the profile and resolves the variant URLs", async () => {
     const d = makeDeps();
     const uploaded = await uploadAvatar(d, 1);
