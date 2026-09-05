@@ -212,7 +212,10 @@ export function isEmailConfigured(): boolean {
 // Note this is an allowlist of harnesses, not a list of "real" environments:
 // a typo in APP_ENV therefore fails towards sending rather than towards
 // silently logging tokens.
-const HARNESS_ENVIRONMENTS = new Set(["local", "ci", "test"]);
+// `preview` is here for a second reason (#31): a PR preview is reachable by
+// anyone holding the link, and would otherwise mail real verification messages
+// to any address typed into it — from our domain, against our quota.
+const HARNESS_ENVIRONMENTS = new Set(["local", "ci", "test", "preview"]);
 
 function isHarnessEnvironment(): boolean {
   return HARNESS_ENVIRONMENTS.has(process.env.APP_ENV?.trim() ?? "");

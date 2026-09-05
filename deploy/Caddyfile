@@ -1,6 +1,11 @@
 # Caddy terminates TLS and is the only thing the world can reach. It obtains
 # and renews certificates itself; nothing here needs a certificate file.
-{$SITE_ADDRESS} {
+# One definition of how a site is served, used by dev and by every PR preview
+# (#31). The argument is the container name to proxy to. Duplicating this per
+# preview would let the CSP drift apart between environments, and a CSP that
+# is right on dev and wrong on a preview is exactly the failure that cost a
+# day on 05.09.2026.
+(site) {
 	encode zstd gzip
 
 	header {
@@ -36,7 +41,7 @@
 	# uploaded, or the reverse. Found the hard way on 05.09.2026, from a phone.
 	header Content-Security-Policy "default-src 'self'; img-src 'self' data: {$S3_ORIGIN}; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' {$S3_ORIGIN} {$S3_UPLOAD_ORIGIN}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
 
-	reverse_proxy app:3000 {
+	reverse_proxy {args[0]}:3000 {
 		# OVERWRITE, never append. Caddy's default appends the peer address to
 		# whatever the client sent, so an attacker could prepend their own
 		# value and the application would read that as the client IP —
@@ -46,3 +51,15 @@
 		header_up X-Real-IP {remote_host}
 	}
 }
+
+{$SITE_ADDRESS} {
+	import site app
+}
+
+# PR previews (#31). CI writes one file per open pull request into this
+# directory and reloads Caddy; closing the PR deletes the file. A concrete
+# hostname per preview, NOT a wildcard site: a wildcard certificate would
+# need the DNS-01 challenge and therefore a Caddy built with the provider's
+# DNS plugin, while a named host is issued over HTTP-01 by the binary we
+# already run. An empty directory is fine — the glob simply matches nothing.
+import /etc/caddy/previews/*.caddy

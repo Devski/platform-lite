@@ -264,6 +264,46 @@ running version is legible on the machine itself.
 runnable by hand on purpose: a deployment nobody can execute without CI is a
 deployment nobody can rescue.
 
+## Pull request previews
+
+Opening a pull request starts a copy of that branch on the same instance, at
+`pr-<n>.dev.architektow3d.pl`. Closing or merging it removes the copy. Both
+happen in CI; the scripts live on the instance so either can be done by hand.
+
+```bash
+PR=7 APP_IMAGE=ghcr.io/3dbdg/platform-lite:<sha> \
+  GH_TOKEN=<token> GH_ACTOR=<user> bash /opt/platform-lite/preview-up.sh
+PR=7 bash /opt/platform-lite/preview-down.sh
+```
+
+**Two at a time, and that is a real ceiling.** The instance has under 2 GB of
+memory and already runs dev, PostgreSQL and the proxy. Each preview is another
+Node process, capped at 512 MB. A third would push the box into swap and take
+*dev* down with it — the shared database is on this machine — so `preview-up.sh`
+refuses at the boundary rather than letting the kernel decide which container
+dies. Raising the ceiling means a larger instance, which is a cost decision.
+
+A preview shares the dev database and writes to its own `pr-<n>/` key prefix in
+the bucket (SPEC §4). It runs with `APP_ENV=preview`, which does two things:
+it keeps `X-Robots-Tag: noindex` on (A7), and it stops the application sending
+real e-mail. That second one matters more than it looks — a preview is
+reachable by anyone holding the link, and would otherwise mail verification
+messages to any address typed into it, from our domain and against our quota.
+
+Each preview is a **named** site in the proxy, not a wildcard one: a wildcard
+certificate would need the DNS-01 challenge and a Caddy built with the DNS
+provider's plugin, while a named host is issued over HTTP-01 by the binary
+already running. The wildcard `A` record still has to exist so the name
+resolves — `*.dev` pointing at the instance.
+
+Previews reuse one site definition with dev (the `(site)` snippet in the
+Caddyfile), so the security headers and the CSP cannot drift between the
+environment a change is reviewed in and the one it lands in. CI greps for that.
+
+Objects under `pr-<n>/` are deliberately left in the bucket when a preview is
+torn down: removing them needs the S3 credentials, which the teardown script
+has no reason to hold. They cost fractions of a cent.
+
 ## Production
 
 Not this document yet — #24. It differs in three ways: the deployment is
