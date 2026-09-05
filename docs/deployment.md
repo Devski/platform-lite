@@ -51,11 +51,38 @@ Have to hand: nothing. Every value is read from your local `.env`.
 ### Step 1 — Ask OVH to raise the security-group quota
 
 Do this first because it is a support ticket and the answer is not immediate.
-Nothing else waits for it; only step 6 has a note attached.
+Nothing else waits for it; only step 5 has a note attached.
 
-OVH Control Panel → Public Cloud → **Quota & Regions** → _Increase your
-quota!_. Ask for security groups (the documented default is 100; this project
-has 0). Justification: one dev and one production instance, SSH and web ports.
+**The self-service page does not cover this.** Public Cloud → **Quota &
+Regions** lists compute quotas only — instances, vCPU, RAM — and its _Increase
+your quota!_ button cannot raise a network quota. Use **Contact Support** on
+that same page instead (corrected 05.09.2026, after the documented path turned
+out not to exist for this resource).
+
+What makes the request unarguable is that the project is over its own limit
+from birth, which no customer action can produce. Three independent readings,
+all worth pasting in:
+
+| Where                               | What it says                                                             |
+| ----------------------------------- | ------------------------------------------------------------------------ |
+| `openstack quota show`              | `security_groups: 0`, against a documented default of 100                |
+| Horizon → Project / Overview        | `Security Groups: Used 1 of 0`                                           |
+| Horizon → Network / Security Groups | the _Create Security Group_ button disabled, labelled `(Quota exceeded)` |
+
+The one group in use is `default`, which OpenStack creates itself when the
+project is made. Ask for the documented defaults: `security_groups = 100`,
+`security_group_rules = 1000`.
+
+Horizon (`horizon.cloud.ovh.net`) is the standard OpenStack dashboard, hosted
+by OVHcloud alongside their own panel. It talks to the same API as the
+`openstack` command, which is why it shows quotas OVH's panel does not — and
+why it is the quickest place to check whether the request has landed.
+
+> **Do not tighten the `default` group instead.** The rule quota is 0 as well
+> (`Used 20 of 0`), so rules can be deleted but not created. OVH's default
+> group admits all inbound traffic; deleting its ingress rules to harden it
+> would cut SSH off with no way to add it back, and the instance would have to
+> be rebuilt. Until the quota is raised, `ufw` on the host is the filter.
 
 **Done when:** the ticket is submitted. Carry on with step 2 immediately.
 
