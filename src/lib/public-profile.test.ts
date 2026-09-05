@@ -230,8 +230,10 @@ describe("profileMetadata", () => {
     });
     expect(meta.openGraph).toMatchObject({
       type: "profile",
-      title: "Studio X · platform-lite",
-      description: "Profil Studio X na platform-lite",
+      // The CARD leads with the brand; the page title below still leads
+      // with the person (decision of 05.09.2026).
+      title: "platform-lite",
+      description: "Studio X",
       url: "https://app.example/studio-x",
       locale: "pl_PL",
       images: [
@@ -261,11 +263,34 @@ describe("profileMetadata", () => {
     );
   });
 
-  it("falls back to the 1200×630 placeholder as the OG image without an avatar", () => {
+  it("falls back to the square placeholder as the OG image without an avatar", () => {
     const meta = metadataFor(withoutAvatar, "pl");
     expect(meta.openGraph).toMatchObject({
-      images: [{ url: PLACEHOLDER, width: 1200, height: 630 }],
+      images: [{ url: PLACEHOLDER, width: 512, height: 512 }],
     });
+  });
+
+  it("shares a square card whether or not there is a photo (#27)", () => {
+    // A 1200×630 card is legible on its own and unreadable in the small tile
+    // a chat client actually draws — the monogram shrank to a smudge next to
+    // a photo profile rendered large. Seen on WhatsApp 05.09.2026. Both cases
+    // are square now, so both are drawn the same way.
+    const withPhoto = metadataFor(withAvatar, "pl").openGraph?.images;
+    const without = metadataFor(withoutAvatar, "pl").openGraph?.images;
+    expect(withPhoto).toMatchObject([{ width: 512, height: 512 }]);
+    expect(without).toMatchObject([{ width: 512, height: 512 }]);
+  });
+
+  it("captions a shared link with the brand, then the profile (#27)", () => {
+    // The card leads with the product and names the profile underneath
+    // (decision of 05.09.2026). The PAGE title keeps the other order — a
+    // browser tab and a search result want the person first.
+    const meta = metadataFor(withAvatar, "pl");
+    expect(meta.openGraph).toMatchObject({
+      title: BRAND,
+      description: "Studio X",
+    });
+    expect(meta.title).toBe("Studio X · platform-lite");
   });
 
   it("describes the placeholder card as the PERSON, not the product (#27)", () => {
@@ -274,14 +299,5 @@ describe("profileMetadata", () => {
     const meta = metadataFor(withoutAvatar, "pl");
     const [image] = meta.openGraph?.images as { alt: string }[];
     expect(image.alt).toBe(`Zdjęcie profilowe ${withoutAvatar.displayName}`);
-  });
-
-  it("asks for the wide card only when the image is the wide one (#27)", () => {
-    // A 512 px square cropped into a large card loses its sides; a 1200×630
-    // monogram squeezed into the small one loses the name.
-    expect(metadataFor(withAvatar, "pl").twitter).toEqual({ card: "summary" });
-    expect(metadataFor(withoutAvatar, "pl").twitter).toEqual({
-      card: "summary_large_image",
-    });
   });
 });

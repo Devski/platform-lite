@@ -143,16 +143,19 @@ export function profileMetadata(input: ProfileMetadataInput): Metadata {
     openGraph: {
       type: "profile",
       username: profile.handle,
-      title,
-      description,
+      // The card leads with the product and names the profile underneath
+      // (decision of 05.09.2026), which is the opposite of the page title:
+      // a browser tab and a search result want the person first, a shared
+      // link wants to say what it is a link TO.
+      title: brand,
+      description: profile.displayName,
       url: canonical,
       siteName: brand,
       locale: OG_LOCALES[locale],
       images: [image],
     },
-    // A square avatar belongs in the small card; the 1200×630 monogram is
-    // built for the wide one, and cropping it to a square would cut the name
-    // off the side.
-    twitter: { card: profile.avatar ? "summary" : "summary_large_image" },
+    // Both images are square, so both take the small card — the one a chat
+    // client draws large when the image is square enough to fill it.
+    twitter: { card: "summary" },
   };
 }

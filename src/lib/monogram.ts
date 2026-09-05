@@ -44,5 +44,11 @@ export function monogramImagePath(handle: string): string {
   return `/api/og/${encodeURIComponent(handle)}`;
 }
 
-/** What the Open Graph card measures. Chat clients crop anything else. */
-export const MONOGRAM_CARD = { width: 1200, height: 630 } as const;
+/**
+ * Square, and the same 512 px the avatar variant is (#12) — NOT the 1200×630
+ * the Open Graph guides recommend. A wide card is legible on its own and
+ * illegible in the small tile a chat client actually draws: next to a photo
+ * profile rendered large, the monogram shrank to a smudge. Seen on WhatsApp
+ * 05.09.2026. Matching the photo's shape is what makes both render the same.
+ */
+export const MONOGRAM_CARD = { width: 512, height: 512 } as const;
