@@ -315,7 +315,7 @@ export function HandleForm({
 
   const note = feedback();
   const problem = note?.tone === "problem";
-  const describedBy = ["handle-prefix", "handle-hint"]
+  const describedBy = ["handle-hint"]
     .concat(note ? ["handle-feedback"] : [])
     .join(" ");
 
@@ -362,13 +362,12 @@ export function HandleForm({
       <label htmlFor="handle" className="text-sm font-medium text-gray-700">
         {t("label")}
       </label>
+      {/* The prefix used to sit INSIDE the field, where it ate the width the
+          address itself needed: on a phone the visitor could not see what
+          they were typing (seen 05.09.2026). The field is the address alone
+          now, full width, and the finished link is shown below it — where it
+          can wrap instead of being cut off. */}
       <div className="flex rounded-md border border-gray-300 focus-within:border-blue-600">
-        <span
-          id="handle-prefix"
-          className="flex shrink-0 select-none items-center rounded-l-md border-r border-gray-300 bg-gray-50 px-3 font-mono text-sm text-gray-500"
-        >
-          {`${origin}/`}
-        </span>
         <input
           id="handle"
           name="handle"
@@ -391,9 +390,15 @@ export function HandleForm({
           }}
           aria-invalid={problem ? true : undefined}
           aria-describedby={describedBy}
-          className="min-w-0 flex-1 rounded-r-md bg-white px-3 py-2 font-mono text-sm text-gray-900 focus:outline-none disabled:bg-gray-100 disabled:text-gray-500"
+          className="min-w-0 flex-1 rounded-md bg-white px-3 py-2 font-mono text-sm text-gray-900 focus:outline-none disabled:bg-gray-100 disabled:text-gray-500"
         />
       </div>
+      {normalized !== "" && (
+        <p className="text-sm break-all text-gray-600">
+          <span className="sr-only">{t("addressPreviewLabel")}</span>
+          <span className="font-mono">{`${origin}/${normalized}`}</span>
+        </p>
+      )}
       <p id="handle-hint" className="text-sm text-gray-500">
         {t("hint", { min: HANDLE_MIN, max: HANDLE_MAX })}
       </p>
@@ -409,6 +414,15 @@ export function HandleForm({
       {cooldownUntil && (
         <p className="text-sm text-gray-600" role="status">
           {t("cooldownNote", { date: formatDate(cooldownUntil) })}
+        </p>
+      )}
+      {/* Forward-looking, and only where a change is what is happening: the
+          first assignment does not start the clock, so onboarding has
+          nothing to warn about. Told BEFORE the change, not after it — the
+          note above only appears once the limit is already spent. */}
+      {mode !== "onboarding" && !cooldownUntil && !saved && (
+        <p className="text-sm text-gray-600">
+          {t("cooldownAhead", { days: HANDLE_CHANGE_COOLDOWN_DAYS })}
         </p>
       )}
       {saved && (

@@ -101,7 +101,9 @@
       "rateLimited": "Zbyt wiele prób. Odczekaj chwilę i spróbuj ponownie.",
       "cooldown": "Adres można zmieniać raz na {days} dni.",
       "generic": "Zapis nie powiódł się. Spróbuj ponownie."
-    }
+    },
+    "addressPreviewLabel": "Twój adres profilu:",
+    "cooldownAhead": "Pierwsze ustawienie było bez ograniczeń. Jeśli zmienisz adres teraz, kolejna zmiana będzie możliwa dopiero za {days} dni, a stary adres będzie przekierowywał na nowy, dopóki nie zajmie go ktoś inny."
   },
   "Settings": {
     "account": {
