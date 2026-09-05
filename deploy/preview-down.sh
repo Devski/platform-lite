@@ -39,4 +39,4 @@ fi
 # the account-deletion work, which needs the same object-removal path.
 
 echo "remaining previews:"
-docker ps --filter 'name=^pr-[0-9]\+$' --format '  {{.Names}}  {{.Status}}' || true
+docker ps --filter 'name=^pr-[0-9]+$' --format '  {{.Names}}  {{.Status}}' || true

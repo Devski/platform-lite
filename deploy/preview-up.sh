@@ -32,10 +32,18 @@ mkdir -p "$PREVIEWS"
 # here too. Refuse loudly at the boundary instead of discovering it as an
 # OOM kill in an unrelated container.
 MAX_PREVIEWS=2
-running=$(docker ps --filter 'name=^pr-[0-9]\+$' --format '{{.Names}}' | grep -vx "$NAME" | wc -l)
+# Counted in a loop, not through a pipeline. `set -o pipefail` turns a grep
+# that matches nothing into a failed pipeline, and "no previews running" is
+# the NORMAL case — so the pipeline version killed the script exactly when it
+# should have proceeded. Docker's name filter is a Go regexp, where `\+` is an
+# escaped literal plus and would never match a container called pr-33.
+running=0
+for container in $(docker ps --filter 'name=^pr-[0-9]+$' --format '{{.Names}}'); do
+  [ "$container" = "$NAME" ] || running=$((running + 1))
+done
 if [ "$running" -ge "$MAX_PREVIEWS" ]; then
   echo "STOP: $running previews already running (cap $MAX_PREVIEWS):" >&2
-  docker ps --filter 'name=^pr-[0-9]\+$' --format '  {{.Names}}  {{.Status}}' >&2
+  docker ps --filter 'name=^pr-[0-9]+$' --format '  {{.Names}}  {{.Status}}' >&2
   echo "Close a pull request, or stop one with: bash preview-down.sh (PR=<n>)" >&2
   exit 1
 fi
@@ -43,7 +51,9 @@ fi
 # Every setting the preview shares with dev — the database, the signing key,
 # the bucket credentials — comes from the instance's own .env. Only what must
 # differ is overridden below.
-SITE_ADDRESS=$(grep -E '^SITE_ADDRESS=' .env | tail -1 | cut -d= -f2-)
+# `|| true` for the same reason: a missing key makes grep fail the pipeline,
+# and the explicit check below reports that far better than `set -e` does.
+SITE_ADDRESS=$(grep -E '^SITE_ADDRESS=' .env | tail -1 | cut -d= -f2- || true)
 : "${SITE_ADDRESS:?the instance .env has no SITE_ADDRESS}"
 HOSTNAME_="$NAME.$SITE_ADDRESS"
 

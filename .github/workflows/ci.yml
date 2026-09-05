@@ -468,6 +468,14 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           APP_IMAGE: ghcr.io/${{ github.repository }}:${{ github.sha }}
         run: |
-          ssh -i ~/.ssh/id_deploy "$HOST"             "PR='$PR' APP_IMAGE='$APP_IMAGE' GH_TOKEN='$GH_TOKEN' GH_ACTOR='$GH_ACTOR'              bash /opt/platform-lite/preview-up.sh" | tee preview.log
-          echo "### Preview" >> "$GITHUB_STEP_SUMMARY"
-          tail -1 preview.log >> "$GITHUB_STEP_SUMMARY"
+          # NOT `ssh ... | tee`: a pipeline reports the exit status of its LAST
+          # command, and tee always succeeds. This job's first run passed green
+          # while the remote script had failed and started nothing at all.
+          if ssh -i ~/.ssh/id_deploy "$HOST" "PR='$PR' APP_IMAGE='$APP_IMAGE' GH_TOKEN='$GH_TOKEN' GH_ACTOR='$GH_ACTOR' bash /opt/platform-lite/preview-up.sh" > preview.log 2>&1; then
+            cat preview.log
+            echo "### Preview" >> "$GITHUB_STEP_SUMMARY"
+            tail -1 preview.log >> "$GITHUB_STEP_SUMMARY"
+          else
+            cat preview.log
+            exit 1
+          fi
