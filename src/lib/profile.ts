@@ -116,23 +116,35 @@ export async function setAvatar(
     if (!candidate) throw new ProfileError("invalid_avatar");
 
     const [profile] = await tx
-      .select({ avatarFileId: profiles.avatarFileId })
+      .select({
+        avatarFileId: profiles.avatarFileId,
+        displayName: profiles.displayName,
+      })
       .from(profiles)
       .where(eq(profiles.userId, userId));
     const previous = profile?.avatarFileId ?? null;
     if (previous === fileId) return null;
 
     // Upsert, not insert: the first profile write can race a concurrent
-    // updateDisplayName upsert, which does not take the user lock. The
-    // display identity defaults to users.name (seeded from the e-mail local
-    // part at sign-up, #7) until the user sets a real display name.
+    // updateDisplayName upsert, which does not take the user lock.
+    //
+    // The name spelled into the INSERT matters even when the row exists and
+    // only the avatar is changing: PostgreSQL evaluates constraints on the
+    // tuple being inserted BEFORE ON CONFLICT turns it into an update. Since
+    // #36 registration leaves users.name empty, using it here failed the
+    // not-blank CHECK on every photo upload — so the existing row is asked
+    // first. Same trap as setHandle, found the same way: by hand, on dev.
     const [user] = await tx
       .select({ name: users.name })
       .from(users)
       .where(eq(users.id, userId));
     await tx
       .insert(profiles)
-      .values({ userId, displayName: user.name, avatarFileId: fileId })
+      .values({
+        userId,
+        displayName: profile?.displayName ?? user.name,
+        avatarFileId: fileId,
+      })
       .onConflictDoUpdate({
         target: profiles.userId,
         set: { avatarFileId: fileId },
