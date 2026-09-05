@@ -26,11 +26,22 @@ NAME="pr-$PR"
 PREVIEWS=/opt/platform-lite/previews
 mkdir -p "$PREVIEWS"
 
-# The instance has under 2 GB of memory and already runs dev, PostgreSQL and
-# the proxy. Each preview is another Node process; two fit, three would push
-# the box into swap and take DEV down with them — the shared database lives
-# here too. Refuse loudly at the boundary instead of discovering it as an
-# OOM kill in an unrelated container.
+# Measured on the instance 05.09.2026: 1 vCPU, 1.9 GB, and NO SWAP. Idle, the
+# app holds 66 MB, PostgreSQL 58 MB, the proxy 15 MB — so steady-state memory
+# is not the binding constraint. Two things are.
+#
+# Without swap, running out of memory does not slow the machine down, it
+# invokes the OOM killer, which picks a victim by size — and the biggest
+# process here is as likely to be PostgreSQL as the preview that caused it.
+# That is dev's database, shared by every preview.
+#
+# And there is ONE core. Avatar resizing (sharp, #12) is the CPU-heavy path in
+# this application, and it spikes memory with it; two uploads at once already
+# contend. A preview is idle until someone opens it, so the cap is about the
+# worst case, not the average.
+#
+# Hence: refuse at the boundary, with a number, rather than let the kernel
+# choose which container dies.
 MAX_PREVIEWS=2
 # Counted in a loop, not through a pipeline. `set -o pipefail` turns a grep
 # that matches nothing into a failed pipeline, and "no previews running" is

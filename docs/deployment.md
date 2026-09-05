@@ -276,12 +276,24 @@ PR=7 APP_IMAGE=ghcr.io/3dbdg/platform-lite:<sha> \
 PR=7 bash /opt/platform-lite/preview-down.sh
 ```
 
-**Two at a time, and that is a real ceiling.** The instance has under 2 GB of
-memory and already runs dev, PostgreSQL and the proxy. Each preview is another
-Node process, capped at 512 MB. A third would push the box into swap and take
-*dev* down with it — the shared database is on this machine — so `preview-up.sh`
-refuses at the boundary rather than letting the kernel decide which container
-dies. Raising the ceiling means a larger instance, which is a cost decision.
+**Two at a time, and that is a real ceiling.** Measured on the instance
+(05.09.2026): **1 vCPU, 1.9 GB of memory, no swap**. Idle, the app holds 66 MB,
+PostgreSQL 58 MB and the proxy 15 MB, so steady-state memory is not what limits
+this. Two other things are.
+
+With no swap, exhausting memory does not make the machine slow — it invokes the
+OOM killer, which picks its victim by size. The biggest process here is as
+likely to be PostgreSQL as the preview that caused the pressure, and that is
+*dev's* database, shared by every preview.
+
+And there is one core. Avatar resizing is the CPU-heavy path in this
+application and spikes memory with it; two uploads at once already contend for
+the same core. A preview sits idle until somebody opens it, so the ceiling is
+set for the worst case rather than the average — each preview is additionally
+capped at 512 MB so one cannot take the machine on its own.
+
+Raising the ceiling means a larger instance, which is a cost decision, and the
+next thing to buy is a second core rather than more memory.
 
 A preview shares the dev database and writes to its own `pr-<n>/` key prefix in
 the bucket (SPEC §4). It runs with `APP_ENV=preview`, which does two things:
