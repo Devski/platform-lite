@@ -52,9 +52,13 @@ export function RegisterForm() {
       const { error } = await authClient.signUp.email({
         email: parsed.data.email,
         password: parsed.data.password,
-        // Better Auth requires a name; the real display identity lives in
-        // profiles (#14). Seed it from the address's local part.
-        name: parsed.data.email.split("@")[0],
+        // Better Auth requires the field, not a value (`z.string()`, no
+        // nonempty). Deliberately EMPTY: it used to hold the e-mail local
+        // part, which then became the display name and the proposed
+        // address, publishing the account's own address on a public page
+        // and in every shared link (#36). The real name is asked for in
+        // onboarding, where the address is derived from it.
+        name: "",
         callbackURL,
       });
       if (error) {

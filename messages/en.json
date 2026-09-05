@@ -81,6 +81,8 @@
     "intro": "This is the public address of your profile. We prefilled a proposal based on your account — change it if you like."
   },
   "HandleForm": {
+    "nameLabel": "Your name",
+    "nameHint": "How your profile is signed. The address below is proposed from it — you can change it.",
     "label": "Profile address",
     "hint": "{min} to {max} characters: lowercase letters, digits and hyphens.",
     "checking": "Checking availability…",

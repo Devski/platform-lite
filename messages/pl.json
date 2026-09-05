@@ -81,6 +81,8 @@
     "intro": "To publiczny adres Twojego profilu. Zaproponowaliśmy adres na podstawie Twojego konta — możesz go zmienić."
   },
   "HandleForm": {
+    "nameLabel": "Twoja nazwa",
+    "nameHint": "Tak podpiszemy Twój profil. Adres poniżej podpowiadamy z niej — możesz go zmienić.",
     "label": "Adres profilu",
     "hint": "Od {min} do {max} znaków: małe litery, cyfry i myślniki.",
     "checking": "Sprawdzanie dostępności…",

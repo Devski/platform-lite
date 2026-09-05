@@ -133,6 +133,17 @@ describe("setHandle (A5, A6)", () => {
     });
   });
 
+  it("stores the name given with the claim, in place of users.name (#36)", async () => {
+    // Onboarding asks for the name and derives the address from it. Before
+    // this, users.name was the e-mail local part invented at registration,
+    // and it reached the public page and every shared link.
+    await setHandle(testDb.db, userId, "pracownia-zolc", T0, "Pracownia Żółć");
+    expect(await profileRow()).toMatchObject({
+      handle: "pracownia-zolc",
+      displayName: "Pracownia Żółć",
+    });
+  });
+
   it("keeps the display name when the profile row already exists", async () => {
     await updateDisplayName({ db: testDb.db, userId }, "Pracownia Żółć");
     await setHandle(testDb.db, userId, "zolc", T0);

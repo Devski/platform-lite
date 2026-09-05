@@ -185,6 +185,13 @@ export async function setHandle(
   userId: string,
   input: string,
   now: Date = new Date(),
+  /**
+   * The display name to seed a NEW profile row with (#36). Onboarding
+   * collects it and derives the address from it, so it arrives together
+   * with the claim. Omitted for a later change, where the row exists and
+   * its name is the owner's to edit elsewhere.
+   */
+  displayName?: string,
 ): Promise<{ handle: string; previousHandle: string | null }> {
   const handle = normalizeHandle(input);
   const problem = checkHandle(handle);
@@ -225,7 +232,10 @@ export async function setHandle(
       // updateDisplayName upsert, which does not take the user lock.
       await tx
         .insert(profiles)
-        .values({ userId, displayName: user.name, handle })
+        // users.name is the fallback, not the source: registration no
+        // longer invents one from the e-mail address (#36), so on a fresh
+        // account it is empty and the name arrives with the claim.
+        .values({ userId, displayName: displayName ?? user.name, handle })
         .onConflictDoUpdate({
           target: profiles.userId,
           set: changing ? { handle, handleChangedAt: now } : { handle },

@@ -8,9 +8,11 @@ import {
   HANDLE_CHANGE_COOLDOWN_DAYS,
   HANDLE_MAX,
   HANDLE_MIN,
+  handleBaseFrom,
   handleSchema,
   normalizeHandle,
 } from "@/lib/handle";
+import { DISPLAY_NAME_MAX } from "@/lib/profile-schemas";
 
 // The #15 handle picker, shared by the onboarding step (the first
 // assignment) and the settings section (a change under the A6 cooldown).
@@ -135,6 +137,13 @@ export function HandleForm({
   const format = useFormatter();
   const router = useRouter();
   const [value, setValue] = useState(initialValue);
+  // #36: onboarding asks for the name and derives the address from it.
+  // `addressTouched` stops the derivation the moment the visitor edits the
+  // address themselves — after that the two fields are independent, so a
+  // deliberate address is never overwritten by a later typo in the name.
+  const asksForName = mode === "onboarding";
+  const [displayName, setDisplayName] = useState("");
+  const [addressTouched, setAddressTouched] = useState(false);
   const [remote, setRemote] = useState<RemoteCheck | null>(null);
   const [submitError, setSubmitError] = useState<SubmitError | null>(null);
   // What the last successful submit stored, and whether it replaced an
@@ -276,7 +285,9 @@ export function HandleForm({
     try {
       const response = await postJson<SetHandleResponse>(
         "/api/profile/handle",
-        { handle: value },
+        // The name rides with the claim only where it was asked for: a
+        // later change of address must not clear a name edited since.
+        asksForName ? { handle: value, displayName } : { handle: value },
       );
       if (!response.ok || !response.data.handle) {
         applyServerError(handle, response.status, response.data);
@@ -314,6 +325,40 @@ export function HandleForm({
       noValidate
       className="mt-4 flex flex-col gap-3"
     >
+      {asksForName && (
+        <div className="mb-4 flex flex-col gap-1">
+          <label
+            htmlFor="display-name"
+            className="text-sm font-medium text-gray-700"
+          >
+            {t("nameLabel")}
+          </label>
+          <input
+            id="display-name"
+            name="displayName"
+            type="text"
+            autoComplete="name"
+            maxLength={DISPLAY_NAME_MAX}
+            required
+            value={displayName}
+            onChange={(event) => {
+              const next = event.target.value;
+              setDisplayName(next);
+              setSubmitError(null);
+              if (!addressTouched) {
+                // The same derivation the server would apply, run here so
+                // the address is visible as it forms.
+                setValue(handleBaseFrom(next) ?? "");
+              }
+            }}
+            aria-describedby="display-name-hint"
+            className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-600 focus:outline-none"
+          />
+          <p id="display-name-hint" className="text-sm text-gray-600">
+            {t("nameHint")}
+          </p>
+        </div>
+      )}
       <label htmlFor="handle" className="text-sm font-medium text-gray-700">
         {t("label")}
       </label>
@@ -340,6 +385,7 @@ export function HandleForm({
             // address that will be claimed; trimming stays server-side, so a
             // space mid-typing is not fought.
             setValue(event.target.value.toLowerCase());
+            setAddressTouched(true);
             setSubmitError(null);
             setSaved(null);
           }}

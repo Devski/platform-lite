@@ -50,6 +50,13 @@
       "when": 1788561597275,
       "tag": "0006_hesitant_gorgon",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788631681220,
+      "tag": "0007_email_out_of_display_names",
+      "breakpoints": true
     }
   ]
 }
