@@ -3,6 +3,7 @@ import type { Locale } from "@/i18n/routing";
 import {
   createMemoryTransport,
   createScalewayTransport,
+  encodeDisplayName,
   isEmailConfigured,
   resetEmailTransport,
   logTransport,
@@ -254,6 +255,42 @@ describe("Scaleway transport (#22)", () => {
         { key: "Reply-To", value: "kontakt@example.test" },
       ],
     });
+  });
+
+  it("shows a display name on both the sender and the reply address", async () => {
+    const bodies: { from: { name?: string }; additional_headers?: unknown }[] =
+      [];
+    vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)));
+      return new Response("", { status: 200 });
+    });
+
+    await createScalewayTransport({
+      ...config,
+      replyTo: "kontakt@example.test",
+      fromName: "Architektow 3d",
+    }).deliver({ to: "a@b.test", subject: "s", body: "b" });
+
+    expect(bodies[0].from).toEqual({
+      email: "kontakt@dev.example.test",
+      name: "Architektow 3d",
+    });
+    expect(bodies[0].additional_headers).toEqual([
+      { key: "Reply-To", value: '"Architektow 3d" <kontakt@example.test>' },
+    ]);
+  });
+
+  it("encodes a display name that a header cannot carry raw", () => {
+    // Plain ASCII: quoted, so a comma cannot split the header into two
+    // addresses and a quote cannot end the string early.
+    expect(encodeDisplayName("Architektow 3d")).toBe('"Architektow 3d"');
+    expect(encodeDisplayName('Kowalski, Jan "JK"')).toBe(
+      '"Kowalski, Jan \\"JK\\""',
+    );
+    // Polish diacritics are not ASCII, and a header is: RFC 2047 or mojibake.
+    expect(encodeDisplayName("Architektów 3D")).toBe(
+      `=?UTF-8?B?${Buffer.from("Architektów 3D", "utf8").toString("base64")}?=`,
+    );
   });
 
   it("refuses a region that is not one", () => {

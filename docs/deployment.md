@@ -133,6 +133,7 @@ script only copies what is there:
 EMAIL_API_KEY=       # Scaleway calls this SCW_SECRET_KEY
 EMAIL_PROJECT_ID=    # Scaleway calls this SCW_DEFAULT_PROJECT_ID
 EMAIL_FROM=          # an address on a domain verified in TEM
+EMAIL_FROM_NAME=     # optional display name, e.g. Architektow 3d
 EMAIL_REGION=        # optional, defaults to fr-par
 EMAIL_REPLY_TO=      # optional; a mailbox someone reads (see below)
 ```

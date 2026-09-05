@@ -85,6 +85,19 @@ export const logTransport: EmailTransport = {
 
 const TEM_TIMEOUT_MS = 10_000;
 
+/**
+ * A display name as an address header may carry it. Exported for its tests.
+ */
+export function encodeDisplayName(name: string): string {
+  // Printable ASCII goes as a quoted string, which needs the two characters
+  // that end it escaped. Anything else — Polish diacritics above all — has
+  // to be an RFC 2047 encoded word, because a header is ASCII by definition.
+  if (/^[ -~]*$/.test(name)) {
+    return `"${name.replace(/(["\\])/g, "\\$1")}"`;
+  }
+  return `=?UTF-8?B?${Buffer.from(name, "utf8").toString("base64")}?=`;
+}
+
 // #22: Scaleway Transactional Email over its HTTP API rather than SMTP.
 // Sending by SMTP from Node needs a mailer library; this needs `fetch`, which
 // the runtime already has — a whole production dependency is a lot to carry
@@ -102,6 +115,12 @@ export function createScalewayTransport(config: {
    * silently. People do reply to these.
    */
   replyTo?: string;
+  /**
+   * Display name shown instead of the bare address, on both the sender and
+   * the reply address. A recognisable name is the difference between "who
+   * is kontakt@dev.…" and a message the reader trusts enough to open.
+   */
+  fromName?: string;
 }): EmailTransport {
   // Interpolated into the URL, so it is checked rather than trusted. There is
   // no exfiltration path (the origin is a literal and this lands in the path),
@@ -111,6 +130,15 @@ export function createScalewayTransport(config: {
     throw new Error(`EMAIL_REGION is not a Scaleway region: ${config.region}`);
   }
   const endpoint = `https://api.scaleway.com/transactional-email/v1alpha1/regions/${config.region}/emails`;
+  // The provider takes the sender's name as a JSON field and encodes it
+  // itself. Reply-To is a raw header, so the name has to be encoded here:
+  // a quoted string for plain ASCII, and RFC 2047 otherwise — without it
+  // "Architektów 3D" would reach the reader as mojibake, or the comma in a
+  // name like "Kowalski, Jan" would split the header into two addresses.
+  const replyToHeader =
+    config.replyTo && config.fromName
+      ? `${encodeDisplayName(config.fromName)} <${config.replyTo}>`
+      : config.replyTo;
   return {
     async deliver(message) {
       const response = await fetch(endpoint, {
@@ -126,7 +154,7 @@ export function createScalewayTransport(config: {
         },
         body: JSON.stringify({
           project_id: config.projectId,
-          from: { email: config.from },
+          from: { email: config.from, ...(config.fromName ? { name: config.fromName } : {}) },
           to: [{ email: message.to }],
           subject: message.subject,
           // Plain text only, deliberately: every template is a short message
@@ -134,10 +162,10 @@ export function createScalewayTransport(config: {
           // translated and reviewed for no gain (A10 is seven transactional
           // messages, not a newsletter).
           text: message.body,
-          ...(config.replyTo
+          ...(replyToHeader
             ? {
                 additional_headers: [
-                  { key: "Reply-To", value: config.replyTo },
+                  { key: "Reply-To", value: replyToHeader },
                 ],
               }
             : {}),
@@ -222,6 +250,7 @@ function resolveTransport(): EmailTransport {
         projectId: requireEnv(EMAIL_VARIABLES.projectId),
         from: requireEnv(EMAIL_VARIABLES.from),
         region: process.env.EMAIL_REGION?.trim() || "fr-par",
+        fromName: process.env.EMAIL_FROM_NAME?.trim() || undefined,
         replyTo: process.env.EMAIL_REPLY_TO?.trim() || undefined,
       });
   return activeTransport;

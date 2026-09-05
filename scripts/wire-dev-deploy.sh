@@ -100,6 +100,7 @@ echo "==> Writing /opt/platform-lite/.env (0600, never echoed here)"
   echo "EMAIL_API_KEY=$(optional EMAIL_API_KEY)"
   echo "EMAIL_PROJECT_ID=$(optional EMAIL_PROJECT_ID)"
   echo "EMAIL_FROM=$(optional EMAIL_FROM)"
+  echo "EMAIL_FROM_NAME=$(optional EMAIL_FROM_NAME)"
   echo "EMAIL_REGION=$(optional EMAIL_REGION)"
   echo "EMAIL_REPLY_TO=$(optional EMAIL_REPLY_TO)"
   if [ -n "$APP_IMAGE_LINE" ]; then echo "$APP_IMAGE_LINE"; fi
