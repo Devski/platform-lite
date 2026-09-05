@@ -113,6 +113,17 @@ jobs:
           # it fails silently — a preview quietly indexed by Google.
           curl --silent --head http://localhost:3000/ | tee /tmp/headers
           grep -qi '^x-robots-tag: noindex' /tmp/headers
+          # A route that makes Next write its prerender cache. The
+          # container serves fine with an unwritable .next — it just
+          # re-renders every request and logs EACCES forever, which is
+          # invisible to any check that only looks at status codes.
+          curl --silent --fail-with-body --output /dev/null http://localhost:3000/robots.txt
+          sleep 2
+          if docker logs smoke 2>&1 | grep -qiE 'EACCES|permission denied'; then
+            echo 'the container cannot write its own cache:'
+            docker logs smoke 2>&1 | grep -iE 'EACCES|permission denied' | head -5
+            exit 1
+          fi
       - name: Container log
         if: always()
         run: docker logs smoke || true

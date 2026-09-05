@@ -40,15 +40,21 @@ ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0
 
 # The node image ships an unprivileged `node` user (uid 1000); nothing here
-# needs root, and the filesystem stays owned by root so the app cannot rewrite
-# its own code.
+# needs root.
 USER node
 
 # standalone carries its own minimal server.js and only the traced files, so
 # there is no node_modules install and no build toolchain in this layer.
 # `public` and `.next/static` are NOT copied by standalone — the reference is
 # explicit about it — and without them every asset 404s.
-COPY --from=builder --chown=root:root /app/.next/standalone ./
+#
+# Ownership is split rather than uniform. The standalone tree belongs to the
+# runtime user because Next writes its prerender cache INSIDE it at runtime
+# (`.next/server/app/<route>.segments`); a root-owned tree looks like sensible
+# hardening and instead produces a stream of EACCES at runtime, with pages
+# re-rendered on every request. Found in the deployed log on 05.09.2026.
+# `static` and `public` are only ever read, so they stay root-owned.
+COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=root:root /app/.next/static ./.next/static
 COPY --from=builder --chown=root:root /app/public ./public
 
