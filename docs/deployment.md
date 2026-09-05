@@ -287,10 +287,15 @@ likely to be PostgreSQL as the preview that caused the pressure, and that is
 *dev's* database, shared by every preview.
 
 And there is one core. Avatar resizing is the CPU-heavy path in this
-application and spikes memory with it; two uploads at once already contend for
-the same core. A preview sits idle until somebody opens it, so the ceiling is
-set for the worst case rather than the average — each preview is additionally
-capped at 512 MB so one cannot take the machine on its own.
+application: measured on this instance, a 2.8 MB photo at 4000×3000 costs about
+**220 ms** of pure computation to turn into both variants. That is a fifth of a
+second during which the single core is doing nothing else, so uploads queue
+behind one another while ordinary page requests — which mostly wait on the
+database rather than compute — interleave freely. It is a real limit but a
+modest one at this scale; it becomes the binding constraint long before memory
+does. A preview sits idle until somebody opens it, so the ceiling is set for the
+worst case rather than the average — each preview is additionally capped at
+512 MB so one cannot take the machine on its own.
 
 Raising the ceiling means a larger instance, which is a cost decision, and the
 next thing to buy is a second core rather than more memory.
