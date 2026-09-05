@@ -159,6 +159,7 @@ jobs:
           APP_IMAGE: ghcr.io/example/app:validate
           SITE_ADDRESS: dev.example.invalid
           S3_ORIGIN: https://bucket.example.invalid
+          S3_UPLOAD_ORIGIN: https://endpoint.example.invalid
         run: |
           : > deploy/.env
           docker compose --file deploy/compose.yaml config --quiet
@@ -167,14 +168,23 @@ jobs:
         env:
           SITE_ADDRESS: dev.example.invalid
           S3_ORIGIN: https://bucket.example.invalid
+          S3_UPLOAD_ORIGIN: https://endpoint.example.invalid
         run: |
-          docker run --rm             --env SITE_ADDRESS --env S3_ORIGIN             --volume "$PWD/deploy:/w" --workdir /w             caddy:2-alpine caddy validate --config Caddyfile
+          docker run --rm             --env SITE_ADDRESS --env S3_ORIGIN --env S3_UPLOAD_ORIGIN             --volume "$PWD/deploy:/w" --workdir /w             caddy:2-alpine caddy validate --config Caddyfile
       # The one line in that file whose absence is silent and expensive: Caddy
       # APPENDS to x-forwarded-for by default, and every rate limit in the app
       # keys on it (#8 review). A config that parses but has lost this line
       # would deploy happily and hand out unlimited password guesses.
       - name: The proxy overwrites x-forwarded-for
         run: grep -q 'header_up X-Forwarded-For {remote_host}' deploy/Caddyfile
+      # The bucket answers on two origins and the browser uses both: images
+      # come from the virtual-host address, while a presigned upload is signed
+      # path-style and goes to the endpoint itself. Naming only one breaks
+      # half the flow silently — photos display but cannot be uploaded, or the
+      # reverse — while every server-side path keeps working. Cost a real
+      # debugging session on 05.09.2026; pinned here so it cannot recur.
+      - name: connect-src names both bucket origins
+        run: grep -q "connect-src 'self' {\$S3_ORIGIN} {\$S3_UPLOAD_ORIGIN}" deploy/Caddyfile
 
   # Smoke on every push and PR (SPEC §6): the database-less project only. No
   # DATABASE_URL_TEST here on purpose — that is what makes this job prove the

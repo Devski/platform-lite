@@ -31,10 +31,14 @@ REMOTE_DB_URL=$(printf '%s' "$DB_URL" | sed -E 's#@localhost:5433/#@postgres:543
 S3_ENDPOINT=$(value S3_ENDPOINT)
 S3_BUCKET=$(value S3_BUCKET)
 S3_ORIGIN="https://${S3_BUCKET}.${S3_ENDPOINT#https://}"
+# Uploads go somewhere else: a presigned PUT is signed path-style, so the
+# browser sends it to the endpoint itself rather than the bucket subdomain.
+S3_UPLOAD_ORIGIN="$S3_ENDPOINT"
 
 echo "==> Instance:   $HOST"
 echo "==> Serving at: https://$SITE_ADDRESS"
 echo "==> Bucket:     $S3_ORIGIN"
+echo "==> Uploads to: $S3_UPLOAD_ORIGIN"
 echo
 
 echo "==> Directory, network, and the database container joined to it"
@@ -56,6 +60,7 @@ echo "==> Writing /opt/platform-lite/.env (0600, never echoed here)"
   echo "# environment. Secrets live here and nowhere else (SPEC §7)."
   echo "SITE_ADDRESS=$SITE_ADDRESS"
   echo "S3_ORIGIN=$S3_ORIGIN"
+  echo "S3_UPLOAD_ORIGIN=$S3_UPLOAD_ORIGIN"
   echo "APP_URL=https://$SITE_ADDRESS"
   # Not `production`: that is what keeps X-Robots-Tag: noindex on dev (A7).
   echo "APP_ENV=dev"

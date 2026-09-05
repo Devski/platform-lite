@@ -32,9 +32,12 @@ services:
       - caddy_config:/config
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS to the hostname to serve}
-      # The bucket origin the browser talks to directly: images are served
-      # from it, and uploads PUT to it (G3, G4). Both need naming in the CSP.
-      S3_ORIGIN: ${S3_ORIGIN:?set S3_ORIGIN to the bucket base URL}
+      # The browser talks to the bucket under two different origins and the
+      # CSP has to name both: images come from the virtual-host address
+      # (G3), while a presigned upload is signed path-style and therefore
+      # goes to the endpoint itself (G4).
+      S3_ORIGIN: ${S3_ORIGIN:?set S3_ORIGIN to https://<bucket>.<endpoint host>}
+      S3_UPLOAD_ORIGIN: ${S3_UPLOAD_ORIGIN:?set S3_UPLOAD_ORIGIN to the S3 endpoint origin}
     depends_on: [app]
     networks: [platform]
 

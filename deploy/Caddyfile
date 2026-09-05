@@ -20,12 +20,21 @@
 	# per-request nonces wired through the app — a task of its own, not a
 	# config line. Everything else is closed.
 	#
-	# The bucket origin appears TWICE on purpose: img-src because avatars are
-	# served straight from it (G3), and connect-src because the browser PUTs
-	# the upload there itself, never through this server (G4). Miss the second
-	# and photo uploads fail in the browser while every server-side path works
-	# — the same failure mode as the missing CORS rule found in #2.
-	header Content-Security-Policy "default-src 'self'; img-src 'self' data: {$S3_ORIGIN}; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' {$S3_ORIGIN}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+	# The bucket appears under TWO different origins, and both are needed —
+	# this is the same asymmetry storage.ts documents and its tests pin.
+	#
+	#   img-src      {$S3_ORIGIN}         virtual-host form. Public photos are
+	#                                     unsigned, and OVHcloud serves those
+	#                                     only from <bucket>.<endpoint> (G3).
+	#   connect-src  {$S3_UPLOAD_ORIGIN}  the endpoint itself. A presigned PUT
+	#                                     is signed path-style, so the browser
+	#                                     uploads to <endpoint>/<bucket>/...
+	#                                     — a different origin entirely (G4).
+	#
+	# Naming only one of them breaks half the flow while the other half and
+	# every server-side path keep working: photos display but cannot be
+	# uploaded, or the reverse. Found the hard way on 05.09.2026, from a phone.
+	header Content-Security-Policy "default-src 'self'; img-src 'self' data: {$S3_ORIGIN}; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' {$S3_ORIGIN} {$S3_UPLOAD_ORIGIN}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
 
 	reverse_proxy app:3000 {
 		# OVERWRITE, never append. Caddy's default appends the peer address to
