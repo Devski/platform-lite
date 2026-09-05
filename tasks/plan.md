@@ -99,6 +99,7 @@ Neither blocks the MVP; both were found while finishing Phase 4 and are recorded
 they are not rediscovered later.
 
 - [#34](https://github.com/3dbdg/platform-lite/issues/34) Account deletion, including the
+- [#44](https://github.com/3dbdg/platform-lite/issues/44) Where personal data lives: which of it is sensitive, and does it belong in its own store (`compliance`) — opened 06.09.2026, four questions to answer in writing before production. The name is public by design; the sensitive thing is its LINK to the private address. Also carries four gaps found while surveying: disk encryption unverified, no dev backups, session tokens in plaintext, recipient address possibly reaching a log line.
 - ~~[#36](https://github.com/3dbdg/platform-lite/issues/36) The public profile showed the user's e-mail address as their name~~ — **done 05.09.2026**: registration stopped inventing a name from the address; onboarding asks for one in two steps and derives the address from it. A migration cleared what the old flow wrote, keeping handles — they may already have been shared. Found two faults of my own on the way, both recorded on the issue and generalised as #39.
   objects behind it (`compliance`) — opened 05.09.2026: there is no code path for
   removing a user at all. Clearing test accounts from dev meant hand-written SQL, and the
