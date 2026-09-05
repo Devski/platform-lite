@@ -185,6 +185,13 @@ export async function setHandle(
   userId: string,
   input: string,
   now: Date = new Date(),
+  /**
+   * The display name to seed a NEW profile row with (#36). Onboarding
+   * collects it and derives the address from it, so it arrives together
+   * with the claim. Omitted for a later change, where the row exists and
+   * its name is the owner's to edit elsewhere.
+   */
+  displayName?: string,
 ): Promise<{ handle: string; previousHandle: string | null }> {
   const handle = normalizeHandle(input);
   const problem = checkHandle(handle);
@@ -207,6 +214,7 @@ export async function setHandle(
         .select({
           handle: profiles.handle,
           changedAt: profiles.handleChangedAt,
+          displayName: profiles.displayName,
         })
         .from(profiles)
         .where(eq(profiles.userId, userId));
@@ -225,7 +233,17 @@ export async function setHandle(
       // updateDisplayName upsert, which does not take the user lock.
       await tx
         .insert(profiles)
-        .values({ userId, displayName: user.name, handle })
+        // The name spelled into the INSERT matters even on a CHANGE:
+        // PostgreSQL evaluates constraints on the tuple being inserted
+        // BEFORE ON CONFLICT turns it into an update, so a blank here fails
+        // the not-blank CHECK on an update that was never going to touch the
+        // name. Since #36 registration leaves users.name empty, that broke
+        // every address change until the existing row was consulted first.
+        .values({
+          userId,
+          displayName: displayName ?? profile?.displayName ?? user.name,
+          handle,
+        })
         .onConflictDoUpdate({
           target: profiles.userId,
           set: changing ? { handle, handleChangedAt: now } : { handle },

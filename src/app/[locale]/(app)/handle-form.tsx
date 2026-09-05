@@ -87,6 +87,15 @@ export interface HandleFormProps {
   initialValue: string;
   /** ISO timestamp while the A6 cooldown runs; null when a change is allowed. */
   nextChangeAt: string | null;
+  /**
+   * Onboarding only (#36): the name collected in the step before this one,
+   * sent with the claim so the profile row is created carrying it. The form
+   * does not own it — the two are separate steps, and going back to edit the
+   * name must not overwrite an address already chosen here.
+   */
+  displayName?: string;
+  /** Onboarding only: returns to the name step. */
+  onBack?: () => void;
 }
 
 function localVerdict(
@@ -130,6 +139,8 @@ export function HandleForm({
   currentHandle,
   initialValue,
   nextChangeAt,
+  displayName,
+  onBack,
 }: HandleFormProps) {
   const t = useTranslations("HandleForm");
   const format = useFormatter();
@@ -276,7 +287,12 @@ export function HandleForm({
     try {
       const response = await postJson<SetHandleResponse>(
         "/api/profile/handle",
-        { handle: value },
+        // The name rides with the claim only where it was asked for: a
+        // later change of address must not clear a name edited since.
+        // The name rides with the claim only in onboarding, where the step
+        // before this one collected it. A later change of address must not
+        // clear a name edited since.
+        displayName === undefined ? { handle: value } : { handle: value, displayName },
       );
       if (!response.ok || !response.data.handle) {
         applyServerError(handle, response.status, response.data);
@@ -304,7 +320,7 @@ export function HandleForm({
 
   const note = feedback();
   const problem = note?.tone === "problem";
-  const describedBy = ["handle-prefix", "handle-hint"]
+  const describedBy = ["handle-hint"]
     .concat(note ? ["handle-feedback"] : [])
     .join(" ");
 
@@ -317,13 +333,12 @@ export function HandleForm({
       <label htmlFor="handle" className="text-sm font-medium text-gray-700">
         {t("label")}
       </label>
+      {/* The prefix used to sit INSIDE the field, where it ate the width the
+          address itself needed: on a phone the visitor could not see what
+          they were typing (seen 05.09.2026). The field is the address alone
+          now, full width, and the finished link is shown below it — where it
+          can wrap instead of being cut off. */}
       <div className="flex rounded-md border border-gray-300 focus-within:border-blue-600">
-        <span
-          id="handle-prefix"
-          className="flex shrink-0 select-none items-center rounded-l-md border-r border-gray-300 bg-gray-50 px-3 font-mono text-sm text-gray-500"
-        >
-          {`${origin}/`}
-        </span>
         <input
           id="handle"
           name="handle"
@@ -345,9 +360,15 @@ export function HandleForm({
           }}
           aria-invalid={problem ? true : undefined}
           aria-describedby={describedBy}
-          className="min-w-0 flex-1 rounded-r-md bg-white px-3 py-2 font-mono text-sm text-gray-900 focus:outline-none disabled:bg-gray-100 disabled:text-gray-500"
+          className="min-w-0 flex-1 rounded-md bg-white px-3 py-2 font-mono text-sm text-gray-900 focus:outline-none disabled:bg-gray-100 disabled:text-gray-500"
         />
       </div>
+      {normalized !== "" && (
+        <p className="text-sm break-all text-gray-600">
+          <span className="sr-only">{t("addressPreviewLabel")}</span>
+          <span className="font-mono">{`${origin}/${normalized}`}</span>
+        </p>
+      )}
       <p id="handle-hint" className="text-sm text-gray-500">
         {t("hint", { min: HANDLE_MIN, max: HANDLE_MAX })}
       </p>
@@ -365,6 +386,15 @@ export function HandleForm({
           {t("cooldownNote", { date: formatDate(cooldownUntil) })}
         </p>
       )}
+      {/* Forward-looking, and only where a change is what is happening: the
+          first assignment does not start the clock, so onboarding has
+          nothing to warn about. Told BEFORE the change, not after it — the
+          note above only appears once the limit is already spent. */}
+      {mode !== "onboarding" && !cooldownUntil && !saved && (
+        <p className="text-sm text-gray-600">
+          {t("cooldownAhead", { days: HANDLE_CHANGE_COOLDOWN_DAYS })}
+        </p>
+      )}
       {saved && (
         <p className="text-sm text-green-700" role="status">
           {t("saved", { address: saved.address })}
@@ -375,6 +405,16 @@ export function HandleForm({
           {t("savedRedirect")}
         </p>
       )}
+      <div className="flex items-center gap-3">
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="rounded-md px-3 py-2 text-sm font-medium text-gray-700 underline hover:text-gray-900"
+          >
+            {t("back")}
+          </button>
+        )}
       <button
         type="submit"
         disabled={!canSubmit}
@@ -384,6 +424,7 @@ export function HandleForm({
           ? t("submitting")
           : t(mode === "onboarding" ? "submitOnboarding" : "submitSettings")}
       </button>
+      </div>
     </form>
   );
 }

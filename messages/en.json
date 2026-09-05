@@ -78,7 +78,10 @@
   "Onboarding": {
     "title": "Profile address",
     "heading": "Set your profile address",
-    "intro": "This is the public address of your profile. We prefilled a proposal based on your account — change it if you like."
+    "intro": "This is the public address of your profile. We prefilled a proposal based on your account — change it if you like.",
+    "next": "Next",
+    "nameLabel": "Your name",
+    "nameHint": "How your profile is signed. The address below is proposed from it — you can change it."
   },
   "HandleForm": {
     "label": "Profile address",
@@ -99,7 +102,10 @@
       "rateLimited": "Too many attempts. Wait a moment and try again.",
       "cooldown": "The address can be changed once every {days} days.",
       "generic": "Saving failed. Try again."
-    }
+    },
+    "addressPreviewLabel": "Your profile address:",
+    "cooldownAhead": "Setting it the first time was free. Change it now and the next change is only possible in {days} days, while the old address redirects here until somebody else claims it.",
+    "back": "Back"
   },
   "Settings": {
     "account": {

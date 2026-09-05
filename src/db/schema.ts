@@ -186,6 +186,15 @@ export const profiles = pgTable(
   (table) => [
     uniqueIndex("profiles_handle_unique").on(table.handle),
     lowercaseCheck("profiles_handle_lowercase", table.handle),
+    // NOT NULL does not stop the empty string, and this column is what the
+    // public page and every shared link display. Registration deliberately
+    // sends an empty name now (#36) — the name is asked for in onboarding —
+    // so the one thing that must not happen is that emptiness arriving here
+    // and publishing a nameless profile.
+    check(
+      "profiles_display_name_not_blank",
+      sql`length(btrim(${table.displayName})) > 0`,
+    ),
     index("profiles_avatar_file_id_idx").on(table.avatarFileId),
   ],
 );

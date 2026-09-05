@@ -133,6 +133,39 @@ describe("setHandle (A5, A6)", () => {
     });
   });
 
+  it("stores the name given with the claim, in place of users.name (#36)", async () => {
+    // Onboarding asks for the name and derives the address from it. Before
+    // this, users.name was the e-mail local part invented at registration,
+    // and it reached the public page and every shared link.
+    await setHandle(testDb.db, userId, "pracownia-zolc", T0, "Pracownia Żółć");
+    expect(await profileRow()).toMatchObject({
+      handle: "pracownia-zolc",
+      displayName: "Pracownia Żółć",
+    });
+  });
+
+  it("changes the address of an account whose users.name is empty (#36)", async () => {
+    // Registration leaves users.name empty now, so it is no longer a usable
+    // fallback. The upsert still spelled it into the INSERT values, and
+    // PostgreSQL checks constraints on the tuple being inserted BEFORE ON
+    // CONFLICT turns it into an update — so the blank-name CHECK fired on a
+    // change that was never going to touch the name. Every address change
+    // by a post-#36 account failed with a 500.
+    // Its OWN account: emptying the shared fixture's name would change what
+    // the suggestion tests see.
+    const [fresh] = await testDb.db
+      .insert(users)
+      .values({ name: "", email: "empty-name@example.test" })
+      .returning({ id: users.id });
+    await setHandle(testDb.db, fresh.id, "pracownia", T0, "Pracownia Żółć");
+    await expect(
+      setHandle(testDb.db, fresh.id, "pracownia-zolc", daysAfterT0(31)),
+    ).resolves.toMatchObject({ handle: "pracownia-zolc" });
+    expect(await profileRow(fresh.id)).toMatchObject({
+      displayName: "Pracownia Żółć",
+    });
+  });
+
   it("keeps the display name when the profile row already exists", async () => {
     await updateDisplayName({ db: testDb.db, userId }, "Pracownia Żółć");
     await setHandle(testDb.db, userId, "zolc", T0);

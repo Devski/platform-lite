@@ -10,6 +10,7 @@ import {
 } from "@/lib/api-route";
 import { getDb, type Database } from "@/db/client";
 import { appOrigin } from "@/lib/env";
+import { displayNameSchema } from "@/lib/profile-schemas";
 import {
   HandleError,
   notifyHandleChanged,
@@ -21,7 +22,13 @@ import {
 // are decided inside lib/profile-handle; the route maps its error codes to
 // statuses and nothing more. #16: a change also sends the A10 notice.
 
-const bodySchema = z.object({ handle: z.string().min(1).max(64) });
+const bodySchema = z.object({
+  handle: z.string().min(1).max(64),
+  // #36: onboarding sends the name together with the address it derived
+  // from it. Optional because a later change is only a change of address —
+  // the name is edited in settings and must not be cleared by omission.
+  displayName: displayNameSchema.optional(),
+});
 
 export async function POST(request: Request) {
   const userId = await sessionUserId();
@@ -47,6 +54,8 @@ export async function POST(request: Request) {
       db,
       userId,
       input.handle,
+      undefined,
+      input.displayName,
     );
     if (previousHandle !== null) {
       await notifyChange(db, request, {

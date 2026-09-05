@@ -1,0 +1,1 @@
+ALTER TABLE "profiles" ADD CONSTRAINT "profiles_display_name_not_blank" CHECK (length(btrim("profiles"."display_name")) > 0);
