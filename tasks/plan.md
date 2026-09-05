@@ -87,6 +87,21 @@ approval, §7).
 - [#26](https://github.com/3dbdg/platform-lite/issues/26) Decision: landing page design (photo, source, license) — the placeholder in #19 does not wait for it
 - [#27](https://github.com/3dbdg/platform-lite/issues/27) Decision: default OG image for profiles without avatar — #18 starts with a placeholder
 
+### After the MVP
+
+Neither blocks the MVP; both were found while finishing Phase 4 and are recorded so
+they are not rediscovered later.
+
+- [#34](https://github.com/3dbdg/platform-lite/issues/34) Account deletion, including the
+  objects behind it (`enhancement`) — opened 05.09.2026: there is no code path for
+  removing a user at all. Clearing test accounts from dev meant hand-written SQL, and the
+  bucket objects were left unfindable. With real users this is a legal obligation, not
+  tidiness. Shares its object-removal path with sweeping preview prefixes (#31).
+- [#35](https://github.com/3dbdg/platform-lite/issues/35) Transactional e-mail in the
+  product's visual identity (`enhancement`, `blocked`) — waits on #26/#27, because the
+  identity has to exist first. Re-run the #23 deliverability matrix afterwards: images and
+  links raise the spam score against a young sending domain.
+
 ## Requirements coverage
 
 Every criterion A1–A11 and every boundary G1–G10 has its task (A11 — visual, no test
