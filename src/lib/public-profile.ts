@@ -143,12 +143,11 @@ export function profileMetadata(input: ProfileMetadataInput): Metadata {
     openGraph: {
       type: "profile",
       username: profile.handle,
-      // The card leads with the product and names the profile underneath
-      // (decision of 05.09.2026), which is the opposite of the page title:
-      // a browser tab and a search result want the person first, a shared
-      // link wants to say what it is a link TO.
-      title: brand,
-      description: profile.displayName,
+      // The card names the PROFILE, with the product as its subtitle
+      // (decision of 05.09.2026): a shared link is about the person, and
+      // the reader already sees the domain on the line below it.
+      title: profile.displayName,
+      description: brand,
       url: canonical,
       siteName: brand,
       locale: OG_LOCALES[locale],

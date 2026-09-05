@@ -136,7 +136,7 @@ test("a new user goes from the landing page to a live public profile", async ({
     ).toBeVisible();
     await expect(page.getByText(`${origin}/${identity.handle}`)).toBeVisible();
     // A7's <head>: the profile's own title, not the not-found one.
-    await expect(page).toHaveTitle(`${identity.displayName} · Architektów 3D`);
+    await expect(page).toHaveTitle(`${identity.displayName} · Architektów 3d`);
 
     const photoOnPage = page.locator("article img");
     if (photoConfigured) {

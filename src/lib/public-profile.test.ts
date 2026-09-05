@@ -230,10 +230,9 @@ describe("profileMetadata", () => {
     });
     expect(meta.openGraph).toMatchObject({
       type: "profile",
-      // The CARD leads with the brand; the page title below still leads
-      // with the person (decision of 05.09.2026).
-      title: "platform-lite",
-      description: "Studio X",
+      // The card names the profile, with the product as its subtitle.
+      title: "Studio X",
+      description: "platform-lite",
       url: "https://app.example/studio-x",
       locale: "pl_PL",
       images: [
@@ -281,15 +280,16 @@ describe("profileMetadata", () => {
     expect(without).toMatchObject([{ width: 512, height: 512 }]);
   });
 
-  it("captions a shared link with the brand, then the profile (#27)", () => {
-    // The card leads with the product and names the profile underneath
-    // (decision of 05.09.2026). The PAGE title keeps the other order — a
-    // browser tab and a search result want the person first.
+  it("captions a shared link with the profile, then the brand (#27)", () => {
+    // The card names the profile and puts the product underneath as a
+    // subtitle (decision of 05.09.2026): a shared link is about the person,
+    // and the reader already sees the domain on the third line.
     const meta = metadataFor(withAvatar, "pl");
     expect(meta.openGraph).toMatchObject({
-      title: BRAND,
-      description: "Studio X",
+      title: "Studio X",
+      description: BRAND,
     });
+    // The page title keeps both, in the same order.
     expect(meta.title).toBe("Studio X · platform-lite");
   });
 
