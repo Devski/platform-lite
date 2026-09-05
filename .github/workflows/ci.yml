@@ -135,7 +135,15 @@ jobs:
       # must not become something a deployment can reach for. Pull requests
       # build and check but publish nothing — nothing deploys from them.
       - name: Publish to the registry
-        if: github.event_name == 'push'
+        # Also for a pull request, because #31 runs that exact image as the
+        # PR's preview. Only from a branch in THIS repository: a fork's pull
+        # request gets no registry credential, and must not — publishing an
+        # image built from someone else's branch under our name is how a
+        # supply chain is compromised.
+        if: >-
+          github.event_name == 'push' ||
+          (github.event_name == 'pull_request' &&
+           github.event.pull_request.head.repo.full_name == github.repository)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -200,6 +208,13 @@ jobs:
       # debugging session on 05.09.2026; pinned here so it cannot recur.
       - name: connect-src names both bucket origins
         run: grep -q "connect-src 'self' {\$S3_ORIGIN} {\$S3_UPLOAD_ORIGIN}" deploy/Caddyfile
+
+      # A preview must be served the way dev is served. If it stopped reusing
+      # the shared snippet and grew its own copy of the headers, the CSP would
+      # drift between the environment a change is reviewed in and the one it
+      # lands in — which is worth nothing as a preview.
+      - name: Previews reuse the one site definition
+        run: grep -q 'import site' deploy/preview-up.sh
 
   # Smoke on every push and PR (SPEC §6): the database-less project only. No
   # DATABASE_URL_TEST here on purpose — that is what makes this job prove the
@@ -389,3 +404,78 @@ jobs:
           ssh -i ~/.ssh/id_deploy "$HOST" \
             "APP_IMAGE='$APP_IMAGE' GH_TOKEN='$GH_TOKEN' GH_ACTOR='$GH_ACTOR' \
              bash /opt/platform-lite/remote-deploy.sh"
+
+  preview:
+    # #31: a pull request gets its own running copy, at its own hostname, so a
+    # change can be looked at before it is merged. Only for branches in THIS
+    # repository — a fork's pull request has no access to the deploy key, and
+    # giving it one would hand the instance to anyone who can open a PR.
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    # The gate and a serving image, same bar as dev. Not e2e-smoke: a preview
+    # exists to be looked at, and a browser test failing is often the reason
+    # you want to look. `deploy-config` IS required — it validates the proxy
+    # configuration that previews are now part of.
+    needs: [check, image, deploy-config]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Is the instance wired up yet?
+        id: wired
+        env:
+          HOST: ${{ secrets.DEV_SSH_HOST }}
+        run: |
+          if [ -z "$HOST" ]; then
+            echo "::notice::No DEV_SSH_HOST secret yet — no instance to preview on."
+            echo "wired=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "wired=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v7
+        if: steps.wired.outputs.wired == 'true'
+      - name: Authorize this run against the instance
+        if: steps.wired.outputs.wired == 'true'
+        env:
+          KEY: ${{ secrets.DEV_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEV_SSH_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          echo "$KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          echo "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+      - name: Ship the preview scripts
+        if: steps.wired.outputs.wired == 'true'
+        env:
+          HOST: ${{ secrets.DEV_SSH_HOST }}
+        run: |
+          # ONLY the preview scripts. Not the Caddyfile and not compose.yaml:
+          # those describe DEV, and copying a pull request's version of them
+          # would let an unmerged change reconfigure the environment it is
+          # supposed to be previewed alongside. They reach the instance from
+          # `main`, through deploy-dev.
+          scp -i ~/.ssh/id_deploy             deploy/preview-up.sh deploy/preview-down.sh             "$HOST:/opt/platform-lite/"
+      - name: Start the preview
+        if: steps.wired.outputs.wired == 'true'
+        env:
+          HOST: ${{ secrets.DEV_SSH_HOST }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_ACTOR: ${{ github.actor }}
+          PR: ${{ github.event.pull_request.number }}
+          APP_IMAGE: ghcr.io/${{ github.repository }}:${{ github.sha }}
+        run: |
+          # NOT `ssh ... | tee`: a pipeline reports the exit status of its LAST
+          # command, and tee always succeeds. This job's first run passed green
+          # while the remote script had failed and started nothing at all.
+          if ssh -i ~/.ssh/id_deploy "$HOST" "PR='$PR' APP_IMAGE='$APP_IMAGE' GH_TOKEN='$GH_TOKEN' GH_ACTOR='$GH_ACTOR' bash /opt/platform-lite/preview-up.sh" > preview.log 2>&1; then
+            cat preview.log
+            echo "### Preview" >> "$GITHUB_STEP_SUMMARY"
+            tail -1 preview.log >> "$GITHUB_STEP_SUMMARY"
+          else
+            cat preview.log
+            exit 1
+          fi

@@ -264,6 +264,58 @@ running version is legible on the machine itself.
 runnable by hand on purpose: a deployment nobody can execute without CI is a
 deployment nobody can rescue.
 
+## Pull request previews
+
+Opening a pull request starts a copy of that branch on the same instance, at
+`pr-<n>.dev.architektow3d.pl`. Closing or merging it removes the copy. Both
+happen in CI; the scripts live on the instance so either can be done by hand.
+
+```bash
+PR=7 APP_IMAGE=ghcr.io/3dbdg/platform-lite:<sha> \
+  GH_TOKEN=<token> GH_ACTOR=<user> bash /opt/platform-lite/preview-up.sh
+PR=7 bash /opt/platform-lite/preview-down.sh
+```
+
+**Two at a time, and that is a real ceiling.** Measured on the instance
+(05.09.2026): **1 vCPU, 1.9 GB of memory, no swap**. Idle, the app holds 66 MB,
+PostgreSQL 58 MB and the proxy 15 MB, so steady-state memory is not what limits
+this. Two other things are.
+
+With no swap, exhausting memory does not make the machine slow — it invokes the
+OOM killer, which picks its victim by size. The biggest process here is as
+likely to be PostgreSQL as the preview that caused the pressure, and that is
+*dev's* database, shared by every preview.
+
+And there is one core. Avatar resizing is the CPU-heavy path in this
+application and spikes memory with it; two uploads at once already contend for
+the same core. A preview sits idle until somebody opens it, so the ceiling is
+set for the worst case rather than the average — each preview is additionally
+capped at 512 MB so one cannot take the machine on its own.
+
+Raising the ceiling means a larger instance, which is a cost decision, and the
+next thing to buy is a second core rather than more memory.
+
+A preview shares the dev database and writes to its own `pr-<n>/` key prefix in
+the bucket (SPEC §4). It runs with `APP_ENV=preview`, which does two things:
+it keeps `X-Robots-Tag: noindex` on (A7), and it stops the application sending
+real e-mail. That second one matters more than it looks — a preview is
+reachable by anyone holding the link, and would otherwise mail verification
+messages to any address typed into it, from our domain and against our quota.
+
+Each preview is a **named** site in the proxy, not a wildcard one: a wildcard
+certificate would need the DNS-01 challenge and a Caddy built with the DNS
+provider's plugin, while a named host is issued over HTTP-01 by the binary
+already running. The wildcard `A` record still has to exist so the name
+resolves — `*.dev` pointing at the instance.
+
+Previews reuse one site definition with dev (the `(site)` snippet in the
+Caddyfile), so the security headers and the CSP cannot drift between the
+environment a change is reviewed in and the one it lands in. CI greps for that.
+
+Objects under `pr-<n>/` are deliberately left in the bucket when a preview is
+torn down: removing them needs the S3 credentials, which the teardown script
+has no reason to hold. They cost fractions of a cent.
+
 ## Production
 
 Not this document yet — #24. It differs in three ways: the deployment is
