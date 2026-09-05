@@ -348,8 +348,9 @@ HA/multicloud/Terraform · Docker and MinIO locally.
 - [x] **Product name and domain** — resolved 05.09.2026. The product is
       **"Architektów 3D"**, and the canonical domain is the ASCII form
       **`architektow3d.pl`**: it serves, and it sends e-mail (G8), exactly as the
-      30.08.2026 recommendation proposed. The IDN twin `architektów3d.pl` and the
-      "k" typo variants redirect to it with 301. Company: **"Architectorium"**
+      30.08.2026 recommendation proposed. Nine domains are registered around it
+      (typo and IDN variants); every one of them 301s to the canonical domain,
+      and only the canonical one serves or sends. Company: **"Architectorium"**
       (architectorium.com). Per-environment hostnames are in §8.
       Note for #22: the domain already carries mailboxes (OVHcloud Zimbra), so
       there must remain exactly **one** SPF record — Scaleway is merged into the
