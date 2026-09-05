@@ -6,6 +6,11 @@
 package_update: true
 packages:
   - docker.io
+  # Ubuntu's docker.io ships the engine WITHOUT the compose plugin, and
+  # the deployment drives everything through `docker compose` (#21). A
+  # rebuilt instance that lacks it fails at the first deploy, not at
+  # boot — so it belongs here rather than in a runbook step.
+  - docker-compose-v2
   - ufw
 runcmd:
   # Host firewall: the enforcing layer for inbound traffic. sshd is the only
