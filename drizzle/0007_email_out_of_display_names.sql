@@ -21,6 +21,7 @@ FROM users u
 WHERE u.id = p.user_id
   AND p.handle IS NOT NULL
   AND p.display_name = split_part(u.email, '@', 1);
+--> statement-breakpoint
 
 -- And any row that is already blank, for the same reason and before the next
 -- migration adds the CHECK that forbids it: an empty name would fail that
