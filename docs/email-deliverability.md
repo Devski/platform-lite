@@ -16,13 +16,13 @@ not stand-in text — the body is part of what a spam filter judges.
 | Message | Accepted | Inbox |
 | --- | --- | --- |
 | Verification (`accountVerification`) | 250 | yes |
-| New verification link (`accountReverification`) | 250 | not checked |
-| Password reset (`passwordReset`) | 250 | not checked |
-| Password changed (`passwordChanged`) | 250 | not checked |
-| Login code (`twoFactorCode`) | 250 | not checked |
-| Address change, approval (`emailChangeConfirmation`) | 250 | not checked |
-| Address change, verification (`emailChangeVerification`) | 250 | not checked |
-| Handle changed (`handleChanged`) | 250 | not checked |
+| New verification link (`accountReverification`) | 250 | yes |
+| Password reset (`passwordReset`) | 250 | yes |
+| Password changed (`passwordChanged`) | 250 | yes |
+| Login code (`twoFactorCode`) | 250 | yes |
+| Address change, approval (`emailChangeConfirmation`) | 250 | yes |
+| Address change, verification (`emailChangeVerification`) | 250 | yes |
+| Handle changed (`handleChanged`) | 250 | yes |
 
 **Accepted** is the receiving server's SMTP reply, read from the provider's API:
 `250` means Gmail took the message on the first attempt, with no deferral and no
@@ -30,10 +30,9 @@ rejection. That is a machine-checkable fact, and it already proves SPF and DKIM
 pass — Gmail defers or refuses unauthenticated mail from a domain this young.
 
 **Inbox** is a human observation. No API reports which folder a message landed
-in, so this column is the mailbox owner reading his own inbox. Only the first
-row has been read that way so far; "not checked" means exactly that, and never
-"landed in spam". It is the column
-that actually answers the SPEC §10 risk; acceptance alone does not.
+in, so this column is the mailbox owner reading his own inbox — confirmed for
+all eight on 05.09.2026. It is the column that actually answers the SPEC §10
+risk; acceptance alone does not.
 
 The verification message was additionally sent by the deployed application
 itself, through a real registration, not only through the provider's API. The

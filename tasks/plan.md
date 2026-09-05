@@ -74,7 +74,7 @@ in under 5 minutes (manual walkthrough); e2e green.
 - [#31](https://github.com/3dbdg/platform-lite/issues/31) PR preview deployments on the dev instance (`infra`, `blocked`) — split out of #21 on 05.09.2026: previews need a wildcard DNS record, so they wait on #25 while #21 does not.
 
 22. ~~[#22](https://github.com/3dbdg/platform-lite/issues/22) Scaleway TEM + SPF/DKIM/DMARC + switch email.ts to TEM~~ — **done 05.09.2026**: sending from `kontakt@dev.architektow3d.pl`, all four DNS records verified, replies routed to `kontakt@architektow3d.pl`. A registration on dev delivered a real verification e-mail (SMTP 250). Unblocks #23.
-23. [#23](https://github.com/3dbdg/platform-lite/issues/23) Deliverability test: Gmail / Onet / WP / Interia (`infra`)
+23. ~~[#23](https://github.com/3dbdg/platform-lite/issues/23) Deliverability test: Gmail / Onet / WP / Interia~~ — **done 05.09.2026**: all eight message types reach the Gmail inbox, none filtered. Scope cut to Gmail by decision; the reasoning and the method for the other three are in `docs/email-deliverability.md`.
 24. [#24](https://github.com/3dbdg/platform-lite/issues/24) Production environment: instance, managed Postgres, prod bucket, CDN, G10 drill (`infra`, `blocked`)
 
 **Checkpoint:** dev auto-deploys from `main` + PR previews; e-mail passes deliverability
