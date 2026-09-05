@@ -134,6 +134,7 @@ EMAIL_API_KEY=       # Scaleway calls this SCW_SECRET_KEY
 EMAIL_PROJECT_ID=    # Scaleway calls this SCW_DEFAULT_PROJECT_ID
 EMAIL_FROM=          # an address on a domain verified in TEM
 EMAIL_REGION=        # optional, defaults to fr-par
+EMAIL_REPLY_TO=      # optional; a mailbox someone reads (see below)
 ```
 
 A deployed environment (`APP_ENV` anything but `local`/`ci`/`test`) **requires**
@@ -142,6 +143,11 @@ the fallback it replaced wrote the verification and password-reset links into
 the container log, where anyone with log access could redeem them. The script
 also stops if a key appears twice in your `.env` — it would otherwise splice
 both lines into the instance file and leave the value empty.
+
+Set `EMAIL_REPLY_TO`. The sending subdomain's MX record points at Scaleway,
+which discards incoming mail, so without it a reply to a verification e-mail
+disappears with no bounce and no trace. Point it at a mailbox on the apex
+domain — the one on OVHcloud Zimbra — which keeps its own MX untouched.
 
 The address it configures is `https://54.37.130.136.nip.io` — `nip.io`
 resolves `<ip>.nip.io` to that address, so Let's Encrypt can issue a real

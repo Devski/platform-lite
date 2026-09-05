@@ -234,6 +234,28 @@ describe("Scaleway transport (#22)", () => {
     expect(isEmailConfigured()).toBe(true);
   });
 
+  it("sets Reply-To only when one is configured", async () => {
+    const bodies: unknown[] = [];
+    vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)));
+      return new Response("", { status: 200 });
+    });
+    const message = { to: "a@b.test", subject: "s", body: "b" };
+
+    await createScalewayTransport(config).deliver(message);
+    await createScalewayTransport({
+      ...config,
+      replyTo: "kontakt@example.test",
+    }).deliver(message);
+
+    expect(bodies[0]).not.toHaveProperty("additional_headers");
+    expect(bodies[1]).toMatchObject({
+      additional_headers: [
+        { key: "Reply-To", value: "kontakt@example.test" },
+      ],
+    });
+  });
+
   it("refuses a region that is not one", () => {
     expect(() =>
       createScalewayTransport({ ...config, region: "../../v1/secrets" }),

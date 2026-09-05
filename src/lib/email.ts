@@ -95,6 +95,13 @@ export function createScalewayTransport(config: {
   projectId: string;
   from: string;
   region: string;
+  /**
+   * Where a human reply should land. Optional, and worth setting: the
+   * sending subdomain's MX points at the provider, which discards
+   * everything, so without this a reply to a verification e-mail vanishes
+   * silently. People do reply to these.
+   */
+  replyTo?: string;
 }): EmailTransport {
   // Interpolated into the URL, so it is checked rather than trusted. There is
   // no exfiltration path (the origin is a literal and this lands in the path),
@@ -127,6 +134,13 @@ export function createScalewayTransport(config: {
           // translated and reviewed for no gain (A10 is seven transactional
           // messages, not a newsletter).
           text: message.body,
+          ...(config.replyTo
+            ? {
+                additional_headers: [
+                  { key: "Reply-To", value: config.replyTo },
+                ],
+              }
+            : {}),
         }),
       }).catch((cause: unknown) => {
         // DNS, TLS, a reset connection or the timeout above all arrive here as
@@ -208,6 +222,7 @@ function resolveTransport(): EmailTransport {
         projectId: requireEnv(EMAIL_VARIABLES.projectId),
         from: requireEnv(EMAIL_VARIABLES.from),
         region: process.env.EMAIL_REGION?.trim() || "fr-par",
+        replyTo: process.env.EMAIL_REPLY_TO?.trim() || undefined,
       });
   return activeTransport;
 }

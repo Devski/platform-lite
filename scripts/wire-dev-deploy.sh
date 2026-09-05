@@ -98,6 +98,7 @@ echo "==> Writing /opt/platform-lite/.env (0600, never echoed here)"
   echo "EMAIL_PROJECT_ID=$(optional EMAIL_PROJECT_ID)"
   echo "EMAIL_FROM=$(optional EMAIL_FROM)"
   echo "EMAIL_REGION=$(optional EMAIL_REGION)"
+  echo "EMAIL_REPLY_TO=$(optional EMAIL_REPLY_TO)"
   if [ -n "$APP_IMAGE_LINE" ]; then echo "$APP_IMAGE_LINE"; fi
 } | ssh "$HOST" 'umask 077 && cat > /opt/platform-lite/.env && echo "    written: $(wc -l < /opt/platform-lite/.env) lines"'
 
