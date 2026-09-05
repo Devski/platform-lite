@@ -24,6 +24,20 @@ docker compose up --detach --remove-orphans
 # The image declares its own HEALTHCHECK, so ask the container rather than
 # guessing at a URL: at this point the hostname may not resolve yet, and a
 # certificate may not exist. "The process is serving" is the claim being made.
+# Record what is now running, before the health check can fail and leave the
+# file describing something that is not there. Without this line `docker
+# compose ps` — the first command anyone types during an incident — refuses to
+# run at all, because APP_IMAGE reaches the deployment only as a variable of
+# this script's own environment. Verified the hard way in the 05.09.2026
+# rollback drill: the mechanism took 7 seconds, finding out what to roll back
+# TO meant reading a 40-character digest out of `docker ps`.
+if grep -q '^APP_IMAGE=' .env; then
+  sed -i "s|^APP_IMAGE=.*|APP_IMAGE=$APP_IMAGE|" .env
+else
+  printf '%s
+' "APP_IMAGE=$APP_IMAGE" >> .env
+fi
+
 container=$(docker compose ps --quiet app)
 for attempt in $(seq 1 60); do
   status=$(docker inspect --format '{{.State.Health.Status}}' "$container" 2>/dev/null || echo starting)

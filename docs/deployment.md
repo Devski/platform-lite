@@ -212,13 +212,27 @@ first request and port 80 has to be reachable for the challenge.
 
 ## Rolling back
 
-A deployment pins the commit SHA, so rolling back is running an older one. On
-the instance:
+A deployment pins the commit SHA, so rolling back is running an older one. The
+image is already on the instance if it was ever deployed there, so this needs
+no registry access:
 
 ```
 cd /opt/platform-lite
 APP_IMAGE=ghcr.io/3dbdg/platform-lite:<older sha> docker compose up --detach
 ```
+
+**Drilled 05.09.2026**, two deployments back and forward again: seven seconds
+to a healthy container each way, the site answering 200 throughout. The
+mechanism is fast and it works.
+
+What the drill actually found was the part around it. `docker compose ps` — the
+first command anyone types when something is wrong — **failed outright**,
+because `APP_IMAGE` reached the deployment only as a variable of the deploy
+script's environment and was written down nowhere. Finding out what was running
+meant reading a 40-character digest out of `docker ps`, and finding out what to
+go back to meant reading the CI history. The deploy now records the tag in
+`/opt/platform-lite/.env`, so `ps`, `logs` and `restart` work by hand and the
+running version is legible on the machine itself.
 
 `deploy/remote-deploy.sh` is the same script CI runs, kept readable and
 runnable by hand on purpose: a deployment nobody can execute without CI is a
