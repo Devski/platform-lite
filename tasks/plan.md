@@ -12,7 +12,8 @@ Requirements come from [SPEC.md](../SPEC.md). Plan created on 30.08.2026, approv
   always in English (SPEC.md §5). Chat communication stays in Polish.
 - Milestone = phase; checkpoint criteria live in the milestone description and below.
 - Dependencies in the issue body ("Depends on #N"). Issue-number order = recommended work order.
-- Labels: `infra` (console work at OVH/Scaleway, servers and DNS), `ux` (visual polish, deferred
+- Labels: `infra` (console work at OVH/Scaleway, servers and DNS), `deployment` (how code
+  reaches an environment: pipeline, release procedure, infrastructure), `ux` (visual polish, deferred
   until the functionality is done), `compliance` (a legal obligation, not a product choice),
   `blocked` (waiting on something named in Depends on), `enhancement` (everything else).
   `decision` is retired — it described §12's open questions, and the ones still open are
