@@ -5,18 +5,18 @@ import { useState } from "react";
 import { Link } from "@/i18n/navigation";
 import { authClient } from "@/lib/auth-client";
 
-// The panel sits on the landing photo (A11), so every state is styled for a
-// dark ground: white text, an explicit focus ring the browser default cannot
-// provide over an arbitrary image.
+// The panel sits on the landing page's white block under the photo (A11,
+// decision of 06.09.2026), so every state is styled for a light ground.
 export const FOCUS_RING =
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white";
-// blue-600, not the blue-700 the light pages use: the fill is the only thing
-// marking this as a button, and WCAG 1.4.11 wants 3:1 against its ground. On
-// the near-black card blue-700 measures 2.95:1, blue-600 3.74:1 — and the
-// hover must go lighter, not darker, or it falls back under the line.
-const PRIMARY_BUTTON = `rounded-md bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-500 ${FOCUS_RING}`;
-const SECONDARY_BUTTON = `rounded-md border border-white/60 px-4 py-2.5 text-sm font-semibold text-white hover:bg-white/10 ${FOCUS_RING}`;
-const TEXT_LINK = `font-semibold text-white underline hover:no-underline ${FOCUS_RING}`;
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700";
+// blue-700, like the rest of the light pages: the fill is the only thing
+// marking this as a button, and WCAG 1.4.11 wants 3:1 for it against its own
+// ground — on white blue-700 measures 6.31:1 — while the white label inside
+// needs 4.5:1 against the fill. The hover must go darker here, not lighter,
+// or the label falls under that line.
+const PRIMARY_BUTTON = `rounded-full bg-blue-700 px-6 py-3 text-center text-base font-semibold text-white hover:bg-blue-800 ${FOCUS_RING}`;
+const SECONDARY_BUTTON = `rounded-full border border-gray-500 px-6 py-3 text-center text-base font-semibold text-gray-900 hover:bg-gray-50 ${FOCUS_RING}`;
+const TEXT_LINK = `font-semibold text-gray-900 underline hover:no-underline ${FOCUS_RING}`;
 
 // Client-side on purpose: the homepage stays statically prerendered (and the
 // DB-less e2e job keeps working) while the session is fetched in the browser.
@@ -52,7 +52,7 @@ export function SessionPanel() {
       // Rendered as buttons rather than a row of text, sign-up first: on a
       // landing page this pair is the only thing to do, so it carries the
       // page's visual weight.
-      <div className="flex w-full flex-col gap-2 sm:flex-row sm:justify-center">
+      <div className="flex w-full flex-col gap-2 sm:flex-row">
         <Link href="/register" className={PRIMARY_BUTTON}>
           {t("register")}
         </Link>
@@ -64,9 +64,9 @@ export function SessionPanel() {
   }
 
   return (
-    <div className="flex flex-col items-center gap-1">
-      <div className="flex flex-col items-center gap-2 text-sm sm:flex-row sm:gap-3">
-        <span className="text-gray-200">
+    <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:gap-3">
+        <span className="text-gray-600">
           {t("signedInAs", { email: data.user.email })}
         </span>
         <Link href="/settings/account" className={TEXT_LINK}>
@@ -76,13 +76,13 @@ export function SessionPanel() {
           type="button"
           onClick={handleSignOut}
           disabled={signingOut}
-          className={`${TEXT_LINK} disabled:text-gray-400 disabled:no-underline`}
+          className={`${TEXT_LINK} disabled:text-gray-500 disabled:no-underline`}
         >
           {signingOut ? t("loggingOut") : t("logOut")}
         </button>
       </div>
       {signOutFailed && (
-        <p className="text-sm text-red-200" role="status">
+        <p className="text-sm text-red-700" role="status">
           {t("error")}
         </p>
       )}

@@ -6,6 +6,11 @@ import { expectNoAxeViolations } from "./axe";
 // not-found body (A8); a LIVE public profile needs one and is checked in
 // e2e/db/happy-path.spec.ts, at the moment the page goes live.
 
+// The h1 is the slogan now, not the brand (#26): the page leads with what
+// the product is for, and the name sits in the footer.
+const SLOGAN = "Tu mieszka Twoje portfolio";
+const SLOGAN_EN = "Your portfolio lives here";
+
 test.describe("Polish browser", () => {
   test.use({ locale: "pl-PL" });
 
@@ -14,7 +19,7 @@ test.describe("Polish browser", () => {
   }, testInfo) => {
     await page.goto("/");
     await expect(
-      page.getByRole("heading", { level: 1, name: "Architektów 3d" }),
+      page.getByRole("heading", { level: 1, name: SLOGAN }),
     ).toBeVisible();
     await expectNoAxeViolations(page, testInfo, "landing-pl");
   });
@@ -38,7 +43,7 @@ test.describe("English browser", () => {
   }, testInfo) => {
     await page.goto("/en");
     await expect(
-      page.getByText("Public profiles for architecture studios and 3D artists"),
+      page.getByRole("heading", { level: 1, name: SLOGAN_EN }),
     ).toBeVisible();
     await expectNoAxeViolations(page, testInfo, "landing-en");
   });

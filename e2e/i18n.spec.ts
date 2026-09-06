@@ -9,7 +9,10 @@ test.describe("Polish browser", () => {
     await expect(page).toHaveTitle("Architektów 3d");
     await expect(page.locator("html")).toHaveAttribute("lang", "pl");
     await expect(
-      page.getByRole("heading", { level: 1, name: "Architektów 3d" }),
+      page.getByRole("heading", {
+        level: 1,
+        name: "Tu mieszka Twoje portfolio",
+      }),
     ).toBeVisible();
     await expect(
       page.getByText(
