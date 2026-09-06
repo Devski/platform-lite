@@ -32,8 +32,21 @@ export default async function HomePage({
           band with an opaque card eating its lower half. The minimum stops a
           short window from crushing it to a stripe, and stays under two
           thirds of a landscape phone (66vh of 390 px = 257) so that it never
-          becomes the thing that pushes the slogan off the screen. */}
-      <div className="relative isolate h-[66vh] min-h-[240px] shrink-0">
+          becomes the thing that pushes the slogan off the screen.
+
+          `isolate` is load-bearing: it gives this box a stacking context of
+          its own, so the photo's `-z-10` stays inside it. Without it the photo
+          would drop into the root context and paint behind `main`'s own white
+          background — which exists, on line 28.
+
+          svh, not vh: on a phone `vh` is the height with the browser chrome
+          RETRACTED, so two thirds of it is nearly three quarters of what the
+          visitor can actually see, and the buttons land under the address bar.
+          At 375x812 the second one ended one pixel inside the viewport by that
+          measure, which on a real handset means outside it. svh is the height
+          with the chrome showing and, unlike dvh, does not change while the
+          page scrolls — so nothing reflows on the way down. */}
+      <div className="relative isolate h-[66svh] min-h-[240px] shrink-0">
         {/* Decorative: every word is in the block below, so the photo needs no
             description. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -44,12 +57,17 @@ export default async function HomePage({
           width={2400}
           height={1340}
           fetchPriority="high"
-          // The sign sits at the RIGHT EDGE of a landscape frame, and two
-          // thirds of a tall phone screen is a narrow crop of it. Anything
-          // short of the edge clips the sign — 78% cut it to "3(" when the
-          // crop was rendered and checked. Wide screens fit the whole scene
-          // and centre it.
-          className="absolute inset-0 -z-10 h-full w-full object-cover object-right sm:object-center"
+          // Anchored right at EVERY size, and the breakpoint this once had was
+          // wrong. The sign sits near the right edge of a landscape frame, so
+          // whatever `object-cover` crops horizontally has to come off the
+          // left. Whether it crops horizontally at all is decided by the box's
+          // aspect ratio against the photo's 2400/1340 = 1.79, not by the
+          // viewport's width: any box narrower than 1.18:1 loses width, which
+          // is every phone AND every portrait tablet. `sm:object-center` cut
+          // the sign to "ul. A… / 3 / Star" at 768x1024 — the same failure as
+          // the 78% position rejected earlier. On a wide screen the whole
+          // scene fits, nothing is cropped, and this class does nothing.
+          className="absolute inset-0 -z-10 h-full w-full object-cover object-right"
         />
         {/* Fades the photo into the white page below so the two read as one
             surface. Carries no text on purpose — see the heading's note. */}
@@ -90,32 +108,37 @@ export default async function HomePage({
       <section className="flex w-full flex-1 flex-col px-6 pb-8 sm:px-10">
         <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-between gap-8">
           <p className="text-lg text-gray-600">{t("tagline")}</p>
-          <nav
-            aria-label={tSwitcher("label")}
-            className="flex items-center gap-4 text-sm"
-          >
+          {/* The brand sits BESIDE the switcher, not inside it: a screen-reader
+              user entering a landmark labelled "language selection" should not
+              be read the product name as its first item. */}
+          <div className="flex items-center gap-4 text-sm">
             <span className="font-semibold text-gray-900">{t("brand")}</span>
-            {routing.locales.map((l) => (
-              <Link
-                key={l}
-                href="/"
-                locale={l}
-                lang={l}
-                hrefLang={l}
-                // The name of each language is written in that language, so it
-                // needs its own lang for a screen reader to pronounce it (WCAG
-                // 3.1.2); aria-current says which page the visitor is on.
-                aria-current={l === locale ? "true" : undefined}
-                className={`py-1 ${FOCUS_RING} ${
-                  l === locale
-                    ? "font-semibold text-gray-900 underline"
-                    : "text-gray-600 hover:underline"
-                }`}
-              >
-                {tSwitcher(l)}
-              </Link>
-            ))}
-          </nav>
+            <nav
+              aria-label={tSwitcher("label")}
+              className="flex items-center gap-4"
+            >
+              {routing.locales.map((l) => (
+                <Link
+                  key={l}
+                  href="/"
+                  locale={l}
+                  lang={l}
+                  hrefLang={l}
+                  // The name of each language is written in that language, so it
+                  // needs its own lang for a screen reader to pronounce it (WCAG
+                  // 3.1.2); aria-current says which page the visitor is on.
+                  aria-current={l === locale ? "true" : undefined}
+                  className={`py-1 ${FOCUS_RING} ${
+                    l === locale
+                      ? "font-semibold text-gray-900 underline"
+                      : "text-gray-600 hover:underline"
+                  }`}
+                >
+                  {tSwitcher(l)}
+                </Link>
+              ))}
+            </nav>
+          </div>
         </div>
       </section>
     </main>

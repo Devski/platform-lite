@@ -6,10 +6,10 @@ import { expectNoAxeViolations } from "./axe";
 // not-found body (A8); a LIVE public profile needs one and is checked in
 // e2e/db/happy-path.spec.ts, at the moment the page goes live.
 
-// The h1 is the slogan now, not the brand (#26): the page leads with what
-// the product is for, and the name sits in the footer.
-const SLOGAN = "Tu mieszka Twoje portfolio";
-const SLOGAN_EN = "Your portfolio lives here";
+// The h1 is the slogan now, not the brand (#26): the page leads with what the
+// product is for, and the name sits at the foot of the page. Spelled out here
+// rather than shared with e2e/i18n.spec.ts — a spec that reads its expected
+// copy from the same place the page does proves nothing.
 
 test.describe("Polish browser", () => {
   test.use({ locale: "pl-PL" });
@@ -19,7 +19,10 @@ test.describe("Polish browser", () => {
   }, testInfo) => {
     await page.goto("/");
     await expect(
-      page.getByRole("heading", { level: 1, name: SLOGAN }),
+      page.getByRole("heading", {
+        level: 1,
+        name: "Tu mieszka Twoje portfolio",
+      }),
     ).toBeVisible();
     await expectNoAxeViolations(page, testInfo, "landing-pl");
   });
@@ -80,7 +83,10 @@ test.describe("English browser", () => {
   }, testInfo) => {
     await page.goto("/en");
     await expect(
-      page.getByRole("heading", { level: 1, name: SLOGAN_EN }),
+      page.getByRole("heading", {
+        level: 1,
+        name: "Your portfolio lives here",
+      }),
     ).toBeVisible();
     await expectNoAxeViolations(page, testInfo, "landing-en");
   });

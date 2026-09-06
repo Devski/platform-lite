@@ -90,26 +90,26 @@ approval, §7).
 ### Open decisions (§12)
 
 - ~~[#25](https://github.com/3dbdg/platform-lite/issues/25) Decision: product name and domain~~ — **resolved 05.09.2026**: `architektow3d.pl`, production on the apex, dev on `dev.`, previews on `*.dev.`. Unblocked #22, #24 and #31.
-- [#26](https://github.com/3dbdg/platform-lite/issues/26) Decision: landing page design (photo, source, license) (`ux`) — the placeholder in #19 does not wait for it. **Deferred 05.09.2026**: visual polish comes after the functionality. The licence half is not cosmetic — it must permit commercial use.
+- ~~[#26](https://github.com/3dbdg/platform-lite/issues/26) Decision: landing page design (photo, source, license)~~ — **resolved 06.09.2026**: Dawid's own photograph of the street sign `ul. Architektów 3d`, so the licence question falls away. It takes the top two thirds of the viewport and carries no text — contrast over a photograph cannot be measured, and `e2e/axe.ts` fails on an undecided contrast result. The slogan is the `h1` beneath it, on white. Unblocks #35.
 - ~~[#27](https://github.com/3dbdg/platform-lite/issues/27) Decision: default OG image for profiles without avatar~~ — **done 05.09.2026**: one monogram, drawn the same on the page and on the square 512 px share card. Widened from the original scope, which covered only the share image: the page's own placeholder was a different one. The public brand became `Architektów 3d` at the same time — every shared link still advertised `platform-lite`.
 
 ### After the MVP
 
-Neither blocks the MVP; both were found while finishing Phase 4 and are recorded so
+None of these block the MVP; they were found while finishing Phase 4 and are recorded so
 they are not rediscovered later.
 
 - [#34](https://github.com/3dbdg/platform-lite/issues/34) Account deletion, including the
-- [#44](https://github.com/3dbdg/platform-lite/issues/44) Where personal data lives: which of it is sensitive, and does it belong in its own store (`compliance`) — opened 06.09.2026, four questions to answer in writing before production. The name is public by design; the sensitive thing is its LINK to the private address. Also carries four gaps found while surveying: disk encryption unverified, no dev backups, session tokens in plaintext, recipient address possibly reaching a log line.
-- ~~[#36](https://github.com/3dbdg/platform-lite/issues/36) The public profile showed the user's e-mail address as their name~~ — **done 05.09.2026**: registration stopped inventing a name from the address; onboarding asks for one in two steps and derives the address from it. A migration cleared what the old flow wrote, keeping handles — they may already have been shared. Found two faults of my own on the way, both recorded on the issue and generalised as #39.
   objects behind it (`compliance`) — opened 05.09.2026: there is no code path for
   removing a user at all. Clearing test accounts from dev meant hand-written SQL, and the
   bucket objects were left unfindable. With real users this is a legal obligation, not
   tidiness. Shares its object-removal path with sweeping preview prefixes (#31).
 - [#35](https://github.com/3dbdg/platform-lite/issues/35) Transactional e-mail in the
-- [#39](https://github.com/3dbdg/platform-lite/issues/39) Make the UI airtight against what the backend and the database will accept (`enhancement`) — opened 05.09.2026: a rule can live in the form, the API schema and a database constraint, and nothing keeps the three in agreement. Two instances on one screen in #36: a submit the form could not know would fail, and a `CHECK` nothing above the database could see — both surfacing as "try again".
-  product's visual identity (`blocked`, `ux`) — deferred with #26; waits on #26/#27, because the
-  identity has to exist first. Re-run the #23 deliverability matrix afterwards: images and
-  links raise the spam score against a young sending domain.
+  product's visual identity (`ux`) — was waiting on #26/#27, because the identity had to
+  exist first; both are resolved, so this is unblocked. Re-run the #23 deliverability
+  matrix afterwards: images and links raise the spam score against a young sending domain.
+- ~~[#36](https://github.com/3dbdg/platform-lite/issues/36) The public profile showed the user's e-mail address as their name~~ — **done 05.09.2026**: registration stopped inventing a name from the address; onboarding asks for one in two steps and derives the address from it. A migration cleared what the old flow wrote, keeping handles — they may already have been shared. Found two faults of my own on the way, both recorded on the issue and generalised as #39.
+- [#39](https://github.com/3dbdg/platform-lite/issues/39) Make the UI airtight against what the backend and the database will accept (`ux`) — opened 05.09.2026: a rule can live in the form, the API schema and a database constraint, and nothing keeps the three in agreement. Two instances on one screen in #36: a submit the form could not know would fail, and a `CHECK` nothing above the database could see — both surfacing as "try again".
+- [#44](https://github.com/3dbdg/platform-lite/issues/44) Where personal data lives: which of it is sensitive, and does it belong in its own store (`compliance`) — opened 06.09.2026, four questions to answer in writing before production. The name is public by design; the sensitive thing is its LINK to the private address. Also carries four gaps found while surveying: disk encryption unverified, no dev backups, session tokens in plaintext, recipient address possibly reaching a log line.
 
 ## Requirements coverage
 

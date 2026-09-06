@@ -8,13 +8,20 @@ import { FOCUS_RING } from "./focus-ring";
 
 // The panel sits on the landing page's white block under the photo (A11,
 // decision of 06.09.2026), so every state is styled for a light ground.
-// blue-700, like the rest of the light pages: the fill is the only thing
-// marking this as a button, and WCAG 1.4.11 wants 3:1 for it against its own
-// ground — on white blue-700 measures 6.31:1 — while the white label inside
-// needs 4.5:1 against the fill. The hover must go darker here, not lighter,
-// or the label falls under that line.
+// blue-700, like the rest of the light pages: on white it is 6.82:1, so the
+// fill clears the 3:1 that WCAG 1.4.11 asks of the only thing marking this as
+// a button, and the white label inside clears 4.5:1 against the fill. The
+// hover goes darker (blue-800, 8.84:1); going lighter would eat into the
+// label's margin instead. Pill and size are the landing page's alone — every
+// other button in src/ is a small rounded-md — because this pair is the whole
+// point of the page (#26).
 const PRIMARY_BUTTON = `rounded-full bg-blue-700 px-6 py-3 text-center text-base font-semibold text-white hover:bg-blue-800 ${FOCUS_RING}`;
-const SECONDARY_BUTTON = `rounded-full border border-gray-500 px-6 py-3 text-center text-base font-semibold text-gray-900 hover:bg-gray-50 ${FOCUS_RING}`;
+// border-gray-500, not the border-gray-300 used elsewhere: the border is the
+// only thing marking this control, and gray-300 on white is 1.75:1, well under
+// the 3:1 of WCAG 1.4.11 — gray-500 is 4.84:1. The hover borrows the blue the
+// other bordered buttons use (two-factor-challenge.tsx): a gray-50 fill is
+// 1.04:1 against white, which is a hover state nobody can see.
+const SECONDARY_BUTTON = `rounded-full border border-gray-500 px-6 py-3 text-center text-base font-semibold text-gray-900 hover:border-blue-700 hover:bg-blue-50 ${FOCUS_RING}`;
 const TEXT_LINK = `font-semibold text-gray-900 underline hover:no-underline ${FOCUS_RING}`;
 
 // Client-side on purpose: the homepage stays statically prerendered (and the

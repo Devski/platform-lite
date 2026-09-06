@@ -59,6 +59,12 @@ test.describe("English browser", () => {
     await expect(page).toHaveURL(/\/en$/);
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
     await expect(
+      page.getByRole("heading", {
+        level: 1,
+        name: "Your portfolio lives here",
+      }),
+    ).toBeVisible();
+    await expect(
       page.getByText("Public profiles for architecture studios and 3D artists"),
     ).toBeVisible();
     await expect(
