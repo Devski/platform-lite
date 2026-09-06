@@ -273,7 +273,16 @@ jobs:
   # DATABASE_URL and DATABASE_URL_TEST are therefore set per step, never on
   # the job — a job-level value would reach the database-less server too.
   e2e-full:
-    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') }}
+    # Every pull request and every push, not only on demand (#40). It ran by
+    # hand until 06.09.2026, and in that arrangement two faults reached dev
+    # and were found there by a person using the product. Measured cost:
+    # 227 seconds, in parallel with the rest.
+    #
+    # Twice per change is deliberate. On the pull request it is the gate —
+    # do not merge a broken journey. On main it is the precondition for the
+    # deployment below, which is the only place that can decide what dev
+    # receives. Usually the same code both times; what it buys is the window
+    # where main moved between the two.
     # The gate has to carry the build verdict for the same commit, not just the
     # browser one; a skipped `check` would skip this job with it.
     needs: [check]
@@ -350,8 +359,11 @@ jobs:
   deploy-dev:
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     # Nothing reaches the instance that has not passed the gate, built a
-    # serving image and cleared the browser smoke.
-    needs: [check, image, deploy-config, e2e-smoke]
+    # serving image and cleared BOTH browser suites — including the full
+    # journey through a database (#40). Without that last one, dev could
+    # receive a build whose registration or photo upload was broken, which
+    # is exactly what happened on 05.09.2026.
+    needs: [check, image, deploy-config, e2e-smoke, e2e-full]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

@@ -218,11 +218,17 @@ export function contentKey(hash: string, ext: string, prefix = ""): string {
   server's `DATABASE_URL` is taken from: without it a local run reports itself **skipped**,
   while CI fails rather than report a green suite that executed nothing.
 - CI (GitHub Actions): `pnpm check` + build on every PR; Postgres as a service container;
-  e2e smoke on PRs (the `chromium` project, deliberately database-less), full e2e before a
-  prod deployment — the same database-less project first, then `chromium-db` against a
-  throwaway PostgreSQL 17, two Playwright runs so each project gets the server it needs.
-  The full run fires on a `vX.Y.Z` tag (SPEC §8's release path) or on demand, and depends on
-  `check`, so the production build is compiled before the browser ever opens.
+  BOTH browser suites on every pull request and every push — the database-less `chromium`
+  project, and `chromium-db` against a throwaway PostgreSQL 17, two Playwright runs so each
+  project gets the server it needs. The full run depends on `check`, so the production build
+  is compiled before the browser ever opens.
+- The full journey runs **twice per change**, and that is deliberate (#40, 06.09.2026). On the
+  pull request it is the gate: a broken journey does not get merged. On `main` it is the
+  precondition for the dev deployment, which is the only place that can decide what the
+  instance receives. Usually the same code both times; what the second run buys is the window
+  where `main` moved in between. It used to fire only on a tag or on demand, and in that
+  arrangement two faults reached dev on 05.09.2026 and were found there by a person using the
+  product. Measured cost of the run: 227 seconds, in parallel with the rest.
 - A bug fix starts with a test that reproduces the bug.
 
 ---
