@@ -1,1 +1,14 @@
 @import "tailwindcss";
+
+/* Inter, self-hosted by next/font (src/app/[locale]/layout.tsx).
+   wise.com serves two faces: WiseSans-Heavy for display and Inter for
+   everything else. Wise Sans is theirs and is not licensed for us; Inter is
+   SIL OFL, and it is literally the other half of the stack Dawid was looking
+   at (06.09.2026). The fallbacks are what a visitor sees for the moment
+   before the file arrives, and next/font matches their metrics so the swap
+   does not move the page. */
+@theme {
+  --font-sans:
+    var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    sans-serif;
+}

@@ -38,6 +38,8 @@ test.describe("Polish browser", () => {
     context,
   }) => {
     await page.goto("/");
+    // The languages live in the top bar's menu now (#26).
+    await page.getByRole("button", { name: "Menu" }).click();
     await page.getByRole("link", { name: "English" }).click();
     await expect(page).toHaveURL(/\/en$/);
     await expect(page.locator("html")).toHaveAttribute("lang", "en");

@@ -39,6 +39,7 @@
   },
   "HomePage": {
     "brand": "Architektów 3d",
+    "wordmark": "A3D",
     "slogan": "Your portfolio lives here",
     "tagline": "Public profiles for architecture studios and 3D artists",
     "lead": "Build a public profile in a few minutes and share it with a single link."
@@ -373,6 +374,9 @@
     "heading": "Page not found",
     "body": "This address does not exist or the profile has moved.",
     "homeLink": "Go to the home page"
+  },
+  "Menu": {
+    "label": "Menu"
   },
   "LanguageSwitcher": {
     "label": "Language selection",

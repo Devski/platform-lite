@@ -1,8 +1,6 @@
 import { getTranslations, setRequestLocale } from "next-intl/server";
-import { Link } from "@/i18n/navigation";
-import { routing } from "@/i18n/routing";
-import { FOCUS_RING } from "./focus-ring";
 import { SessionPanel } from "./session-panel";
+import { TopBarMenu } from "./top-bar-menu";
 
 // A11: the photo a signed-out visitor lands on. Dawid's own photograph
 // (decision #26, 06.09.2026) — a Warsaw street sign reading "ul. Architektów
@@ -23,44 +21,25 @@ export default async function HomePage({
   const { locale } = await params;
   setRequestLocale(locale);
   const t = await getTranslations("HomePage");
-  const tSwitcher = await getTranslations("LanguageSwitcher");
 
   return (
     <>
-      {/* The top bar: the name as type, no mark (there is no logo yet), and
-          the language choice at the right — Dawid, 06.09.2026. A real <header>
-          outside <main>, so it is a banner landmark a screen reader can skip;
-          nested in main it would be neither. Fixed height, because the hero
-          below subtracts it from the viewport. */}
+      {/* The top bar: the wordmark, and everything else behind one button —
+          Dawid, 06.09.2026. A real <header> outside <main>, so it is a banner
+          landmark a screen reader can skip; nested in main it would be
+          neither. Fixed height, because the hero below subtracts it from the
+          viewport. */}
       <header className="flex h-14 items-center justify-between gap-4 bg-white px-4 sm:px-6">
-        <span className="text-base font-semibold tracking-[0.01em] text-gray-950">
-          {t("brand")}
+        {/* "A3D" stands in until there is a drawn mark, so it is set as one:
+            bold and letter-spaced, not body type. It is NOT translated — a
+            wordmark that changed with the interface language would be a
+            different mark — but the name behind it still has to reach a screen
+            reader, or the banner announces three letters and nothing else. */}
+        <span className="text-lg font-bold tracking-[0.06em] text-gray-950">
+          <span aria-hidden="true">{t("wordmark")}</span>
+          <span className="sr-only">{t("brand")}</span>
         </span>
-        <nav
-          aria-label={tSwitcher("label")}
-          className="flex items-center gap-4 text-sm"
-        >
-          {routing.locales.map((l) => (
-            <Link
-              key={l}
-              href="/"
-              locale={l}
-              lang={l}
-              hrefLang={l}
-              // The name of each language is written in that language, so it
-              // needs its own lang for a screen reader to pronounce it (WCAG
-              // 3.1.2); aria-current says which page the visitor is on.
-              aria-current={l === locale ? "true" : undefined}
-              className={`py-1 ${FOCUS_RING} ${
-                l === locale
-                  ? "font-semibold text-gray-900 underline"
-                  : "text-gray-600 hover:underline"
-              }`}
-            >
-              {tSwitcher(l)}
-            </Link>
-          ))}
-        </nav>
+        <TopBarMenu locale={locale} />
       </header>
 
       <main className="flex flex-col bg-white">
@@ -118,9 +97,8 @@ export default async function HomePage({
               armed rather than excused. Do not flatten this back. */}
           <div className="relative z-10 m-4 rounded-2xl bg-white px-6 py-6 sm:m-8 sm:max-w-xl sm:px-8 sm:py-8">
             {/* Semibold, not bold, and tracking opened up rather than
-                tightened (Dawid's call, 06.09.2026): at display sizes the
-                system font's bold weight closes the counters and the words
-                turn into a block. */}
+                tightened (Dawid's call, 06.09.2026): at display sizes a bold
+                weight closes the counters and the words turn into a block. */}
             <h1 className="text-[2rem] leading-[1.08] font-semibold tracking-[0.01em] text-balance text-gray-950 sm:text-4xl lg:text-5xl">
               {t("slogan")}
             </h1>

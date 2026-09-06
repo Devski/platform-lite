@@ -14,23 +14,49 @@ import { expectNoAxeViolations } from "./axe";
 test.describe("Polish browser", () => {
   test.use({ locale: "pl-PL" });
 
-  // The top bar carries the name and the language choice (Dawid, 06.09.2026),
-  // and it is a banner landmark rather than a row of divs: that is what lets a
-  // screen-reader user skip it, and what keeps the language links out of the
-  // page's main content.
-  test("the brand and the language switcher live in the page banner", async ({
+  // The top bar carries the wordmark and the menu (Dawid, 06.09.2026), and it
+  // is a banner landmark rather than a row of divs: that is what lets a
+  // screen-reader user skip it, and what keeps the menu out of the page's main
+  // content.
+  test("the wordmark and the menu live in the page banner", async ({
     page,
   }) => {
     await page.goto("/");
     const banner = page.getByRole("banner");
-    await expect(banner.getByText("Architektów 3d")).toBeVisible();
-    await expect(
-      banner.getByRole("navigation", { name: "Wybór języka" }),
-    ).toBeVisible();
-    await expect(banner.getByRole("link", { name: "English" })).toBeVisible();
+    // The visible mark is the wordmark; the name it stands for has to reach a
+    // screen reader all the same, or the banner announces three letters.
+    await expect(banner.getByText("A3D", { exact: true })).toBeVisible();
+    await expect(banner.getByText("Architektów 3d")).toBeAttached();
+    await expect(banner.getByRole("button", { name: "Menu" })).toBeVisible();
     // The banner is a sibling of main, not part of it: a landmark nested in
     // main is not a banner at all.
     await expect(page.locator("main").getByRole("banner")).toHaveCount(0);
+  });
+
+  // A menu that only LOOKS closed is the usual way this goes wrong: the links
+  // stay in the accessibility tree and in the tab order, so a keyboard visitor
+  // tabs into a panel nobody can see. Every assertion here is about the
+  // closed state being genuinely closed.
+  test("the menu opens, closes on Escape, and gives focus back", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    const button = page.getByRole("button", { name: "Menu" });
+    const english = page.getByRole("link", { name: "English" });
+
+    await expect(button).toHaveAttribute("aria-expanded", "false");
+    await expect(english).toHaveCount(0);
+
+    await button.click();
+    await expect(button).toHaveAttribute("aria-expanded", "true");
+    await expect(english).toBeVisible();
+    // Both languages are offered, each announced by name — a flag alone names
+    // a country, not a language.
+    await expect(page.getByRole("link", { name: "Polski" })).toBeVisible();
+
+    await page.keyboard.press("Escape");
+    await expect(english).toHaveCount(0);
+    await expect(button).toBeFocused();
   });
 
   test("the landing page has no accessibility violations", async ({
@@ -56,6 +82,7 @@ test.describe("Polish browser", () => {
     page,
   }) => {
     await page.goto("/");
+    await page.getByRole("button", { name: "Menu" }).click();
     const link = page.getByRole("link", { name: "English" });
     // Tab rather than focus(): :focus-visible only matches a programmatic
     // focus when the last interaction was already a keyboard one.

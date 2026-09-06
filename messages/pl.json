@@ -39,6 +39,7 @@
   },
   "HomePage": {
     "brand": "Architektów 3d",
+    "wordmark": "A3D",
     "slogan": "Tu mieszka Twoje portfolio",
     "tagline": "Publiczne profile dla studiów architektury i artystów 3D",
     "lead": "Stwórz publiczny profil w kilka minut i udostępnij go jednym linkiem."
@@ -373,6 +374,9 @@
     "heading": "Nie znaleziono strony",
     "body": "Ten adres nie istnieje albo profil został przeniesiony.",
     "homeLink": "Przejdź na stronę główną"
+  },
+  "Menu": {
+    "label": "Menu"
   },
   "LanguageSwitcher": {
     "label": "Wybór języka",
