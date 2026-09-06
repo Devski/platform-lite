@@ -31,12 +31,13 @@ function analyze(page: Page) {
 
 // axe reports a rule it could not decide under `incomplete`, not under
 // `violations`. For most rules that is noise, but contrast is the one this
-// suite is relied on to hold: the landing page prints nothing on top of its
-// photograph (src/app/[locale]/(public)/page.tsx, decided in #26) precisely so
-// that its text contrast can be measured. Put a word back over the image — or
-// over any other picture, gradient or translucent panel — and every text node
-// there moves from violations to incomplete. Reading only violations would
-// then go green BECAUSE the check stopped working.
+// suite is relied on to hold: the landing page prints its words over a
+// photograph (src/app/[locale]/(public)/page.tsx, #26), and they are legible
+// only because they sit on an opaque card stacked above it. Make that card
+// translucent, drop a word straight onto the image, or put text over a
+// gradient anywhere else, and every text node there moves from violations to
+// incomplete. Reading only violations would then go green BECAUSE the check
+// stopped working.
 const MUST_BE_DECIDED = ["color-contrast", "color-contrast-enhanced"];
 
 function describeViolations(violations: readonly Violation[]): string {

@@ -13,5 +13,9 @@
 // A plain module has no boundary to cross and both sides get the string.
 // e2e/a11y.spec.ts pins it by the outline offset, which is what tells our ring
 // apart from the browser default.
+//
+// gray-900 rather than the blue the rest of the app uses: the landing page is
+// monochrome (Dawid, 06.09.2026), and a blue ring would be the one coloured
+// thing on it.
 export const FOCUS_RING =
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700";
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900";

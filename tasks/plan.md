@@ -90,7 +90,7 @@ approval, §7).
 ### Open decisions (§12)
 
 - ~~[#25](https://github.com/3dbdg/platform-lite/issues/25) Decision: product name and domain~~ — **resolved 05.09.2026**: `architektow3d.pl`, production on the apex, dev on `dev.`, previews on `*.dev.`. Unblocked #22, #24 and #31.
-- ~~[#26](https://github.com/3dbdg/platform-lite/issues/26) Decision: landing page design (photo, source, license)~~ — **resolved 06.09.2026**: Dawid's own photograph of the street sign `ul. Architektów 3d`, so the licence question falls away. It takes the top two thirds of the viewport and carries no text — contrast over a photograph cannot be measured, and `e2e/axe.ts` fails on an undecided contrast result. The slogan is the `h1` beneath it, on white. Unblocks #35.
+- ~~[#26](https://github.com/3dbdg/platform-lite/issues/26) Decision: landing page design (photo, source, license)~~ — **resolved 06.09.2026**: Dawid's own photograph of the street sign `ul. Architektów 3d`, so the licence question falls away. It fills a phone's screen below the top bar, and the slogan sits on it — on an opaque card, because contrast over a photograph cannot be measured and `e2e/axe.ts` fails on an undecided contrast result. Monochrome, light, wise.com in feel; the rest of the app is still blue. Unblocks #35.
 - ~~[#27](https://github.com/3dbdg/platform-lite/issues/27) Decision: default OG image for profiles without avatar~~ — **done 05.09.2026**: one monogram, drawn the same on the page and on the square 512 px share card. Widened from the original scope, which covered only the share image: the page's own placeholder was a different one. The public brand became `Architektów 3d` at the same time — every shared link still advertised `platform-lite`.
 
 ### After the MVP

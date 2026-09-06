@@ -7,12 +7,31 @@ import { expectNoAxeViolations } from "./axe";
 // e2e/db/happy-path.spec.ts, at the moment the page goes live.
 
 // The h1 is the slogan now, not the brand (#26): the page leads with what the
-// product is for, and the name sits at the foot of the page. Spelled out here
-// rather than shared with e2e/i18n.spec.ts — a spec that reads its expected
-// copy from the same place the page does proves nothing.
+// product is for, and the name sits in the top bar. Spelled out here rather
+// than shared with e2e/i18n.spec.ts — a spec that reads its expected copy from
+// the same place the page does proves nothing.
 
 test.describe("Polish browser", () => {
   test.use({ locale: "pl-PL" });
+
+  // The top bar carries the name and the language choice (Dawid, 06.09.2026),
+  // and it is a banner landmark rather than a row of divs: that is what lets a
+  // screen-reader user skip it, and what keeps the language links out of the
+  // page's main content.
+  test("the brand and the language switcher live in the page banner", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    const banner = page.getByRole("banner");
+    await expect(banner.getByText("Architektów 3d")).toBeVisible();
+    await expect(
+      banner.getByRole("navigation", { name: "Wybór języka" }),
+    ).toBeVisible();
+    await expect(banner.getByRole("link", { name: "English" })).toBeVisible();
+    // The banner is a sibling of main, not part of it: a landmark nested in
+    // main is not a banner at all.
+    await expect(page.locator("main").getByRole("banner")).toHaveCount(0);
+  });
 
   test("the landing page has no accessibility violations", async ({
     page,
