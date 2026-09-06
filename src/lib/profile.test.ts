@@ -129,11 +129,37 @@ describe("setAvatar + getProfile (A4, G2)", () => {
     const d = makeDeps();
     const uploaded = await uploadAvatar(d, 1);
 
-    await expect(setAvatar(d.deps, uploaded.original.fileId)).resolves
-      .toBeUndefined();
+    await expect(
+      setAvatar(d.deps, uploaded.original.fileId),
+    ).resolves.toBeUndefined();
     const view = await getProfile(d.deps);
     expect(view.displayName).toBe("Pracownia Żółć");
     expect(view.avatar?.fileId).toBe(uploaded.original.fileId);
+  });
+
+  // #49: a PR preview shares dev's database and its bucket, and differs only
+  // in S3_PREFIX. Rebuilding the address at read time made the same row point
+  // at a different object per environment, so every avatar 404'd on a
+  // preview. The row has to name the object the upload actually wrote.
+  it("resolves to the object the upload wrote, from an environment with another prefix", async () => {
+    const d = makeDeps();
+    const uploaded = await uploadAvatar(d, 1);
+    await setAvatar(d.deps, uploaded.original.fileId);
+
+    const preview = { ...d.deps, prefix: "pr-49/" };
+    const view = await getProfile(preview);
+
+    expect(view.avatar?.url512).toBe(
+      `memory://${PREFIX}a/${uploaded.original.sha256}-512.webp`,
+    );
+    expect(view.avatar?.url128).toBe(
+      `memory://${PREFIX}a/${uploaded.original.sha256}-128.webp`,
+    );
+    // And the object really is there under that address, so this is not two
+    // derivations agreeing with each other.
+    expect(
+      d.objects.has(`${PREFIX}a/${uploaded.original.sha256}-512.webp`),
+    ).toBe(true);
   });
 
   it("wires the confirmed upload into the profile and resolves the variant URLs", async () => {
@@ -173,7 +199,9 @@ describe("setAvatar + getProfile (A4, G2)", () => {
       setAvatar(d.deps, "00000000-0000-4000-8000-000000000000"),
     ).rejects.toMatchObject({ code: "invalid_avatar" });
     // The valid original still works after the refusals.
-    await expect(setAvatar(d.deps, own.original.fileId)).resolves.toBeUndefined();
+    await expect(
+      setAvatar(d.deps, own.original.fileId),
+    ).resolves.toBeUndefined();
   });
 
   it("replacing the avatar frees the old set's rows and objects", async () => {
@@ -186,16 +214,53 @@ describe("setAvatar + getProfile (A4, G2)", () => {
     // Only the second set's three rows remain (cascade took the variants).
     const rows = await testDb.db.select().from(files);
     expect(rows).toHaveLength(3);
-    expect(
-      rows.find((row) => row.kind === "avatar-original")?.id,
-    ).toBe(second.original.fileId);
+    expect(rows.find((row) => row.kind === "avatar-original")?.id).toBe(
+      second.original.fileId,
+    );
 
     // The first set's objects are gone; the second's remain.
     expect(d.objects.has(first.original.key)).toBe(false);
-    expect(
-      d.objects.has(`${PREFIX}a/${first.original.sha256}-512.webp`),
-    ).toBe(false);
+    expect(d.objects.has(`${PREFIX}a/${first.original.sha256}-512.webp`)).toBe(
+      false,
+    );
     expect(d.objects.has(second.original.key)).toBe(true);
+  });
+
+  // The other half of #49: cleanup deletes the objects this account's rows
+  // name, not the ones the deleting environment would have named.
+  it("deletes the objects the rows name, from an environment with another prefix", async () => {
+    const d = makeDeps();
+    const first = await uploadAvatar(d, 10);
+    await setAvatar(d.deps, first.original.fileId);
+    const second = await uploadAvatar(d, 11);
+
+    // The replacement is made from a preview, which shares the database and
+    // the bucket and differs only in its prefix.
+    await setAvatar({ ...d.deps, prefix: "pr-49/" }, second.original.fileId);
+
+    expect(d.objects.has(first.original.key)).toBe(false);
+    expect(d.objects.has(`${PREFIX}a/${first.original.sha256}-512.webp`)).toBe(
+      false,
+    );
+    expect(d.objects.has(`${PREFIX}a/${first.original.sha256}-128.webp`)).toBe(
+      false,
+    );
+  });
+
+  // Rows written before object_key existed carry none, and until
+  // scripts/backfill-file-keys.ts has run in an environment they have to keep
+  // working there — read from the environment that wrote them, which is the
+  // only place the old derivation was ever right.
+  it("falls back to the derived address for rows written before the column", async () => {
+    const d = makeDeps();
+    const uploaded = await uploadAvatar(d, 12);
+    await setAvatar(d.deps, uploaded.original.fileId);
+    await testDb.db.update(files).set({ objectKey: null });
+
+    const view = await getProfile(d.deps);
+    expect(view.avatar?.url512).toBe(
+      `memory://${PREFIX}a/${uploaded.original.sha256}-512.webp`,
+    );
   });
 
   it("keeps shared objects when another user's avatar has the same bytes", async () => {
@@ -212,9 +277,9 @@ describe("setAvatar + getProfile (A4, G2)", () => {
     // My old rows are gone, but the shared objects survive for the other user.
     expect(d.objects.has(mine.original.key)).toBe(true);
     const remaining = await testDb.db.select().from(files);
-    expect(
-      remaining.filter((row) => row.userId === otherUserId),
-    ).toHaveLength(3);
+    expect(remaining.filter((row) => row.userId === otherUserId)).toHaveLength(
+      3,
+    );
   });
 
   it("setting the same avatar again is a no-op", async () => {
@@ -267,13 +332,13 @@ describe("setAvatar + getProfile (A4, G2)", () => {
     await setAvatar(d.deps, second.original.fileId);
     const remaining = await testDb.db.select().from(files);
     expect(remaining).toHaveLength(3);
-    expect(
-      remaining.find((row) => row.kind === "avatar-original")?.id,
-    ).toBe(second.original.fileId);
+    expect(remaining.find((row) => row.kind === "avatar-original")?.id).toBe(
+      second.original.fileId,
+    );
     expect(d.objects.has(second.original.key)).toBe(true);
-    expect(
-      d.objects.has(`${PREFIX}a/${second.original.sha256}-512.webp`),
-    ).toBe(true);
+    expect(d.objects.has(`${PREFIX}a/${second.original.sha256}-512.webp`)).toBe(
+      true,
+    );
   });
 
   it("an account past onboarding but with no photo shows the name alone", async () => {
@@ -284,4 +349,3 @@ describe("setAvatar + getProfile (A4, G2)", () => {
     });
   });
 });
-

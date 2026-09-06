@@ -305,6 +305,20 @@ export const files = pgTable(
     // #14: the stored object's extension (jpg/png/webp), needed to rebuild
     // the original's key for app-mediated object cleanup (G2).
     ext: text("ext").notNull(),
+    // #49: the key this row's object was ACTUALLY written under, prefix and
+    // all. The address used to be rebuilt at read time from sha256 + ext +
+    // the READING environment's S3_PREFIX, so one row resolved to a different
+    // object in every environment: a PR preview, which shares dev's database
+    // and bucket and differs only in that prefix, 404'd on every avatar. It
+    // also meant that changing S3_PREFIX anywhere silently unhooked every
+    // existing file from its object, with the row and the object both still
+    // there.
+    //
+    // Nullable only for rows written before this column existed;
+    // `scripts/backfill-file-keys.ts` fills them per environment, and the two
+    // read paths fall back to the old derivation until it has run. New rows
+    // always carry it.
+    objectKey: text("object_key"),
     createdAt: createdAt(),
   },
   (table) => [

@@ -4,7 +4,11 @@ import sharp from "sharp";
 import type { Database } from "@/db/client";
 import { files, pendingUploads } from "@/db/schema";
 import { quotaAllows, reservePendingUpload } from "@/lib/quota";
-import { contentKey, ObjectNotFoundError, type FileStorage } from "@/lib/storage";
+import {
+  contentKey,
+  ObjectNotFoundError,
+  type FileStorage,
+} from "@/lib/storage";
 
 // The #12 avatar pipeline, following the staging contract recorded on the
 // issue (from the #11 security audit): the browser uploads to a random,
@@ -231,7 +235,9 @@ export async function confirmAvatarUpload(
   // A typed rejection after the bytes were fetched is terminal for this
   // staged object — a retry needs a fresh presign anyway — so discard it
   // (best-effort) instead of leaving it for the lifecycle sweep.
-  const discarded = async (code: AvatarErrorCode): Promise<AvatarUploadError> => {
+  const discarded = async (
+    code: AvatarErrorCode,
+  ): Promise<AvatarUploadError> => {
     await discardStagedObject(storage, input.stagingKey);
     // Stop charging for bytes we just refused, but keep the row: the URL is
     // still live, so a re-upload to this key must remain sweepable (#30).
@@ -302,18 +308,23 @@ export async function confirmAvatarUpload(
     key: contentKey(`${originalHash}-${px}`, "webp", prefix),
   }));
 
+  // #49: each row records the key its own object is written under, prefix
+  // included. Every reader then addresses the object this upload created,
+  // rather than one whose name it recomputes from its own environment.
   const plannedRows = [
     {
       sha256: originalHash,
       sizeBytes: scrubbed.length,
       kind: "avatar-original" as const,
       ext: known.ext,
+      objectKey: originalKey,
     },
     ...variants.map((variant) => ({
       sha256: sha256(variant.body),
       sizeBytes: variant.body.length,
       kind: variant.kind,
       ext: "webp",
+      objectKey: variant.key,
     })),
   ];
 

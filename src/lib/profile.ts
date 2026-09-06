@@ -1,4 +1,5 @@
 import { and, eq, ne } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import type { Database } from "@/db/client";
 import { files, profiles, users } from "@/db/schema";
 import { displayNameSchema } from "@/lib/profile-schemas";
@@ -35,27 +36,56 @@ export interface ProfileView {
   avatar: { fileId: string; url512: string; url128: string } | null;
 }
 
+// #49: the address comes from the row that owns the object. `object_key` is
+// null only on rows written before that column existed — until
+// `scripts/backfill-file-keys.ts` has run in an environment, those fall back
+// to the old derivation, which is correct for exactly the environment that
+// wrote them and is the bug everywhere else.
 function variantUrl(
   storage: Pick<FileStorage, "publicUrl">,
   prefix: string,
+  storedKey: string | null,
   sha256: string,
   px: 512 | 128,
 ): string {
-  // The #12 naming contract: variants are keyed by the ORIGINAL's hash + size
-  // suffix, so the one sha256 on the original's row yields every URL.
-  return storage.publicUrl(contentKey(`${sha256}-${px}`, "webp", prefix));
+  // The #12 naming contract, kept for the fallback only: variants are keyed
+  // by the ORIGINAL's hash + size suffix.
+  return storage.publicUrl(
+    storedKey ?? contentKey(`${sha256}-${px}`, "webp", prefix),
+  );
 }
 
 export async function getProfile(deps: ProfileReadDeps): Promise<ProfileView> {
   const { db, storage, prefix, userId } = deps;
+  // The two variant rows are joined in by their parent, because each carries
+  // the key of its own object (#49). profiles.avatar_file_id points at the
+  // ORIGINAL, which is never served (G3).
+  const variant512 = alias(files, "variant_512");
+  const variant128 = alias(files, "variant_128");
   const [row] = await db
     .select({
       displayName: profiles.displayName,
       avatarFileId: profiles.avatarFileId,
       avatarSha256: files.sha256,
+      key512: variant512.objectKey,
+      key128: variant128.objectKey,
     })
     .from(profiles)
     .leftJoin(files, eq(profiles.avatarFileId, files.id))
+    .leftJoin(
+      variant512,
+      and(
+        eq(variant512.parentFileId, files.id),
+        eq(variant512.kind, "avatar-512"),
+      ),
+    )
+    .leftJoin(
+      variant128,
+      and(
+        eq(variant128.parentFileId, files.id),
+        eq(variant128.kind, "avatar-128"),
+      ),
+    )
     .where(eq(profiles.userId, userId));
   if (!row) return { displayName: null, avatar: null };
   return {
@@ -64,8 +94,20 @@ export async function getProfile(deps: ProfileReadDeps): Promise<ProfileView> {
       row.avatarFileId && row.avatarSha256
         ? {
             fileId: row.avatarFileId,
-            url512: variantUrl(storage, prefix, row.avatarSha256, 512),
-            url128: variantUrl(storage, prefix, row.avatarSha256, 128),
+            url512: variantUrl(
+              storage,
+              prefix,
+              row.key512,
+              row.avatarSha256,
+              512,
+            ),
+            url128: variantUrl(
+              storage,
+              prefix,
+              row.key128,
+              row.avatarSha256,
+              128,
+            ),
           }
         : null,
   };
@@ -165,7 +207,12 @@ async function removeAvatarSet(
 ): Promise<void> {
   const { db, storage, prefix, userId } = deps;
   const [original] = await db
-    .select({ id: files.id, sha256: files.sha256, ext: files.ext })
+    .select({
+      id: files.id,
+      sha256: files.sha256,
+      ext: files.ext,
+      objectKey: files.objectKey,
+    })
     .from(files)
     .where(
       and(
@@ -190,10 +237,19 @@ async function removeAvatarSet(
     )
     .limit(1);
   if (!shared) {
+    // The variants' own rows carry their own keys (#49); they are about to be
+    // taken by the parent cascade below, so read them while they exist.
+    const variantRows = await db
+      .select({ objectKey: files.objectKey, kind: files.kind })
+      .from(files)
+      .where(eq(files.parentFileId, original.id));
+    const variantKey = (kind: "avatar-512" | "avatar-128", px: 512 | 128) =>
+      variantRows.find((variant) => variant.kind === kind)?.objectKey ??
+      contentKey(`${original.sha256}-${px}`, "webp", prefix);
     const keys = [
-      contentKey(original.sha256, original.ext, prefix),
-      contentKey(`${original.sha256}-512`, "webp", prefix),
-      contentKey(`${original.sha256}-128`, "webp", prefix),
+      original.objectKey ?? contentKey(original.sha256, original.ext, prefix),
+      variantKey("avatar-512", 512),
+      variantKey("avatar-128", 128),
     ];
     for (const key of keys) {
       try {
