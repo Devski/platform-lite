@@ -9,3 +9,9 @@ playwright-report/
 test-results/
 next-env.d.ts
 *.tsbuildinfo
+
+# Claude Code's local dev-server configuration (.claude/launch.json), written
+# so the in-app browser can start `pnpm dev` and look at a page. It describes
+# one machine's tooling, not the project, and the project's own command is in
+# package.json.
+.claude/
