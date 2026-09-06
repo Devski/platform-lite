@@ -132,6 +132,7 @@ describe("schema tables (SPEC §9)", () => {
         "ext",
         "id",
         "kind",
+        "object_key",
         "parent_file_id",
         "sha256",
         "size_bytes",
