@@ -29,8 +29,10 @@ export default async function HomePage({
       {/* Two thirds of the viewport, always (decision of 06.09.2026) — and
           nothing sits on top of it, so it really is two thirds rather than a
           band with an opaque card eating its lower half. The minimum stops a
-          landscape phone from crushing it to a stripe. */}
-      <div className="relative isolate h-[66vh] min-h-[320px] shrink-0">
+          short window from crushing it to a stripe, and stays under two
+          thirds of a landscape phone (66vh of 390 px = 257) so that it never
+          becomes the thing that pushes the slogan off the screen. */}
+      <div className="relative isolate h-[66vh] min-h-[240px] shrink-0">
         {/* Decorative: every word is in the block below, so the photo needs no
             description. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -64,7 +66,7 @@ export default async function HomePage({
           measured; text floating on an image cannot, by anyone, including a
           reader with low vision. The fade above does the joining, so the words
           still read as part of the photograph. */}
-      <section className="w-full px-6 pt-6 pb-10 sm:px-10">
+      <section className="w-full px-6 pt-5 pb-10 sm:px-10 sm:pt-6">
         <div className="mx-auto w-full max-w-3xl">
           {/* Semibold, not bold, and tracking opened up rather than tightened
               (Dawid's call, 06.09.2026): at display sizes the system font's
@@ -72,10 +74,10 @@ export default async function HomePage({
           <h1 className="text-[2rem] leading-[1.08] font-semibold tracking-[0.01em] text-balance text-gray-950 sm:text-5xl lg:text-6xl">
             {t("slogan")}
           </h1>
-          <p className="mt-4 max-w-xl text-base text-gray-600 sm:text-lg">
+          <p className="mt-3 max-w-xl text-base text-gray-600 sm:mt-4 sm:text-lg">
             {t("lead")}
           </p>
-          <div className="mt-6">
+          <div className="mt-5 sm:mt-6">
             <SessionPanel />
           </div>
         </div>

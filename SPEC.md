@@ -51,7 +51,7 @@ it (Dawid, 06.09.2026).
 | A8  | Interface in Polish and English, architecture open to further languages: all texts via dictionaries, no strings in components. Polish unprefixed (`/handle`), English prefixed (`/en/...`); selection: `Accept-Language` header + a switcher stored in a cookie. |
 | A9  | 1 GB limit per user, free of charge (the MVP has no payments). Usage computed in the database from file sizes; an upload over the limit is rejected with a clear message.                                                                                        |
 | A10 | Seven transactional e-mails (verification, re-verification, reset, password-change confirmation, address change ×2, handle change) via Scaleway TEM. SPF, DKIM and DMARC configured before the first real message goes out. Zero marketing e-mail.               |
-| A11 | Homepage for signed-out visitors: full-screen photo + entry to sign-up/sign-in. Visual design — open (§12); the MVP ships a style-consistent placeholder.                                                                                                        |
+| A11 | Homepage for signed-out visitors: the photograph across the top two thirds of the viewport, with the slogan and the entry to sign-up/sign-in on a light ground beneath it. Photo and wording settled in #26 (§12).                                               |
 
 ---
 
@@ -370,6 +370,13 @@ HA/multicloud/Terraform · Docker and MinIO locally.
       there must remain exactly **one** SPF record — Scaleway is merged into the
       existing one, never added beside it. Two records fail both, taking the
       existing mail down with ours.
-- [ ] Design of the signed-out homepage (A11): the full-screen photo — which one, from
-      where, under what license.
+- [x] **Design of the signed-out homepage (A11)** — resolved 06.09.2026 (#26). The
+      photograph is Dawid's own: a Warsaw street sign reading "ul. Architektów 3d",
+      the product's name as an address. No attribution or licence obligation rides
+      on it. It fills the top two thirds of every viewport; nothing is printed on
+      top of it, because contrast over a photograph cannot be measured and
+      `e2e/axe.ts` fails on an undecided contrast result. The slogan ("Tu mieszka
+      Twoje portfolio" / "Your portfolio lives here") is the `h1`, on white,
+      directly beneath. Look and feel: light throughout, in the manner of
+      wise.com.
 - [ ] Choice of the specific OG image for profile pages without an avatar.
