@@ -99,8 +99,33 @@ export async function registerAndVerify(
   ).toBeVisible();
 }
 
+// Better Auth caps /sign-in/email at three attempts per ten seconds per IP,
+// and the specs in this directory run in parallel from one address. Three
+// logins already sat exactly on that cap; the fourth one — added with the
+// avatar spec — started pushing a random spec into a 429, which surfaces as a
+// screen that simply never arrives.
+//
+// The limit is deliberate product behaviour (A2), so the answer is to wait it
+// out rather than to loosen it. Only a 429 is retried, and only once: any
+// other failed login still fails loudly, which is the point of these specs.
+const RATE_LIMITED = "Zbyt wiele prób. Odczekaj chwilę i spróbuj ponownie.";
+const RATE_LIMIT_WINDOW_MS = 11_000;
+
 /** A2: sign in through the login form. Lands on the onboarding step (#15). */
 export async function logIn(
+  page: Page,
+  credentials: { email: string; password: string },
+): Promise<void> {
+  await submitLogin(page, credentials);
+  const limited = page.getByText(RATE_LIMITED);
+  if (await limited.isVisible().catch(() => false)) {
+    await page.waitForTimeout(RATE_LIMIT_WINDOW_MS);
+    await submitLogin(page, credentials);
+    await expect(limited).toBeHidden();
+  }
+}
+
+async function submitLogin(
   page: Page,
   credentials: { email: string; password: string },
 ): Promise<void> {
@@ -108,4 +133,46 @@ export async function logIn(
   await page.getByLabel("Adres e-mail").fill(credentials.email);
   await page.getByLabel("Hasło").fill(credentials.password);
   await page.getByRole("button", { name: "Zaloguj się" }).click();
+  // The form answers either way — a navigation, or an inline message — so
+  // give it a moment to have answered at all before deciding which happened.
+  await page
+    .getByText(RATE_LIMITED)
+    .waitFor({ state: "visible", timeout: 2_000 })
+    .catch(() => {});
+}
+
+/**
+ * Past the onboarding gate (#15/#36) and onto the profile screen: the name
+ * first, then the address derived from it.
+ *
+ * Deliberately not shared with e2e/db/happy-path.spec.ts, which walks the same
+ * two steps by hand. There the steps ARE the subject — that the button is
+ * disabled without a name, that the address is proposed and can be replaced,
+ * that the availability check answers. Here they are a turnstile on the way to
+ * a different screen, and a helper that asserted all of that would make an
+ * unrelated test fail for reasons it is not about.
+ */
+export async function completeOnboarding(
+  page: Page,
+  identity: Identity,
+): Promise<void> {
+  // logIn() returns as soon as it has clicked; the onboarding page arrives a
+  // navigation later. Waiting for its heading rather than typing into
+  // whatever happens to be on screen — without this the fill raced the
+  // navigation and failed one run in four.
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Ustaw swój adres profilu" }),
+  ).toBeVisible();
+  await page.getByLabel("Twoja nazwa").fill(identity.displayName);
+  await page.getByRole("button", { name: "Dalej" }).click();
+  await page.getByLabel("Adres profilu").fill(identity.handle);
+  // The availability check is debounced and then goes to the server; the
+  // submit does nothing useful until it has answered.
+  await expect(page.getByText("Ten adres jest wolny.")).toBeVisible({
+    timeout: 15_000,
+  });
+  await page.getByRole("button", { name: "Ustaw adres" }).click();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Twój profil" }),
+  ).toBeVisible();
 }
