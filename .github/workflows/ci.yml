@@ -81,10 +81,22 @@ jobs:
       # Registry paths are case-sensitive while repository names are not, so
       # normalize rather than depend on how the repo happens to be spelled.
       REGISTRY: ghcr.io
+    # Published as a job output, and every deployment reads it from here.
+    # Spelling the name a second time is what broke: the owner was renamed to
+    # `Devski`, this job lowercased it and the two deploy jobs did not, so they
+    # asked Docker for `ghcr.io/Devski/platform-lite` and got "repository name
+    # must be lowercase". It never showed while the old owner happened to be
+    # lowercase already.
+    outputs:
+      name: ${{ steps.image-name.outputs.name }}
     steps:
       - uses: actions/checkout@v7
       - name: Resolve the image name
-        run: echo "IMAGE=$REGISTRY/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+        id: image-name
+        run: |
+          IMAGE="$REGISTRY/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          echo "name=$IMAGE" >> "$GITHUB_OUTPUT"
       - name: Build the production image
         run: docker build --tag "$IMAGE:$GITHUB_SHA" .
       # An image that builds and an image that serves are different claims.
@@ -417,7 +429,7 @@ jobs:
           GH_ACTOR: ${{ github.actor }}
           # The commit SHA is what a deployment pins, so rolling back is
           # re-running this against an older one (SPEC §8).
-          APP_IMAGE: ghcr.io/${{ github.repository }}:${{ github.sha }}
+          APP_IMAGE: ${{ needs.image.outputs.name }}:${{ github.sha }}
         run: |
           ssh -i ~/.ssh/id_deploy "$HOST" \
             "APP_IMAGE='$APP_IMAGE' GH_TOKEN='$GH_TOKEN' GH_ACTOR='$GH_ACTOR' \
@@ -484,7 +496,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_ACTOR: ${{ github.actor }}
           PR: ${{ github.event.pull_request.number }}
-          APP_IMAGE: ghcr.io/${{ github.repository }}:${{ github.sha }}
+          APP_IMAGE: ${{ needs.image.outputs.name }}:${{ github.sha }}
         run: |
           # NOT `ssh ... | tee`: a pipeline reports the exit status of its LAST
           # command, and tee always succeeds. This job's first run passed green
