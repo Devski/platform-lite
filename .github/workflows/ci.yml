@@ -77,6 +77,23 @@ jobs:
       # Only this job publishes, and only to this repository's own registry
       # namespace. The repository is private, so the package is too.
       packages: write
+    # #53: the deployment now migrates before it serves, so the image has to
+    # be able to. A throwaway database is the only way to prove that the
+    # migrator and the migration files actually survived into the runtime
+    # layer — standalone prunes anything the pages do not reach.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: platform_image_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       # Registry paths are case-sensitive while repository names are not, so
       # normalize rather than depend on how the repo happens to be spelled.
@@ -99,6 +116,19 @@ jobs:
           echo "name=$IMAGE" >> "$GITHUB_OUTPUT"
       - name: Build the production image
         run: docker build --tag "$IMAGE:$GITHUB_SHA" .
+      # The deployment runs exactly this, between `pull` and `up`
+      # (deploy/remote-deploy.sh). If the migrator or the .sql files were
+      # pruned out of the standalone tree, it dies here instead of on the
+      # instance — and a deployment that cannot migrate is one that would
+      # leave an environment on new code and an old schema, which is #53.
+      - name: The image can migrate a database
+        run: |
+          docker run --rm --network host             --env DATABASE_URL=postgresql://postgres:postgres@localhost:5432/platform_image_ci             --entrypoint node "$IMAGE:$GITHUB_SHA" /app/migrate.mjs
+          # Idempotent by contract: every deploy runs it, most change nothing.
+          docker run --rm --network host             --env DATABASE_URL=postgresql://postgres:postgres@localhost:5432/platform_image_ci             --entrypoint node "$IMAGE:$GITHUB_SHA" /app/migrate.mjs
+          # And it really created the schema, rather than reporting success at
+          # an empty database.
+          docker run --rm --network host postgres:17             psql postgresql://postgres:postgres@localhost:5432/platform_image_ci             -tAc "select count(*) from information_schema.tables where table_schema='public' and table_name in ('users','profiles','files')"             | grep -qx 3
       # An image that builds and an image that serves are different claims.
       # No database and no bucket here on purpose: every module that reads the
       # environment does so lazily, so the public landing page must render on

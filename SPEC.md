@@ -290,7 +290,18 @@ export function contentKey(hash: string, ext: string, prefix = ""): string {
   publishes it to a container registry, then connects to the instance over SSH and restarts
   the container against the new tag. On the instance itself there is only Docker: the
   application container, a reverse proxy terminating TLS, and — on dev — the Postgres
-  container. Nothing is compiled on the servers. Rolling back is redeploying an older tag.
+  container. Nothing is compiled on the servers.
+- **A deployment migrates before it serves** (#53): between pulling the image and starting
+  the new container, the deployment runs the migrations that shipped inside that image. It
+  used to leave the schema to whoever remembered, and on 06.09.2026 that put dev on new
+  code against an old schema — every profile page 500'd for ten minutes, with CI green and
+  the container calling itself healthy. A migration that fails ends the deployment there:
+  the previous container is still serving and the previous schema is untouched.
+- **Rolling back is redeploying an older tag — of the CODE.** A migration that has run has
+  run; pulling an older image does not undo it. That is what makes the expand-then-contract
+  shape of G6 load-bearing rather than a style: a migration that only ADDS is one an older
+  image can still run against. One that drops or renames removes the ability to roll back
+  at all, and has to be treated as a one-way door on the day it ships.
 - Nothing "moves" from dev to prod — both are built from Git; database structure travels
   via migrations, data never does.
 - **Prod sizing is a launch-day estimate, not a measurement.** `b3-8` and the managed

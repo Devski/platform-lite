@@ -19,6 +19,25 @@ echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_ACTOR" --password-stdin
 trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
 
 docker compose pull
+
+# #53: the schema comes up BEFORE the new code serves, and before the old
+# container is replaced. A deployment used to ship code and leave the schema
+# to whoever remembered — on 06.09.2026 that put dev on new code against an
+# old schema, and every profile page returned 500 for ten minutes while CI was
+# green and the container called itself healthy.
+#
+# Order is the whole point. `pull` first, so the migrator is the version that
+# belongs to the code about to run. Then migrate, with `set -e` making a
+# failure end the deployment right here — old container still serving, old
+# schema untouched, nothing half-swapped. Only then `up`.
+#
+# `compose run` rather than `docker run`: the service definition already
+# carries the database credentials and the network, so this cannot drift away
+# from what the app itself connects to. APP_IMAGE is exported above, so the
+# one-off container is the image being deployed.
+echo "applying migrations"
+docker compose run --rm --no-deps --entrypoint node app /app/migrate.mjs
+
 docker compose up --detach --remove-orphans
 
 # The image declares its own HEALTHCHECK, so ask the container rather than
