@@ -9,7 +9,7 @@ process of about 200 MB.
 ## The pipeline
 
 A push to `main` runs the gate, builds the image, checks that the container
-actually serves, publishes it to `ghcr.io/3dbdg/platform-lite`, then connects to
+actually serves, publishes it to `ghcr.io/devski/platform-lite`, then connects to
 the instance over SSH and restarts the container against that exact commit.
 
 Two properties worth stating, because both are easy to lose:
@@ -244,7 +244,7 @@ no registry access:
 
 ```
 cd /opt/platform-lite
-APP_IMAGE=ghcr.io/3dbdg/platform-lite:<older sha> docker compose up --detach
+APP_IMAGE=ghcr.io/devski/platform-lite:<older sha> docker compose up --detach
 ```
 
 **Drilled 05.09.2026**, two deployments back and forward again: seven seconds
@@ -271,7 +271,7 @@ Opening a pull request starts a copy of that branch on the same instance, at
 happen in CI; the scripts live on the instance so either can be done by hand.
 
 ```bash
-PR=7 APP_IMAGE=ghcr.io/3dbdg/platform-lite:<sha> \
+PR=7 APP_IMAGE=ghcr.io/devski/platform-lite:<sha> \
   GH_TOKEN=<token> GH_ACTOR=<user> bash /opt/platform-lite/preview-up.sh
 PR=7 bash /opt/platform-lite/preview-down.sh
 ```

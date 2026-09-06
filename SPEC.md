@@ -1,6 +1,6 @@
 # Spec: platform-lite — MVP
 
-Repository: https://github.com/3dbdg/platform-lite
+Repository: https://github.com/Devski/platform-lite
 Status: **awaiting approval** · 30 August 2026 · nothing is implemented yet.
 Product: **Architektów 3D**, at `architektow3d.pl` (decided 05.09.2026, §12).
 `platform-lite` stays the repository and working name.
@@ -12,7 +12,7 @@ Source documents with the full rationale behind the decisions (in Polish):
 - Transactional e-mail costs (8 providers): https://claude.ai/code/artifact/70cbb3dd-5d94-42a4-90b1-2bc7f34b637a
 
 Lineage: the MVP corresponds to the `foundation → identity → profiles` modules of the approved
-capability map in the `3dbdg/platform` repository (CAPABILITY-MAP.md). Deliberately merged here
+capability map in the `platform` repository (CAPABILITY-MAP.md). Deliberately merged here
 into a single application and a single spec — that is the essence of "lite".
 
 ---
