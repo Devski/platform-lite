@@ -238,9 +238,14 @@ first request and port 80 has to be reachable for the challenge.
 
 ## Rolling back
 
-A deployment pins the commit SHA, so rolling back is running an older one. The
-image is already on the instance if it was ever deployed there, so this needs
-no registry access:
+A deployment pins the commit SHA, so rolling back is running an older one — of the
+CODE. Migrations are not undone by it: the deployment applies them before the new
+container starts (#53), and an older image then runs against the newer schema. Additive
+migrations survive that; a migration that drops or renames a column removes the ability
+to roll back past it, and is a one-way door on the day it ships.
+
+The image is already on the instance if it was ever deployed there, so this
+needs no registry access:
 
 ```
 cd /opt/platform-lite

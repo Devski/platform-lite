@@ -58,6 +58,15 @@ COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=root:root /app/.next/static ./.next/static
 COPY --from=builder --chown=root:root /app/public ./public
 
+# #53: the migrations and the program that applies them travel WITH the code
+# that needs them, so a deployment can bring the schema up before the new
+# container serves anything. Read-only, hence root-owned. `drizzle-orm` is not
+# traced into standalone by the app alone — the migrator is imported by
+# nothing the pages reach — so next.config.ts includes it explicitly, the same
+# way it does for sharp.
+COPY --from=builder --chown=root:root /app/drizzle ./drizzle
+COPY --from=builder --chown=root:root /app/deploy/migrate.mjs ./migrate.mjs
+
 EXPOSE 3000
 
 # No curl in a slim image, and none is worth adding: Node can ask for itself.
