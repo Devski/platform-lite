@@ -4,11 +4,10 @@ import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { Link } from "@/i18n/navigation";
 import { authClient } from "@/lib/auth-client";
+import { FOCUS_RING } from "./focus-ring";
 
 // The panel sits on the landing page's white block under the photo (A11,
 // decision of 06.09.2026), so every state is styled for a light ground.
-export const FOCUS_RING =
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700";
 // blue-700, like the rest of the light pages: the fill is the only thing
 // marking this as a button, and WCAG 1.4.11 wants 3:1 for it against its own
 // ground — on white blue-700 measures 6.31:1 — while the white label inside

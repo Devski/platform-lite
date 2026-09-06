@@ -1,7 +1,8 @@
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import { routing } from "@/i18n/routing";
-import { FOCUS_RING, SessionPanel } from "./session-panel";
+import { FOCUS_RING } from "./focus-ring";
+import { SessionPanel } from "./session-panel";
 
 // A11: the photo a signed-out visitor lands on. Dawid's own photograph
 // (decision #26, 06.09.2026) — a Warsaw street sign reading "ul. Architektów

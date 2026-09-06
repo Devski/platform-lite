@@ -24,6 +24,43 @@ test.describe("Polish browser", () => {
     await expectNoAxeViolations(page, testInfo, "landing-pl");
   });
 
+  // WCAG 2.4.7, and a rule axe cannot check: a focus ring that is present in
+  // the class attribute but spelled as nonsense is still a valid class token,
+  // so only the rendered outline proves it. This caught the language switcher
+  // borrowing its ring constant from a "use client" module — across the RSC
+  // boundary a server component gets a function stub, and the class attribute
+  // shipped the stub's source text instead of the utility.
+  test("keyboard focus is visible on the language switcher", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    const link = page.getByRole("link", { name: "English" });
+    // Tab rather than focus(): :focus-visible only matches a programmatic
+    // focus when the last interaction was already a keyboard one.
+    for (
+      let i = 0;
+      i < 20 && !(await link.evaluate((el) => el === document.activeElement));
+      i++
+    ) {
+      await page.keyboard.press("Tab");
+    }
+    await expect(link).toBeFocused();
+    const outline = await link.evaluate((el) => {
+      const style = getComputedStyle(el);
+      return {
+        width: parseFloat(style.outlineWidth),
+        style: style.outlineStyle,
+        offset: style.outlineOffset,
+      };
+    });
+    expect(outline.style).not.toBe("none");
+    expect(outline.width).toBeGreaterThan(0);
+    // The offset is what separates OUR ring from the browser's default one,
+    // which is drawn flush against the text and would let this test pass over
+    // a broken class attribute.
+    expect(outline.offset).toBe("2px");
+  });
+
   test("the not-found page has no accessibility violations", async ({
     page,
   }, testInfo) => {
