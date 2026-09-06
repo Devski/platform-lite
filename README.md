@@ -13,7 +13,7 @@ photo and handle, share `/your-handle`. The source of truth for every decision i
 ## Quick start (existing dev infrastructure)
 
 ```
-git clone https://github.com/3dbdg/platform-lite && cd platform-lite
+git clone https://github.com/Devski/platform-lite && cd platform-lite
 pnpm install
 cp .env.example .env      # fill in — values come from the dev infra bootstrap output
 pnpm db:tunnel            # terminal 1: keep running

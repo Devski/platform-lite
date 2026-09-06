@@ -1,10 +1,10 @@
 # Memo 001 — Warsaw address plaque
 
 - **Status:** refining (idea-refine session of 2026-08-30 — Phase 1 done, convergence pending)
-- **Feeds:** [#19](https://github.com/3dbdg/platform-lite/issues/19) (landing page),
-  [#25](https://github.com/3dbdg/platform-lite/issues/25) (name/domain — structure decided),
-  [#26](https://github.com/3dbdg/platform-lite/issues/26) (landing design),
-  optionally [#27](https://github.com/3dbdg/platform-lite/issues/27) (default OG image)
+- **Feeds:** [#19](https://github.com/Devski/platform-lite/issues/19) (landing page),
+  [#25](https://github.com/Devski/platform-lite/issues/25) (name/domain — structure decided),
+  [#26](https://github.com/Devski/platform-lite/issues/26) (landing design),
+  optionally [#27](https://github.com/Devski/platform-lite/issues/27) (default OG image)
 
 ## Raw idea (Dawid, verbatim, PL)
 
