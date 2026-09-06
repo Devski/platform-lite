@@ -11,6 +11,8 @@ import {
   vi,
 } from "vitest";
 import { accounts, sessions, users } from "@/db/schema";
+import { insertTestAccount } from "@/db/test-account";
+import { REGISTRATION_NAME } from "@/lib/account";
 import { createTestDb, type TestDb } from "@/db/test-db";
 import { createAuth, flushBackgroundTasks } from "./auth";
 import {
@@ -92,10 +94,10 @@ function signUp(
 ): Promise<Response> {
   return post(
     "/sign-up/email",
-    // Display identity arrives with profiles (#14); Better Auth's required
-    // name field is seeded from the address, same as src/lib/auth.ts hook-free
-    // clients would send.
-    { name: email.split("@")[0], email, password, callbackURL: "/welcome" },
+    // The same body the register form sends — the name is empty on purpose
+    // (#36), and the constant is shared so this helper cannot drift from the
+    // form the way the fixtures did (#40).
+    { name: REGISTRATION_NAME, email, password, callbackURL: "/welcome" },
     headers,
   );
 }
@@ -105,6 +107,34 @@ function verifyUrlFrom(message: EmailMessage): string {
   if (!match) throw new Error(`no verification URL in: ${message.body}`);
   return match[0];
 }
+
+describe("the fixture factory (#40)", () => {
+  it("creates the same row a real registration creates", async () => {
+    // Fixtures that hard-code what registration USED to do are how #36's
+    // change hid for a day: every test account carried a name the product
+    // had stopped writing, so a rule about blank names looked satisfied in
+    // tests and was violated in production. This is the pin. Change what
+    // registration sends and either the factory follows, or this goes red.
+    await signUp("pin-registered@example.com");
+    const [registered] = await testDb.db
+      .select()
+      .from(users)
+      .where(eq(users.email, "pin-registered@example.com"));
+
+    const madeId = await insertTestAccount(testDb.db, {
+      email: "pin-factory@example.com",
+    });
+    const [made] = await testDb.db
+      .select()
+      .from(users)
+      .where(eq(users.id, madeId));
+
+    expect({ name: made.name, emailVerified: made.emailVerified }).toEqual({
+      name: registered.name,
+      emailVerified: registered.emailVerified,
+    });
+  });
+});
 
 describe("sign-up (A1)", () => {
   it("creates an inactive account with a DB-generated uuid and no session", async () => {

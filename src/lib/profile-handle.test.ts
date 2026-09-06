@@ -9,6 +9,7 @@ import {
   it,
 } from "vitest";
 import { handleRedirects, profiles, users } from "@/db/schema";
+import { insertTestAccount } from "@/db/test-account";
 import { createTestDb, type TestDb } from "@/db/test-db";
 import {
   createMemoryTransport,
@@ -54,16 +55,30 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await testDb.reset();
-  // users.name mirrors sign-up: seeded from the e-mail local part (#7).
-  const rows = await testDb.db
-    .insert(users)
-    .values([
-      { name: "owner-local", email: "owner-local@example.com" },
-      { name: "other-local", email: "other-local@example.com" },
-    ])
-    .returning({ id: users.id });
-  [userId, otherUserId] = rows.map((row) => row.id);
+  // Built the way registration builds an account (#40) — not the way it used
+  // to, which is how #36's change hid from every test in this file.
+  userId = await insertTestAccount(testDb.db, {
+    email: "owner-local@example.com",
+  });
+  otherUserId = await insertTestAccount(testDb.db, {
+    email: "other-local@example.com",
+  });
 });
+
+// Onboarding sends the name together with the first claim (#36), so a test
+// that creates a profile must too — claiming without one is a path the
+// product no longer has. Later changes carry no name and must not clear it.
+const DISPLAY_NAME = "Pracownia Testowa";
+// suggestHandle's last resort, mirrored here so the tests name it once.
+const FALLBACK_BASE_VALUE = "studio";
+function claim(
+  id: string,
+  handle: string,
+  now?: Date,
+  displayName: string | undefined = DISPLAY_NAME,
+) {
+  return setHandle(testDb.db, id, handle, now, displayName);
+}
 
 async function profileRow(id = userId) {
   const [row] = await testDb.db
@@ -108,8 +123,8 @@ async function redirectRows() {
  * change to `to` a day later (the first change is always allowed).
  */
 async function claimThenChange(from: string, to: string): Promise<void> {
-  await setHandle(testDb.db, userId, from, T0);
-  await setHandle(testDb.db, userId, to, daysAfterT0(1));
+  await claim(userId, from, T0);
+  await claim(userId, to, daysAfterT0(1));
 }
 
 /** The §9 invariant: no redirect row names a live handle. */
@@ -122,22 +137,35 @@ async function expectNoRedirectToLiveHandle(): Promise<void> {
 }
 
 describe("setHandle (A5, A6)", () => {
-  it("the initial assignment creates the profile row, seeded from users.name, unstamped", async () => {
+  it("the initial assignment creates the profile row from the name sent with it, unstamped", async () => {
     await expect(
-      setHandle(testDb.db, userId, " Studio-Praga ", T0),
+      claim(userId, " Studio-Praga ", T0),
     ).resolves.toEqual({ handle: "studio-praga", previousHandle: null });
     expect(await profileRow()).toMatchObject({
       handle: "studio-praga",
-      displayName: "owner-local",
+      displayName: DISPLAY_NAME,
       handleChangedAt: null,
     });
+  });
+
+  it("refuses to create a profile with no name at all (#40)", async () => {
+    // Reachable only by skipping onboarding. It used to fall through to
+    // users.name — empty since #36 — and die on the database CHECK with a
+    // 500. Named here instead.
+    // setHandle directly: the helper defaults the name, which is the point of
+    // the helper and the opposite of what this test needs.
+    const rejection = await setHandle(testDb.db, userId, "bez-nazwy", T0).catch(
+      (error: unknown) => error,
+    );
+    expect(rejection).toBeInstanceOf(HandleError);
+    expect(rejection).toMatchObject({ code: "displayNameRequired" });
   });
 
   it("stores the name given with the claim, in place of users.name (#36)", async () => {
     // Onboarding asks for the name and derives the address from it. Before
     // this, users.name was the e-mail local part invented at registration,
     // and it reached the public page and every shared link.
-    await setHandle(testDb.db, userId, "pracownia-zolc", T0, "Pracownia Żółć");
+    await claim(userId, "pracownia-zolc", T0, "Pracownia Żółć");
     expect(await profileRow()).toMatchObject({
       handle: "pracownia-zolc",
       displayName: "Pracownia Żółć",
@@ -157,9 +185,9 @@ describe("setHandle (A5, A6)", () => {
       .insert(users)
       .values({ name: "", email: "empty-name@example.test" })
       .returning({ id: users.id });
-    await setHandle(testDb.db, fresh.id, "pracownia", T0, "Pracownia Żółć");
+    await claim(fresh.id, "pracownia", T0, "Pracownia Żółć");
     await expect(
-      setHandle(testDb.db, fresh.id, "pracownia-zolc", daysAfterT0(31)),
+      claim(fresh.id, "pracownia-zolc", daysAfterT0(31)),
     ).resolves.toMatchObject({ handle: "pracownia-zolc" });
     expect(await profileRow(fresh.id)).toMatchObject({
       displayName: "Pracownia Żółć",
@@ -168,7 +196,7 @@ describe("setHandle (A5, A6)", () => {
 
   it("keeps the display name when the profile row already exists", async () => {
     await updateDisplayName({ db: testDb.db, userId }, "Pracownia Żółć");
-    await setHandle(testDb.db, userId, "zolc", T0);
+    await claim(userId, "zolc", T0);
     expect(await profileRow()).toMatchObject({
       handle: "zolc",
       displayName: "Pracownia Żółć",
@@ -178,17 +206,17 @@ describe("setHandle (A5, A6)", () => {
   });
 
   it("setting the same handle again is a no-op, whatever the case", async () => {
-    await setHandle(testDb.db, userId, "studio-praga", T0);
+    await claim(userId, "studio-praga", T0);
     await expect(
-      setHandle(testDb.db, userId, "STUDIO-PRAGA", daysAfterT0(1)),
+      claim(userId, "STUDIO-PRAGA", daysAfterT0(1)),
     ).resolves.toEqual({ handle: "studio-praga", previousHandle: null });
     // No change happened, so no cooldown started either.
     expect((await profileRow()).handleChangedAt).toBeNull();
   });
 
   it("refuses a case-variant duplicate of another user's handle as taken", async () => {
-    await setHandle(testDb.db, otherUserId, "studio-x", T0);
-    const rejection = await setHandle(testDb.db, userId, "Studio-X", T0).catch(
+    await claim(otherUserId, "studio-x", T0);
+    const rejection = await claim(userId, "Studio-X", T0).catch(
       (error: unknown) => error,
     );
     expect(rejection).toBeInstanceOf(HandleError);
@@ -197,22 +225,22 @@ describe("setHandle (A5, A6)", () => {
   });
 
   it("rejects reserved and invalid input before touching the database", async () => {
-    await expect(setHandle(testDb.db, userId, "Admin")).rejects.toMatchObject({
+    await expect(claim(userId, "Admin")).rejects.toMatchObject({
       code: "reserved",
     });
-    await expect(setHandle(testDb.db, userId, "-x-")).rejects.toMatchObject({
+    await expect(claim(userId, "-x-")).rejects.toMatchObject({
       code: "invalid",
     });
-    await expect(setHandle(testDb.db, userId, "ab")).rejects.toMatchObject({
+    await expect(claim(userId, "ab")).rejects.toMatchObject({
       code: "invalid",
     });
     expect(await testDb.db.select().from(profiles)).toHaveLength(0);
   });
 
   it("allows the first change and stamps handle_changed_at", async () => {
-    await setHandle(testDb.db, userId, "first", T0);
+    await claim(userId, "first", T0);
     await expect(
-      setHandle(testDb.db, userId, "second", daysAfterT0(1)),
+      claim(userId, "second", daysAfterT0(1)),
     ).resolves.toEqual({ handle: "second", previousHandle: "first" });
     expect(await profileRow()).toMatchObject({
       handle: "second",
@@ -221,8 +249,8 @@ describe("setHandle (A5, A6)", () => {
   });
 
   it("blocks a second change inside 30 days and names the release moment", async () => {
-    await setHandle(testDb.db, userId, "first", T0);
-    await setHandle(testDb.db, userId, "second", daysAfterT0(1));
+    await claim(userId, "first", T0);
+    await claim(userId, "second", daysAfterT0(1));
     const rejection = await setHandle(
       testDb.db,
       userId,
@@ -241,11 +269,11 @@ describe("setHandle (A5, A6)", () => {
   });
 
   it("allows the change again once the 30 days have passed", async () => {
-    await setHandle(testDb.db, userId, "first", T0);
-    await setHandle(testDb.db, userId, "second", daysAfterT0(1));
+    await claim(userId, "first", T0);
+    await claim(userId, "second", daysAfterT0(1));
     const released = daysAfterT0(1 + HANDLE_CHANGE_COOLDOWN_DAYS);
     await expect(
-      setHandle(testDb.db, userId, "third", released),
+      claim(userId, "third", released),
     ).resolves.toEqual({ handle: "third", previousHandle: "second" });
     expect(await profileRow()).toMatchObject({
       handle: "third",
@@ -255,8 +283,8 @@ describe("setHandle (A5, A6)", () => {
 
   it("lets exactly one of two concurrent claims of the same handle win", async () => {
     const results = await Promise.allSettled([
-      setHandle(testDb.db, userId, "contested", T0),
-      setHandle(testDb.db, otherUserId, "contested", T0),
+      claim(userId, "contested", T0),
+      claim(otherUserId, "contested", T0),
     ]);
     expect(results.map((result) => result.status).sort()).toEqual([
       "fulfilled",
@@ -278,10 +306,10 @@ describe("setHandle (A5, A6)", () => {
     // The FOR UPDATE lock is what makes the second call see the first one's
     // stamp. PGlite runs transactions one at a time anyway, so the real
     // interleaving is exercised on the CI Postgres (DATABASE_URL_TEST).
-    await setHandle(testDb.db, userId, "first", T0);
+    await claim(userId, "first", T0);
     const results = await Promise.allSettled([
-      setHandle(testDb.db, userId, "second", T0),
-      setHandle(testDb.db, userId, "third", T0),
+      claim(userId, "second", T0),
+      claim(userId, "third", T0),
     ]);
     expect(results.map((result) => result.status).sort()).toEqual([
       "fulfilled",
@@ -308,7 +336,7 @@ describe("handle redirects (A6, §9)", () => {
   afterEach(expectNoRedirectToLiveHandle);
 
   it("the initial assignment writes no redirect row", async () => {
-    await setHandle(testDb.db, userId, "first", T0);
+    await claim(userId, "first", T0);
     expect(await redirectRows()).toEqual([]);
   });
 
@@ -330,7 +358,7 @@ describe("handle redirects (A6, §9)", () => {
   it("a no-op leaves the redirect table alone and reports no previous handle", async () => {
     await claimThenChange("first", "second");
     await expect(
-      setHandle(testDb.db, userId, "Second", daysAfterT0(2)),
+      claim(userId, "Second", daysAfterT0(2)),
     ).resolves.toEqual({ handle: "second", previousHandle: null });
     expect(await redirectRows()).toEqual([
       { oldHandle: "first", targetUserId: userId },
@@ -338,8 +366,8 @@ describe("handle redirects (A6, §9)", () => {
   });
 
   it("a chain a → b → c resolves both old addresses to c without rewriting rows", async () => {
-    await setHandle(testDb.db, userId, "chain-a", T0);
-    await setHandle(testDb.db, userId, "chain-b", daysAfterT0(PAST_COOLDOWN));
+    await claim(userId, "chain-a", T0);
+    await claim(userId, "chain-b", daysAfterT0(PAST_COOLDOWN));
     await setHandle(
       testDb.db,
       userId,
@@ -363,7 +391,7 @@ describe("handle redirects (A6, §9)", () => {
   it("another user claiming an old address deletes its redirect and takes it over", async () => {
     await claimThenChange("vacated", "moved-on");
     await expect(
-      setHandle(testDb.db, otherUserId, "vacated", daysAfterT0(2)),
+      claim(otherUserId, "vacated", daysAfterT0(2)),
     ).resolves.toEqual({ handle: "vacated", previousHandle: null });
     expect(await redirectRows()).toEqual([]);
     expect(await resolveHandle(testDb.db, "vacated")).toEqual({
@@ -373,10 +401,10 @@ describe("handle redirects (A6, §9)", () => {
   });
 
   it("moving back to your own old address deletes its row and redirects the one you leave", async () => {
-    await setHandle(testDb.db, userId, "own-old", T0);
-    await setHandle(testDb.db, userId, "own-new", daysAfterT0(PAST_COOLDOWN));
+    await claim(userId, "own-old", T0);
+    await claim(userId, "own-new", daysAfterT0(PAST_COOLDOWN));
     await expect(
-      setHandle(testDb.db, userId, "own-old", daysAfterT0(2 * PAST_COOLDOWN)),
+      claim(userId, "own-old", daysAfterT0(2 * PAST_COOLDOWN)),
     ).resolves.toEqual({ handle: "own-old", previousHandle: "own-new" });
     expect(await redirectRows()).toEqual([
       { oldHandle: "own-new", targetUserId: userId },
@@ -392,10 +420,10 @@ describe("handle redirects (A6, §9)", () => {
   });
 
   it("a change refused as taken leaves both tables untouched", async () => {
-    await setHandle(testDb.db, otherUserId, "held", T0);
-    await setHandle(testDb.db, userId, "first", T0);
+    await claim(otherUserId, "held", T0);
+    await claim(userId, "first", T0);
     await expect(
-      setHandle(testDb.db, userId, "held", daysAfterT0(1)),
+      claim(userId, "held", daysAfterT0(1)),
     ).rejects.toMatchObject({ code: "taken" });
     expect(await redirectRows()).toEqual([]);
     expect(await profileRow()).toMatchObject({
@@ -408,10 +436,10 @@ describe("handle redirects (A6, §9)", () => {
     // Whichever order the two transactions commit in, the row for the
     // contested handle must not survive next to a profile holding it. As
     // above, the real interleaving runs on the CI Postgres; PGlite serializes.
-    await setHandle(testDb.db, userId, "contested", T0);
+    await claim(userId, "contested", T0);
     const [leaving, claiming] = await Promise.allSettled([
-      setHandle(testDb.db, userId, "elsewhere", daysAfterT0(1)),
-      setHandle(testDb.db, otherUserId, "contested", daysAfterT0(1)),
+      claim(userId, "elsewhere", daysAfterT0(1)),
+      claim(otherUserId, "contested", daysAfterT0(1)),
     ]);
     expect(leaving).toEqual({
       status: "fulfilled",
@@ -434,7 +462,7 @@ describe("handle redirects (A6, §9)", () => {
 
 describe("resolveHandle (§9 order: profile → redirect → notFound)", () => {
   it("answers profile for a live handle, also on case-variant input", async () => {
-    await setHandle(testDb.db, userId, "studio-x", T0);
+    await claim(userId, "studio-x", T0);
     expect(await resolveHandle(testDb.db, "studio-x")).toEqual({
       kind: "profile",
       userId,
@@ -526,14 +554,14 @@ describe("getHandleState", () => {
   });
 
   it("reports the cooldown after a change, and its release", async () => {
-    await setHandle(testDb.db, userId, "first", T0);
+    await claim(userId, "first", T0);
     expect(await getHandleState(testDb.db, userId, T0)).toEqual({
       handle: "first",
       changedAt: null,
       nextChangeAt: null,
     });
 
-    await setHandle(testDb.db, userId, "second", daysAfterT0(1));
+    await claim(userId, "second", daysAfterT0(1));
     const release = daysAfterT0(1 + HANDLE_CHANGE_COOLDOWN_DAYS);
     expect(await getHandleState(testDb.db, userId, daysAfterT0(2))).toEqual({
       handle: "second",
@@ -550,7 +578,7 @@ describe("getHandleState", () => {
 
 describe("handleAvailability", () => {
   it("answers free, taken (case-insensitively), reserved and invalid", async () => {
-    await setHandle(testDb.db, otherUserId, "taken-one", T0);
+    await claim(otherUserId, "taken-one", T0);
     expect(await handleAvailability(testDb.db, "Free-One")).toEqual({
       available: true,
     });
@@ -575,13 +603,16 @@ describe("suggestHandle (the onboarding proposal)", () => {
     expect(await suggestHandle(testDb.db, userId)).toBe("pracownia-zolc");
   });
 
-  it("falls back to users.name (the e-mail local part) without a profile row", async () => {
-    expect(await suggestHandle(testDb.db, userId)).toBe("owner-local");
+  it("proposes the generic base for an account with no profile row yet", async () => {
+    // users.name used to sit between the display name and the fallback,
+    // carrying the e-mail local part — which is how an address reached the
+    // proposed address (#36). That branch is gone (#40).
+    expect(await suggestHandle(testDb.db, userId)).toBe(FALLBACK_BASE_VALUE);
   });
 
-  it("falls back to users.name when the display name yields nothing usable", async () => {
+  it("proposes the generic base when the display name yields nothing usable", async () => {
     await updateDisplayName({ db: testDb.db, userId }, "Admin");
-    expect(await suggestHandle(testDb.db, userId)).toBe("owner-local");
+    expect(await suggestHandle(testDb.db, userId)).toBe(FALLBACK_BASE_VALUE);
   });
 
   it("falls back to 'studio' when neither name can be used", async () => {
@@ -595,13 +626,14 @@ describe("suggestHandle (the onboarding proposal)", () => {
   });
 
   it("returns the current handle when one is set", async () => {
-    await setHandle(testDb.db, userId, "chosen-already", T0);
+    await claim(userId, "chosen-already", T0);
     expect(await suggestHandle(testDb.db, userId)).toBe("chosen-already");
   });
 
   it("appends -2 when the base is taken", async () => {
-    await claimedByOthers(["owner-local"]);
-    expect(await suggestHandle(testDb.db, userId)).toBe("owner-local-2");
+    await updateDisplayName({ db: testDb.db, userId }, "Studio Praga");
+    await claimedByOthers(["studio-praga"]);
+    expect(await suggestHandle(testDb.db, userId)).toBe("studio-praga-2");
   });
 
   it("makes room for the tail inside the A5 length", async () => {
@@ -614,12 +646,13 @@ describe("suggestHandle (the onboarding proposal)", () => {
   });
 
   it("walks -2 … -9, then falls back to a free random 4-hex tail", async () => {
+    await updateDisplayName({ db: testDb.db, userId }, "Studio Praga");
     await claimedByOthers([
-      "owner-local",
-      ...[2, 3, 4, 5, 6, 7, 8, 9].map((n) => `owner-local-${n}`),
+      "studio-praga",
+      ...[2, 3, 4, 5, 6, 7, 8, 9].map((n) => `studio-praga-${n}`),
     ]);
     const suggestion = await suggestHandle(testDb.db, userId);
-    expect(suggestion).toMatch(/^owner-local-[0-9a-f]{4}$/);
+    expect(suggestion).toMatch(/^studio-praga-[0-9a-f]{4}$/);
     expect(await handleAvailability(testDb.db, suggestion)).toEqual({
       available: true,
     });

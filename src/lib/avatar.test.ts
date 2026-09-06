@@ -10,7 +10,8 @@ import {
   it,
   vi,
 } from "vitest";
-import { files, pendingUploads, users } from "@/db/schema";
+import { files, pendingUploads } from "@/db/schema";
+import { insertTestAccount } from "@/db/test-account";
 import { createTestDb, type TestDb } from "@/db/test-db";
 import {
   AVATAR_MAX_BYTES,
@@ -42,11 +43,8 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await testDb.reset();
-  const [user] = await testDb.db
-    .insert(users)
-    .values({ name: "avatars", email: USER_EMAIL })
-    .returning({ id: users.id });
-  userId = user.id;
+  // Built the way registration builds an account (#40).
+  userId = await insertTestAccount(testDb.db, { email: USER_EMAIL });
 });
 
 function sha256(buffer: Buffer): string {

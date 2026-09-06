@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { files, users } from "@/db/schema";
+import { files } from "@/db/schema";
+import { insertTestAccount } from "@/db/test-account";
 import { createTestDb, type TestDb } from "@/db/test-db";
 import { QUOTA_BYTES, quotaAllows, quotaUsageBytes } from "./quota";
 
@@ -20,14 +21,11 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await testDb.reset();
-  const rows = await testDb.db
-    .insert(users)
-    .values([
-      { name: "quota", email: "quota@example.com" },
-      { name: "other", email: "other@example.com" },
-    ])
-    .returning({ id: users.id });
-  [userId, otherUserId] = rows.map((row) => row.id);
+  // Built the way registration builds accounts (#40).
+  userId = await insertTestAccount(testDb.db, { email: "quota@example.com" });
+  otherUserId = await insertTestAccount(testDb.db, {
+    email: "other@example.com",
+  });
 });
 
 let hashCounter = 0;
