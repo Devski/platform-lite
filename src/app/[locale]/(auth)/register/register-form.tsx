@@ -3,6 +3,7 @@
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { getPathname } from "@/i18n/navigation";
+import { REGISTRATION_NAME } from "@/lib/account";
 import { authClient } from "@/lib/auth-client";
 import { PASSWORD_MAX, PASSWORD_MIN, signUpSchema } from "@/lib/auth-schemas";
 import { ResendStatus } from "../resend-status";
@@ -58,7 +59,7 @@ export function RegisterForm() {
         // address, publishing the account's own address on a public page
         // and in every shared link (#36). The real name is asked for in
         // onboarding, where the address is derived from it.
-        name: "",
+        name: REGISTRATION_NAME,
         callbackURL,
       });
       if (error) {

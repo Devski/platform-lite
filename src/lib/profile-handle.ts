@@ -90,7 +90,7 @@ const NUMBERED_TAILS = ["2", "3", "4", "5", "6", "7", "8", "9"];
 
 /**
  * Proposal for the onboarding page: a slug of the display name, else of
- * users.name (the e-mail local part), else "studio"; if the base is taken,
+ * the profile's display name, else "studio"; if the base is taken,
  * try base-2 … base-9, then base-<4 random hex chars> (re-checked once).
  * Never returns a reserved/invalid value. Returns the user's current
  * handle when one is set.
@@ -103,19 +103,18 @@ export async function suggestHandle(
     .select({
       handle: profiles.handle,
       displayName: profiles.displayName,
-      name: users.name,
     })
     .from(users)
     .leftJoin(profiles, eq(profiles.userId, users.id))
     .where(eq(users.id, userId));
   if (row.handle) return row.handle;
 
-  // The display name first, the e-mail local part (users.name) when it
-  // yields nothing usable, a generic base as the last resort.
-  const base =
-    handleBaseFrom(row.displayName ?? "") ??
-    handleBaseFrom(row.name) ??
-    FALLBACK_BASE;
+  // The display name, then a generic base. users.name used to sit between
+  // them, holding the e-mail local part — which is how an address reached
+  // the proposed handle (#36). Registration leaves it empty now, so the
+  // branch could only ever return nothing; keeping it would leave a path
+  // no test could honestly exercise (#40).
+  const base = handleBaseFrom(row.displayName ?? "") ?? FALLBACK_BASE;
   const numbered = NUMBERED_TAILS.map((tail) => withSuffix(base, tail));
   const free = await firstFree(db, [base, ...numbered]);
   if (free) return free;
@@ -127,7 +126,14 @@ export async function suggestHandle(
   return (await firstFree(db, [randomTail()])) ?? randomTail();
 }
 
-export type HandleErrorCode = HandleProblem | "taken" | "cooldown";
+// "displayNameRequired": a profile row cannot be created without a name (#36,
+// #40). Reachable only by a caller that skips onboarding, so the route maps it
+// to 400 rather than treating it as an A5 problem with the handle itself.
+export type HandleErrorCode =
+  | HandleProblem
+  | "taken"
+  | "cooldown"
+  | "displayNameRequired";
 
 export class HandleError extends Error {
   /** When the A6 cooldown lifts — set for "cooldown" only. */
@@ -204,8 +210,9 @@ export async function setHandle(
       // pass the cooldown check against the same stale stamp. The row also
       // carries users.name, the display identity the first profile write
       // is seeded with (setAvatar does the same).
-      const [user] = await tx
-        .select({ name: users.name })
+      // The lock, not the name: users.name is no longer read anywhere (#40).
+      await tx
+        .select({ id: users.id })
         .from(users)
         .where(eq(users.id, userId))
         .for("update");
@@ -229,6 +236,15 @@ export async function setHandle(
         if (retryAt) throw new HandleError("cooldown", retryAt);
       }
 
+      // A profile row cannot be created without a name: the column is NOT
+      // NULL and not blank (#36), and onboarding always sends one. Refusing
+      // here names the problem, where letting a blank through would surface
+      // as a constraint violation from the database and a 500 to the caller.
+      const nameForRow = displayName ?? profile?.displayName;
+      if (!nameForRow || nameForRow.trim() === "") {
+        throw new HandleError("displayNameRequired");
+      }
+
       // Upsert, not insert: the first profile write can race a concurrent
       // updateDisplayName upsert, which does not take the user lock.
       await tx
@@ -241,7 +257,7 @@ export async function setHandle(
         // every address change until the existing row was consulted first.
         .values({
           userId,
-          displayName: displayName ?? profile?.displayName ?? user.name,
+          displayName: nameForRow,
           handle,
         })
         .onConflictDoUpdate({

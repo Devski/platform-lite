@@ -9,7 +9,7 @@ import { contentKey, type FileStorage } from "@/lib/storage";
 // signed-in user's own settings object.
 
 export class ProfileError extends Error {
-  constructor(public readonly code: "invalid_avatar") {
+  constructor(public readonly code: "invalid_avatar" | "noProfile") {
     super(`profile update rejected: ${code}`);
     this.name = "ProfileError";
   }
@@ -125,24 +125,19 @@ export async function setAvatar(
     const previous = profile?.avatarFileId ?? null;
     if (previous === fileId) return null;
 
-    // Upsert, not insert: the first profile write can race a concurrent
-    // updateDisplayName upsert, which does not take the user lock.
-    //
-    // The name spelled into the INSERT matters even when the row exists and
-    // only the avatar is changing: PostgreSQL evaluates constraints on the
-    // tuple being inserted BEFORE ON CONFLICT turns it into an update. Since
-    // #36 registration leaves users.name empty, using it here failed the
-    // not-blank CHECK on every photo upload — so the existing row is asked
-    // first. Same trap as setHandle, found the same way: by hand, on dev.
-    const [user] = await tx
-      .select({ name: users.name })
-      .from(users)
-      .where(eq(users.id, userId));
+    // A photo cannot create the profile row. Whoever uploads one has been
+    // through onboarding, which sets the name and the address — and a row
+    // invented here would have no name, fail the not-blank CHECK inside
+    // PostgreSQL (constraints are evaluated on the tuple being INSERTED,
+    // before ON CONFLICT turns it into an update) and surface as a 500.
+    // That is exactly what happened on dev on 05.09.2026. Reachable by a
+    // direct API call before onboarding, since the session already exists.
+    if (!profile) throw new ProfileError("noProfile");
     await tx
       .insert(profiles)
       .values({
         userId,
-        displayName: profile?.displayName ?? user.name,
+        displayName: profile.displayName,
         avatarFileId: fileId,
       })
       .onConflictDoUpdate({

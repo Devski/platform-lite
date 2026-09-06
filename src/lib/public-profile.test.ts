@@ -8,7 +8,7 @@ import {
   it,
   vi,
 } from "vitest";
-import { users } from "@/db/schema";
+import { insertTestAccount } from "@/db/test-account";
 import { createTestDb, type TestDb } from "@/db/test-db";
 import { routing, type Locale } from "@/i18n/routing";
 import { confirmAvatarUpload, presignAvatarUpload } from "./avatar";
@@ -60,15 +60,15 @@ afterAll(async () => {
   await testDb.close();
 });
 
+const DISPLAY_NAME = "Studio X";
+
 beforeEach(async () => {
   await testDb.reset();
   vi.mocked(getProfile).mockClear();
-  // users.name mirrors sign-up: seeded from the e-mail local part (#7).
-  const [row] = await testDb.db
-    .insert(users)
-    .values({ name: "owner-local", email: "owner-local@example.com" })
-    .returning({ id: users.id });
-  userId = row.id;
+  // Built the way registration builds an account (#40).
+  userId = await insertTestAccount(testDb.db, {
+    email: "owner-local@example.com",
+  });
   storage = createMemoryStorage().storage;
   deps = { db: testDb.db, storage, prefix: PREFIX };
 });
@@ -101,7 +101,7 @@ async function uploadAndSetAvatar(): Promise<string> {
 
 describe("loadPublicProfile (§9 for the public page)", () => {
   it("resolves a live handle to the name and the two avatar variant URLs", async () => {
-    await setHandle(testDb.db, userId, "studio-x", T0);
+    await setHandle(testDb.db, userId, "studio-x", T0, DISPLAY_NAME);
     await updateDisplayName({ db: testDb.db, userId }, "Studio X");
     const sha256 = await uploadAndSetAvatar();
 
@@ -123,23 +123,24 @@ describe("loadPublicProfile (§9 for the public page)", () => {
   });
 
   it("answers avatar: null and the seeded display name for a profile without one", async () => {
-    // setHandle seeds display_name from users.name, so a live handle always
+    // setHandle seeds display_name from the name sent with the claim, so a
+    // live handle always
     // has a name to show — no users.name fallback on the read side.
-    await setHandle(testDb.db, userId, "studio-x", T0);
+    await setHandle(testDb.db, userId, "studio-x", T0, DISPLAY_NAME);
     expect(await loadPublicProfile(deps, "studio-x")).toEqual({
       kind: "profile",
       canonical: true,
       profile: {
         userId,
         handle: "studio-x",
-        displayName: "owner-local",
+        displayName: DISPLAY_NAME,
         avatar: null,
       },
     });
   });
 
   it("finds the profile under a case/whitespace variant but marks it non-canonical", async () => {
-    await setHandle(testDb.db, userId, "studio-x", T0);
+    await setHandle(testDb.db, userId, "studio-x", T0, DISPLAY_NAME);
     const lookup = await loadPublicProfile(deps, " Studio-X ");
     expect(lookup).toMatchObject({
       kind: "profile",
@@ -149,7 +150,7 @@ describe("loadPublicProfile (§9 for the public page)", () => {
   });
 
   it("answers redirect to the current handle for an old address", async () => {
-    await setHandle(testDb.db, userId, "old-name", T0);
+    await setHandle(testDb.db, userId, "old-name", T0, DISPLAY_NAME);
     await setHandle(
       testDb.db,
       userId,
@@ -168,7 +169,7 @@ describe("loadPublicProfile (§9 for the public page)", () => {
   });
 
   it("answers notFound for an unknown handle, a reserved word and invalid input", async () => {
-    await setHandle(testDb.db, userId, "studio-x", T0);
+    await setHandle(testDb.db, userId, "studio-x", T0, DISPLAY_NAME);
     for (const input of ["nobody-here", "admin", "-x-", ""]) {
       expect(await loadPublicProfile(deps, input)).toEqual({
         kind: "notFound",
@@ -181,7 +182,7 @@ describe("loadPublicProfile (§9 for the public page)", () => {
     // display_name is NOT NULL, so getProfile's null name means the row is
     // gone — the account was deleted (cascade) after the handle resolved.
     // That is a profile that no longer exists, not an outage: 404, not 500.
-    await setHandle(testDb.db, userId, "studio-x", T0);
+    await setHandle(testDb.db, userId, "studio-x", T0, DISPLAY_NAME);
     vi.mocked(getProfile).mockResolvedValueOnce({
       displayName: null,
       avatar: null,

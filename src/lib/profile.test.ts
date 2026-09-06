@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import sharp from "sharp";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { files, profiles, users } from "@/db/schema";
+import { insertTestAccount } from "@/db/test-account";
 import { createTestDb, type TestDb } from "@/db/test-db";
 import { confirmAvatarUpload, presignAvatarUpload } from "./avatar";
 import { getProfile, setAvatar, updateDisplayName } from "./profile";
@@ -27,14 +28,10 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await testDb.reset();
-  const rows = await testDb.db
-    .insert(users)
-    .values([
-      { name: "owner-local", email: "owner@example.com" },
-      { name: "other-local", email: "other@example.com" },
-    ])
-    .returning({ id: users.id });
-  [userId, otherUserId] = rows.map((row) => row.id);
+  userId = await insertTestAccount(testDb.db, { email: "owner@example.com" });
+  otherUserId = await insertTestAccount(testDb.db, {
+    email: "other@example.com",
+  });
 });
 
 function makeDeps(ownerId = userId) {
@@ -106,6 +103,18 @@ describe("updateDisplayName (A4)", () => {
 });
 
 describe("setAvatar + getProfile (A4, G2)", () => {
+  // Anyone who can upload a photo is past onboarding: it needs a profile
+  // row, and onboarding is what creates one. Set here rather than in the
+  // shared fixture, because the tests above deliberately describe an
+  // account that has not got there yet.
+  beforeEach(async () => {
+    await updateDisplayName({ db: testDb.db, userId }, "Pracownia Testowa");
+    await updateDisplayName(
+      { db: testDb.db, userId: otherUserId },
+      "Inna Pracownia",
+    );
+  });
+
   it("attaches a photo to an account whose users.name is empty (#36)", async () => {
     // The exact sequence a real user takes now: finish onboarding (which sets
     // the display name), then upload a photo. Registration leaves users.name
@@ -133,8 +142,9 @@ describe("setAvatar + getProfile (A4, G2)", () => {
     await setAvatar(d.deps, uploaded.original.fileId);
 
     const view = await getProfile(d.deps);
-    // Display identity defaults to users.name until a name is set.
-    expect(view.displayName).toBe("owner-local");
+    // The name the account set in onboarding — no longer anything derived
+    // from the e-mail address (#36).
+    expect(view.displayName).toBe("Pracownia Testowa");
     expect(view.avatar?.fileId).toBe(uploaded.original.fileId);
     expect(view.avatar?.url512).toBe(
       `memory://${PREFIX}a/${uploaded.original.sha256}-512.webp`,
@@ -266,10 +276,10 @@ describe("setAvatar + getProfile (A4, G2)", () => {
     ).toBe(true);
   });
 
-  it("a fresh account has an empty profile view", async () => {
+  it("an account past onboarding but with no photo shows the name alone", async () => {
     const d = makeDeps();
     expect(await getProfile(d.deps)).toEqual({
-      displayName: null,
+      displayName: "Pracownia Testowa",
       avatar: null,
     });
   });
