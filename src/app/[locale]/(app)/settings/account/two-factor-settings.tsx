@@ -3,6 +3,12 @@
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { useRouter } from "@/i18n/navigation";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Divider } from "@/components/ui/divider";
+import { FormField } from "@/components/ui/form-field";
+import { Icon } from "@/components/ui/icon";
+import { Input } from "@/components/ui/input";
 import { authClient } from "@/lib/auth-client";
 
 // Account-settings control for #29: turn on the easy e-mail codes, set up an
@@ -154,40 +160,43 @@ export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
     }
   }
 
-  const inputClass =
-    "rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-600 focus:outline-none";
-  const primaryButton =
-    "self-start rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:bg-gray-400";
+  const heading = (
+    <div className="flex items-center gap-(--sp-4)">
+      <h2 className="type-h3 text-(--text-strong)">{t("heading")}</h2>
+      <Badge uppercase tone={enabled ? "success" : "neutral"} className="ml-auto">
+        {enabled ? t("status.badgeOn") : t("status.badgeOff")}
+      </Badge>
+    </div>
+  );
 
   if (enabled) {
     return (
-      <div className="mt-4 flex flex-col gap-4">
-        <p className="text-sm text-green-700">{t("status.on")}</p>
-        <form onSubmit={disable} noValidate className="flex flex-col gap-3">
-          <label
-            htmlFor="tf-off-password"
-            className="text-sm font-medium text-gray-700"
-          >
-            {t("passwordLabel")}
-          </label>
-          <input
-            id="tf-off-password"
-            type="password"
-            autoComplete="current-password"
-            value={offPassword}
-            onChange={(event) => setOffPassword(event.target.value)}
-            className={inputClass}
-          />
+      <>
+        {heading}
+        <p className="mt-(--sp-4) type-sm text-(--state-success)">
+          {t("status.on")}
+        </p>
+        <Divider className="mt-(--sp-4)" />
+        <form onSubmit={disable} noValidate className="mt-(--sp-5) flex flex-col gap-(--sp-3)">
+          <FormField label={t("passwordLabel")} htmlFor="tf-off-password">
+            <Input
+              id="tf-off-password"
+              type="password"
+              autoComplete="current-password"
+              value={offPassword}
+              onChange={(event) => setOffPassword(event.target.value)}
+            />
+          </FormField>
           {offError && (
-            <p className="text-sm text-red-700" role="alert">
+            <p className="type-sm text-(--state-danger)" role="alert">
               {offError}
             </p>
           )}
-          <button type="submit" disabled={offBusy} className={primaryButton}>
+          <Button type="submit" disabled={offBusy} className="self-start">
             {offBusy ? t("disable.disabling") : t("disable.button")}
-          </button>
+          </Button>
         </form>
-      </div>
+      </>
     );
   }
 
@@ -195,147 +204,137 @@ export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
   // user can save them before the status view (which no longer shows them).
   if (activated && setup) {
     return (
-      <div className="mt-4 flex flex-col gap-4">
-        <p className="text-sm text-green-700">{t("app.activatedHeading")}</p>
-        <div className="flex flex-col gap-1">
-          <p className="text-sm font-medium text-gray-900">
-            {t("app.backupTitle")}
-          </p>
-          <p className="text-sm text-gray-600">{t("app.backupNote")}</p>
-          <ul className="grid grid-cols-2 gap-1 rounded-md bg-gray-100 px-3 py-2 font-mono text-sm text-gray-900">
+      <>
+        {heading}
+        <p className="mt-(--sp-4) type-sm text-(--state-success)">
+          {t("app.activatedHeading")}
+        </p>
+        <div className="mt-(--sp-4) flex flex-col gap-(--sp-1)">
+          <p className="type-label text-(--text-strong)">{t("app.backupTitle")}</p>
+          <p className="type-sm text-(--text-muted)">{t("app.backupNote")}</p>
+          <ul className="grid grid-cols-2 gap-(--sp-1) rounded-md bg-(--surface-sunken) px-(--sp-4) py-(--sp-3) font-mono type-sm text-(--text-strong)">
             {setup.backupCodes.map((backupCode) => (
               <li key={backupCode}>{backupCode}</li>
             ))}
           </ul>
         </div>
-        <button
-          type="button"
-          onClick={() => router.refresh()}
-          className={primaryButton}
-        >
+        <Button type="button" onClick={() => router.refresh()} className="mt-(--sp-5) self-start">
           {t("app.done")}
-        </button>
-      </div>
+        </Button>
+      </>
     );
   }
 
   return (
-    <div className="mt-4 flex flex-col gap-6">
-      <p className="text-sm text-gray-600">{t("status.off")}</p>
+    <>
+      {heading}
+      <p className="mt-(--sp-4) type-sm text-(--text-muted)">{t("status.off")}</p>
+      <Divider className="mt-(--sp-4)" />
 
-      <section className="flex flex-col gap-2 border-t border-gray-100 pt-4">
-        <h3 className="text-sm font-semibold text-gray-900">
-          {t("email.title")}
-        </h3>
-        <p className="text-sm text-gray-600">{t("email.description")}</p>
-        <form onSubmit={enableEmail} noValidate className="flex flex-col gap-3">
-          <label
-            htmlFor="tf-email-password"
-            className="text-sm font-medium text-gray-700"
-          >
-            {t("passwordLabel")}
-          </label>
-          <input
-            id="tf-email-password"
-            type="password"
-            autoComplete="current-password"
-            value={emailPassword}
-            onChange={(event) => setEmailPassword(event.target.value)}
-            className={inputClass}
-          />
-          {emailError && (
-            <p className="text-sm text-red-700" role="alert">
-              {emailError}
-            </p>
-          )}
-          <button type="submit" disabled={emailBusy} className={primaryButton}>
-            {emailBusy ? t("email.enabling") : t("email.enable")}
-          </button>
-        </form>
-      </section>
-
-      <section className="flex flex-col gap-2 border-t border-gray-100 pt-4">
-        <h3 className="text-sm font-semibold text-gray-900">
-          {t("app.title")}
-        </h3>
-        <p className="text-sm text-gray-600">{t("app.description")}</p>
-
-        {!setup ? (
-          <form onSubmit={startApp} noValidate className="flex flex-col gap-3">
-            <label
-              htmlFor="tf-app-password"
-              className="text-sm font-medium text-gray-700"
-            >
-              {t("passwordLabel")}
-            </label>
-            <input
-              id="tf-app-password"
-              type="password"
-              autoComplete="current-password"
-              value={appPassword}
-              onChange={(event) => setAppPassword(event.target.value)}
-              className={inputClass}
-            />
-            {appError && (
-              <p className="text-sm text-red-700" role="alert">
-                {appError}
+      <div className="mt-(--sp-5) flex items-start gap-(--sp-5)">
+        <Icon name="mail" size={20} className="mt-(--sp-1) text-(--text-strong)" />
+        <div className="flex-1">
+          <h3 className="type-h4 text-(--text-strong)">{t("email.title")}</h3>
+          <p className="mt-(--sp-2) type-sm text-(--text-muted)">
+            {t("email.description")}
+          </p>
+          <form onSubmit={enableEmail} noValidate className="mt-(--sp-3) flex flex-col gap-(--sp-3)">
+            <FormField label={t("passwordLabel")} htmlFor="tf-email-password">
+              <Input
+                id="tf-email-password"
+                type="password"
+                autoComplete="current-password"
+                value={emailPassword}
+                onChange={(event) => setEmailPassword(event.target.value)}
+              />
+            </FormField>
+            {emailError && (
+              <p className="type-sm text-(--state-danger)" role="alert">
+                {emailError}
               </p>
             )}
-            <button type="submit" disabled={appBusy} className={primaryButton}>
-              {appBusy ? t("app.settingUp") : t("app.setup")}
-            </button>
+            <Button type="submit" variant="quiet" disabled={emailBusy} className="self-start">
+              {emailBusy ? t("email.enabling") : t("email.enable")}
+            </Button>
           </form>
-        ) : (
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-col gap-1">
-              <p className="text-sm text-gray-600">{t("app.keyLabel")}</p>
-              <code className="rounded-md bg-gray-100 px-3 py-2 text-sm break-all text-gray-900">
-                {setup.key}
-              </code>
-            </div>
-            <div className="flex flex-col gap-1">
-              <p className="text-sm font-medium text-gray-900">
-                {t("app.backupTitle")}
-              </p>
-              <p className="text-sm text-gray-600">{t("app.backupNote")}</p>
-              <ul className="grid grid-cols-2 gap-1 rounded-md bg-gray-100 px-3 py-2 font-mono text-sm text-gray-900">
-                {setup.backupCodes.map((backupCode) => (
-                  <li key={backupCode}>{backupCode}</li>
-                ))}
-              </ul>
-            </div>
-            <form onSubmit={confirmApp} noValidate className="flex flex-col gap-3">
-              <label
-                htmlFor="tf-app-code"
-                className="text-sm font-medium text-gray-700"
-              >
-                {t("app.confirmLabel")}
-              </label>
-              <input
-                id="tf-app-code"
-                type="text"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                value={appCode}
-                onChange={(event) => setAppCode(event.target.value)}
-                className={inputClass}
-              />
-              {confirmError && (
-                <p className="text-sm text-red-700" role="alert">
-                  {confirmError}
+        </div>
+      </div>
+
+      <Divider className="mt-(--sp-6)" />
+
+      <div className="mt-(--sp-5) flex items-start gap-(--sp-5)">
+        <Icon name="smartphone" size={20} className="mt-(--sp-1) text-(--text-strong)" />
+        <div className="flex-1">
+          <h3 className="type-h4 text-(--text-strong)">{t("app.title")}</h3>
+          <p className="mt-(--sp-2) type-sm text-(--text-muted)">
+            {t("app.description")}
+          </p>
+
+          {!setup ? (
+            <form onSubmit={startApp} noValidate className="mt-(--sp-3) flex flex-col gap-(--sp-3)">
+              <FormField label={t("passwordLabel")} htmlFor="tf-app-password">
+                <Input
+                  id="tf-app-password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={appPassword}
+                  onChange={(event) => setAppPassword(event.target.value)}
+                />
+              </FormField>
+              {appError && (
+                <p className="type-sm text-(--state-danger)" role="alert">
+                  {appError}
                 </p>
               )}
-              <button
-                type="submit"
-                disabled={confirmBusy}
-                className={primaryButton}
-              >
-                {confirmBusy ? t("app.activating") : t("app.activate")}
-              </button>
+              <Button type="submit" variant="quiet" disabled={appBusy} className="self-start">
+                {appBusy ? t("app.settingUp") : t("app.setup")}
+              </Button>
             </form>
-          </div>
-        )}
-      </section>
-    </div>
+          ) : (
+            <div className="mt-(--sp-3) flex flex-col gap-(--sp-3)">
+              <div className="flex flex-col gap-(--sp-1)">
+                <p className="type-sm text-(--text-muted)">{t("app.keyLabel")}</p>
+                <code className="rounded-md bg-(--surface-sunken) px-(--sp-4) py-(--sp-3) type-sm break-all text-(--text-strong)">
+                  {setup.key}
+                </code>
+              </div>
+              <div className="flex flex-col gap-(--sp-1)">
+                <p className="type-label text-(--text-strong)">
+                  {t("app.backupTitle")}
+                </p>
+                <p className="type-sm text-(--text-muted)">{t("app.backupNote")}</p>
+                <ul className="grid grid-cols-2 gap-(--sp-1) rounded-md bg-(--surface-sunken) px-(--sp-4) py-(--sp-3) font-mono type-sm text-(--text-strong)">
+                  {setup.backupCodes.map((backupCode) => (
+                    <li key={backupCode}>{backupCode}</li>
+                  ))}
+                </ul>
+              </div>
+              <form onSubmit={confirmApp} noValidate className="flex flex-col gap-(--sp-3)">
+                <FormField label={t("app.confirmLabel")} htmlFor="tf-app-code">
+                  <Input
+                    id="tf-app-code"
+                    type="text"
+                    mono
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    value={appCode}
+                    onChange={(event) => setAppCode(event.target.value)}
+                    className="max-w-[140px]"
+                  />
+                </FormField>
+                {confirmError && (
+                  <p className="type-sm text-(--state-danger)" role="alert">
+                    {confirmError}
+                  </p>
+                )}
+                <Button type="submit" disabled={confirmBusy} className="self-start">
+                  {confirmBusy ? t("app.activating") : t("app.activate")}
+                </Button>
+              </form>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
   );
 }

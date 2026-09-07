@@ -9,10 +9,10 @@ import { getHandleState, suggestHandle } from "@/lib/profile-handle";
 import { OnboardingSteps } from "./onboarding-steps";
 
 // #15: the one step between login and the app. Login and the 2FA challenge
-// land here; a user who already has a handle is forwarded to /, everyone
-// else picks one (a proposal is prefilled). Deliberately its own page, not a
-// settings section: the address is the point of the product (§1), so it
-// comes before the name and the photo.
+// land here; a user who already has a handle is forwarded straight to their
+// profile, everyone else picks one (a proposal is prefilled). Deliberately
+// its own page, not a settings section: the address is the point of the
+// product (§1), so it comes before the name and the photo.
 
 export async function generateMetadata({
   params,
@@ -42,21 +42,27 @@ export default async function OnboardingPage({
   const db = getDb();
   const state = await getHandleState(db, session.user.id);
   if (state.handle) {
-    redirect({ href: "/", locale });
+    // Straight to the profile that's already set up — "/" now redirects
+    // signed-in visitors right back here, so going through it would just add
+    // a hop.
+    redirect({ href: `/${state.handle}`, locale });
     return null;
   }
-  const t = await getTranslations("Onboarding");
   const suggestion = await suggestHandle(db, session.user.id);
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
-      <div className="w-full max-w-md rounded-lg border border-gray-200 bg-white p-8">
-        <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
-          {t("heading")}
-        </h1>
-        <p className="mt-2 text-sm text-gray-600">{t("intro")}</p>
-        <OnboardingSteps origin={appOrigin()} fallbackHandle={suggestion} />
-      </div>
+    // items-center only from md up, which is exactly where OnboardingSteps
+    // puts the card and the plaque side by side and the pair is short enough
+    // to centre. Stacked below md the two together can outgrow a phone screen,
+    // and a centred flex item that overflows its container loses its top edge
+    // above the scroll origin — the step badge and heading become unreachable.
+    //
+    // svh, not vh: mobile Chrome sizes vh to the viewport with its address bar
+    // hidden, so a 100vh frame is taller than what is on screen and step one
+    // scrolled a bar's worth with nothing under it. On a desktop the two are
+    // the same number. Same rule as the hero and the auth screens.
+    <main className="flex min-h-svh items-start justify-center bg-(--surface-page) p-(--sp-5) sm:p-(--sp-7) md:items-center">
+      <OnboardingSteps origin={appOrigin()} fallbackHandle={suggestion} />
     </main>
   );
 }

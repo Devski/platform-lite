@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import { getTranslations, setRequestLocale } from "next-intl/server";
-import { Link } from "@/i18n/navigation";
+import { Card } from "@/components/ui/card";
+import { Logo } from "@/components/ui/logo";
+import { TextLink } from "@/components/ui/text-link";
+import { AUTH_COLUMN, AUTH_HEADING, AUTH_MAIN } from "../shell";
 import { resolveModes } from "./modes";
 import { TwoFactorChallenge } from "./two-factor-challenge";
 
@@ -29,19 +32,17 @@ export default async function TwoFactorPage({
   const t = await getTranslations("TwoFactor");
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
-      <div className="w-full max-w-md rounded-lg border border-gray-200 bg-white p-8">
-        <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
-          {t("heading")}
-        </h1>
-        <TwoFactorChallenge modes={resolveModes(methods)} />
-        <p className="mt-6 text-sm text-gray-600">
-          <Link
-            href="/login"
-            className="font-semibold text-blue-700 hover:underline"
-          >
+    <main className={AUTH_MAIN}>
+      <div className={AUTH_COLUMN}>
+        <Logo href="/" size="compact" />
+        <Card padding="lg" className="w-full">
+          <h1 className={AUTH_HEADING}>{t("heading")}</h1>
+          <TwoFactorChallenge modes={resolveModes(methods)} />
+        </Card>
+        <p className="type-sm text-center text-(--text-muted)">
+          <TextLink href="/login" tone="muted">
             {t("backToLogin")}
-          </Link>
+          </TextLink>
         </p>
       </div>
     </main>

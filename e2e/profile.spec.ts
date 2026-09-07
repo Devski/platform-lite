@@ -18,10 +18,10 @@ test.describe("Polish browser", () => {
     const response = await page.goto(`/${UNKNOWN_HANDLE}`);
     expect(response?.status()).toBe(404);
     await expect(
-      page.getByRole("heading", { level: 1, name: "Nie znaleziono strony" }),
+      page.getByRole("heading", { level: 1, name: "Zgubiliśmy się?" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("link", { name: "Przejdź na stronę główną" }),
+      page.getByRole("link", { name: "Wróć do domu" }),
     ).toHaveAttribute("href", "/");
   });
 
@@ -51,10 +51,10 @@ test.describe("English browser", () => {
     const response = await page.goto(`/en/${UNKNOWN_HANDLE}`);
     expect(response?.status()).toBe(404);
     await expect(
-      page.getByRole("heading", { level: 1, name: "Page not found" }),
+      page.getByRole("heading", { level: 1, name: "Lost?" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("link", { name: "Go to the home page" }),
+      page.getByRole("link", { name: "Back home" }),
     ).toHaveAttribute("href", "/en");
   });
 });

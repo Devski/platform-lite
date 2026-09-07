@@ -10,6 +10,7 @@ import {
   logIn,
   newIdentity,
   registerAndVerify,
+  type Identity,
 } from "./account";
 
 // The upload button's WIRING (#12/#14), which nothing covered before.
@@ -35,6 +36,9 @@ import {
 // answers a preflight would prove nothing about the bucket's actual CORS
 // configuration; that belongs to layer 1. Here the URL is just a string the
 // server hands back and the browser must use verbatim.
+//
+// Since #58 the button lives on the owner's own profile page, behind the
+// pencil in the top bar — there is no profile-settings screen any more.
 
 if (process.env.CI && !process.env.DATABASE_URL_TEST?.trim()) {
   throw new Error(
@@ -53,6 +57,8 @@ test.setTimeout(180_000);
 const UPLOAD_URL = "/__stub-storage/staged-object";
 const STAGING_KEY = "staging/someone/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const FILE_ID = "11111111-1111-4111-8111-111111111111";
+// The hidden input the camera badge's <label> drives (owner-profile-view).
+const FILE_INPUT = "#owner-avatar-file";
 
 const json = (status: number, body: unknown) => (route: Route) =>
   route.fulfill({
@@ -89,10 +95,11 @@ async function pngBytes(): Promise<Buffer> {
 test.describe.configure({ mode: "serial" });
 
 let page: Page;
+let identity: Identity;
 
 test.beforeAll(async ({ browser }) => {
   page = await browser.newPage({ locale: "pl-PL" });
-  const identity = newIdentity();
+  identity = newIdentity();
   await registerAndVerify(page, identity);
   await logIn(page, identity);
   await completeOnboarding(page, identity);
@@ -104,11 +111,11 @@ test.afterAll(async () => {
 
 test.beforeEach(async () => {
   // A fresh render each time: the shared page still shows whatever the last
-  // test left on it, including its success message.
-  await page.goto("/settings/profile");
-  await expect(
-    page.getByRole("heading", { name: "Zdjęcie profilowe" }),
-  ).toBeVisible();
+  // test left on it, including its error message. The input exists only while
+  // the profile is in edit mode, so the pencil comes first.
+  await page.goto(`/${identity.handle}`);
+  await page.getByRole("button", { name: "Edytuj profil" }).click();
+  await expect(page.locator(FILE_INPUT)).toBeAttached();
 });
 
 test.afterEach(async () => {
@@ -143,10 +150,13 @@ test("the button presigns, PUTs the bytes where it was told, then confirms", asy
   });
 
   await page
-    .locator('input[type="file"]')
+    .locator(FILE_INPUT)
     .setInputFiles({ name: "photo.png", mimeType: "image/png", buffer: file });
 
-  await expect(page.getByText("Zdjęcie ustawione.")).toBeVisible();
+  // Nothing on screen announces the end of the chain: the photo simply
+  // appears, and every response here is a stub, so the profile never changes.
+  // The last call of the chain is what says the browser walked all of it.
+  await expect.poll(() => assignRequests.length).toBe(1);
 
   // The size and type come from the FILE, not from anything the page guessed:
   // the server signs those two values into the upload, so a mismatch here is
@@ -174,7 +184,6 @@ test("the button presigns, PUTs the bytes where it was told, then confirms", asy
   });
 
   // And the profile is pointed at the file confirm reported back.
-  expect(assignRequests).toHaveLength(1);
   expect(assignRequests[0].postDataJSON()).toEqual({ fileId: FILE_ID });
 });
 
@@ -192,7 +201,7 @@ test("a failed upload is not confirmed", async () => {
     return json(200, { original: { fileId: FILE_ID } })(route);
   });
 
-  await page.locator('input[type="file"]').setInputFiles({
+  await page.locator(FILE_INPUT).setInputFiles({
     name: "photo.png",
     mimeType: "image/png",
     buffer: await pngBytes(),
@@ -215,7 +224,7 @@ test("a refused presign stops before anything is uploaded", async () => {
     return route.fulfill({ status: 200, body: "" });
   });
 
-  await page.locator('input[type="file"]').setInputFiles({
+  await page.locator(FILE_INPUT).setInputFiles({
     name: "photo.png",
     mimeType: "image/png",
     buffer: await pngBytes(),
@@ -234,7 +243,7 @@ test("a file the browser rejects never reaches the server", async () => {
     return json(200, { stagingKey: STAGING_KEY, uploadUrl: UPLOAD_URL })(route);
   });
 
-  await page.locator('input[type="file"]').setInputFiles({
+  await page.locator(FILE_INPUT).setInputFiles({
     name: "notes.txt",
     mimeType: "text/plain",
     buffer: Buffer.from("not an image"),

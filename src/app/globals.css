@@ -1,1 +1,300 @@
+/* fonts.css — webfonts served from Google Fonts; the product ships no font
+   binaries. Figtree stands in for the brief's geometric humanist sans, IBM
+   Plex Mono for profile addresses/handles/codes, Fira Sans Condensed for the
+   plaque graphic's lettering only. Must precede @import "tailwindcss" below
+   — once a @theme block exists, an @import appearing after it in source
+   order gets relocated past the generated rules during the build, which
+   violates "@import must precede all rules". */
+@import url("https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,300..900;1,300..900&family=Fira+Sans+Condensed:wght@400;500&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
 @import "tailwindcss";
+
+/* Design tokens — ported from the Architektów 3D design handoff
+   (design-system-source/tokens directory). Token *values* are ground truth;
+   treat any conflicting description elsewhere as stale. */
+
+@theme {
+  /* Overrides Tailwind's default font-sans/font-mono utilities (and the
+     Preflight body font) so nothing renders in the system stack. */
+  --font-sans: "Figtree", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono:
+    "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-plaque: "Fira Sans Condensed", "Frutiger Condensed", "Segoe UI",
+    sans-serif;
+
+  /* colors.css — monochrome, cool-slate neutrals. The only saturated colors
+     belong to the brand plaque and to state; never used for interface
+     chrome. Registered under --color-* so the n, plaque and state scales
+     become real utility classes (bg-n-100, text-plaque-navy, ...) additive
+     to Tailwind's own palette — nothing here overrides an existing
+     Tailwind color name. */
+  --color-n-0: #ffffff;
+  --color-n-25: #fbfcfd;
+  --color-n-50: #f6f8f9;
+  --color-n-100: #eef1f3;
+  --color-n-150: #e4e8eb;
+  --color-n-200: #d7dce0;
+  --color-n-300: #bcc4ca;
+  --color-n-400: #97a2aa;
+  --color-n-500: #6f7c85;
+  --color-n-600: #55606a;
+  --color-n-700: #3c4650;
+  --color-n-800: #262e36;
+  --color-n-900: #161c22;
+  --color-n-950: #0c1116;
+
+  --color-plaque-navy: #0f4eb1;
+  --color-plaque-navy-deep: #063684;
+  --color-plaque-red: #c9150f;
+  --color-plaque-hairline: #8fd4e6;
+  --color-plaque-ink: #ffffff;
+
+  --color-state-success: #1f6f4a;
+  --color-state-success-bg: #eef5f1;
+  --color-state-danger: #a83232;
+  --color-state-danger-bg: #fbf0ef;
+  --color-state-warning: #8a5a00;
+  --color-state-warning-bg: #faf4e8;
+  --color-state-info: #3c4650;
+  --color-state-info-bg: #f1f4f6;
+
+  /* radius.css — controls 6px, cards 8px, avatars fully round. These are
+     Tailwind's own radius key names: overriding them app-wide is the point
+     of "our own primitives" (SPEC §2) rather than guessing per component. */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 20px;
+  --radius-2xl: 28px;
+  --radius-full: 999px;
+
+  /* elevation.css — borders carry structure, shadows are a whisper. Same
+     reasoning as radius: xs/sm/md are Tailwind's own shadow keys, lift/
+     plaque are new. */
+  --shadow-xs: 0 1px 1px rgba(12, 17, 22, 0.03);
+  --shadow-sm:
+    0 1px 2px rgba(12, 17, 22, 0.05), 0 1px 1px rgba(12, 17, 22, 0.03);
+  --shadow-md:
+    0 2px 8px rgba(12, 17, 22, 0.06), 0 1px 2px rgba(12, 17, 22, 0.04);
+  --shadow-lift:
+    0 8px 24px rgba(12, 17, 22, 0.09), 0 2px 6px rgba(12, 17, 22, 0.05);
+  --shadow-plaque: 0 10px 30px rgba(12, 17, 22, 0.28);
+}
+
+:root {
+  /* colors.css — bare aliases matching the token file's own variable names
+     (--plaque-navy, --state-success, ...), for component source ported
+     verbatim from design-system-source (Plaque.jsx uses var(--plaque-navy)
+     directly) — the @theme block above only defines the --color-*-prefixed
+     versions Tailwind needs to generate bg-plaque-navy etc., which is a
+     DIFFERENT, non-existent variable name from the component's own
+     var(--plaque-navy) reference. Without these, an inline style using the
+     bare name silently resolves to nothing (transparent background,
+     inherited text color) instead of erroring. */
+  --plaque-navy: var(--color-plaque-navy);
+  --plaque-navy-deep: var(--color-plaque-navy-deep);
+  --plaque-red: var(--color-plaque-red);
+  --plaque-hairline: var(--color-plaque-hairline);
+  --plaque-ink: var(--color-plaque-ink);
+  --state-success: var(--color-state-success);
+  --state-success-bg: var(--color-state-success-bg);
+  --state-danger: var(--color-state-danger);
+  --state-danger-bg: var(--color-state-danger-bg);
+  --state-warning: var(--color-state-warning);
+  --state-warning-bg: var(--color-state-warning-bg);
+  --state-info: var(--color-state-info);
+  --state-info-bg: var(--color-state-info-bg);
+
+  /* colors.css — semantic aliases. Deliberately plain CSS custom properties,
+     not Tailwind @theme entries: several names (--text-strong, --text-body,
+     ...) would collide with Tailwind's own --text-* font-size namespace.
+     Use them via the arbitrary-value shorthand, e.g. bg-(--surface-page),
+     text-(--text-body), border-(--border-hairline). Always prefer these
+     over the raw n, plaque and state scales in component code. */
+  --text-strong: var(--color-n-950);
+  --text-body: var(--color-n-800);
+  --text-muted: var(--color-n-600);
+  --text-subtle: var(--color-n-500);
+  --text-inverse: var(--color-n-0);
+  --text-on-photo: #ffffff;
+  --surface-page: var(--color-n-50);
+  --surface-card: var(--color-n-0);
+  --surface-sunken: var(--color-n-100);
+  --surface-inverse: var(--color-n-950);
+  --surface-hover: var(--color-n-50);
+  --surface-active: var(--color-n-100);
+  --border-hairline: var(--color-n-150);
+  --border-default: var(--color-n-200);
+  --border-strong: var(--color-n-300);
+  --border-inverse: rgba(255, 255, 255, 0.24);
+  --action-solid: var(--color-n-950);
+  --action-solid-hover: var(--color-n-800);
+  --action-solid-active: var(--color-n-900);
+  --action-solid-text: var(--color-n-0);
+  --action-quiet-border: var(--color-n-300);
+  --action-quiet-hover: var(--color-n-50);
+  --focus-ring: var(--color-n-950);
+  --focus-ring-inverse: #ffffff;
+  --scrim-photo: rgba(12, 17, 22, 0.42);
+  --scrim-photo-strong: rgba(12, 17, 22, 0.62);
+
+  /* elevation.css — extras that aren't utility-generating shadow keys. */
+  --shadow-none: none;
+  --shadow-inset-hairline: inset 0 -1px 0 var(--border-hairline);
+  --ring-focus: 0 0 0 2px var(--surface-card), 0 0 0 4px var(--focus-ring);
+  --ring-focus-inverse:
+    0 0 0 2px rgba(12, 17, 22, 0.6), 0 0 0 4px var(--focus-ring-inverse);
+  --blur-panel: saturate(120%) blur(14px);
+
+  /* radius.css — semantic aliases onto the scale above. */
+  --radius-control: var(--radius-sm);
+  --radius-card: var(--radius-md);
+  --radius-panel: var(--radius-xl);
+  --radius-avatar: var(--radius-full);
+
+  /* spacing.css — 4px base. Deliberately NOT registered under Tailwind's
+     --spacing-* namespace: that scale's numeric keys (p-7, gap-4, ...) are
+     already used throughout the app with Tailwind's default meaning, and
+     redefining them here would silently reflow every screen this task
+     hasn't touched yet. Use these via the arbitrary-value shorthand, e.g.
+     p-(--sp-8), gap-(--stack-gap), max-w-(--measure-form). */
+  --sp-0: 0px;
+  --sp-1: 2px;
+  --sp-2: 4px;
+  --sp-3: 8px;
+  --sp-4: 12px;
+  --sp-5: 16px;
+  --sp-6: 20px;
+  --sp-7: 24px;
+  --sp-8: 32px;
+  --sp-9: 40px;
+  --sp-10: 48px;
+  --sp-11: 56px;
+  --sp-12: 64px;
+  --sp-14: 80px;
+  --sp-16: 96px;
+  --sp-20: 128px;
+  --sp-24: 160px;
+  --card-pad: var(--sp-8);
+  --card-pad-lg: var(--sp-10);
+  --field-gap: var(--sp-2);
+  --stack-gap: var(--sp-6);
+  --section-gap: var(--sp-14);
+  --measure-form: 28rem;
+  --measure-prose: 40rem;
+  --measure-page: 68rem;
+  --measure-wide: 78rem;
+  --control-h: 40px;
+  --control-h-lg: 48px;
+  --field-h: 48px;
+  --field-h-lg: 56px;
+  --control-pad-x: var(--sp-5);
+
+  /* typography.css — sizes/line-heights/letter-spacing/weights and the
+     combined --type-* shorthands. Kept as plain vars (not Tailwind's
+     --text-* namespace, which is reserved for font-size utilities and would
+     collide with the --text-strong/--text-body color aliases above) and
+     applied through the .type-* component classes below or directly via
+     [font:var(--type-h1)] where a one-off is needed. */
+  --fs-hero: clamp(2.5rem, 5.4vw, 4.25rem);
+  --fs-display: clamp(2rem, 3.4vw, 3rem);
+  --fs-h1: 2rem;
+  --fs-h2: 1.375rem;
+  --fs-h3: 1.125rem;
+  --fs-h4: 1rem;
+  --fs-lead: 1.1875rem;
+  --fs-body: 1rem;
+  --fs-sm: 0.875rem;
+  --fs-xs: 0.8125rem;
+  --fs-micro: 0.6875rem;
+  --lh-tight: 1.05;
+  --lh-snug: 1.2;
+  --lh-heading: 1.28;
+  --lh-body: 1.6;
+  --lh-relaxed: 1.75;
+  --ls-hero: -0.032em;
+  --ls-display: -0.026em;
+  --ls-heading: -0.018em;
+  --ls-body: -0.005em;
+  --ls-caps: 0.09em;
+  --fw-light: 300;
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+  --fw-black: 800;
+  --type-hero: var(--fw-semibold) var(--fs-hero) / var(--lh-tight)
+    var(--font-sans);
+  --type-display: var(--fw-semibold) var(--fs-display) / var(--lh-snug)
+    var(--font-sans);
+  --type-h1: var(--fw-semibold) var(--fs-h1) / var(--lh-heading)
+    var(--font-sans);
+  --type-h2: var(--fw-semibold) var(--fs-h2) / var(--lh-heading)
+    var(--font-sans);
+  --type-h3: var(--fw-semibold) var(--fs-h3) / var(--lh-heading)
+    var(--font-sans);
+  --type-h4: var(--fw-semibold) var(--fs-h4) / var(--lh-heading)
+    var(--font-sans);
+  --type-lead: var(--fw-regular) var(--fs-lead) / var(--lh-body)
+    var(--font-sans);
+  --type-body: var(--fw-regular) var(--fs-body) / var(--lh-body)
+    var(--font-sans);
+  --type-sm: var(--fw-regular) var(--fs-sm) / var(--lh-body) var(--font-sans);
+  --type-label: var(--fw-medium) var(--fs-sm) / 1.4 var(--font-sans);
+  --type-mono: var(--fw-regular) var(--fs-sm) / 1.5 var(--font-mono);
+  --type-eyebrow: var(--fw-semibold) var(--fs-micro) / 1.2 var(--font-sans);
+}
+
+@layer components {
+  /* One class per --type-* shorthand, named to match 1:1 — avoids both
+     Tailwind's text-{size} utility namespace and the --text-* color
+     aliases above. Letter-spacing isn't part of the `font` shorthand, so
+     it's paired in here per role. */
+  .type-hero {
+    font: var(--type-hero);
+    letter-spacing: var(--ls-hero);
+  }
+  .type-display {
+    font: var(--type-display);
+    letter-spacing: var(--ls-display);
+  }
+  .type-h1 {
+    font: var(--type-h1);
+    letter-spacing: var(--ls-heading);
+  }
+  .type-h2 {
+    font: var(--type-h2);
+    letter-spacing: var(--ls-heading);
+  }
+  .type-h3 {
+    font: var(--type-h3);
+    letter-spacing: var(--ls-heading);
+  }
+  .type-h4 {
+    font: var(--type-h4);
+    letter-spacing: var(--ls-heading);
+  }
+  .type-lead {
+    font: var(--type-lead);
+    letter-spacing: var(--ls-body);
+  }
+  .type-body {
+    font: var(--type-body);
+    letter-spacing: var(--ls-body);
+  }
+  .type-sm {
+    font: var(--type-sm);
+    letter-spacing: var(--ls-body);
+  }
+  .type-label {
+    font: var(--type-label);
+  }
+  .type-mono {
+    font: var(--type-mono);
+  }
+  .type-eyebrow {
+    font: var(--type-eyebrow);
+    letter-spacing: var(--ls-caps);
+    text-transform: uppercase;
+  }
+}

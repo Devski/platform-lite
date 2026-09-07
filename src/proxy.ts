@@ -13,7 +13,7 @@ import { resolveHandle } from "@/lib/profile-handle";
 //    handle. The redirect is produced here, not in a page: a page can only
 //    emit 308 (`permanentRedirect`), and the spec says 301. Only a path that
 //    could be a handle is looked up — exactly one segment after an optional
-//    locale prefix, passing the A5 rules — so `/login`, `/settings/profile`
+//    locale prefix, passing the A5 rules — so `/login`, `/settings/account`
 //    and every other route never touch the database. Anything that is not a
 //    live redirect falls through to the pages: a live handle renders the
 //    profile (#18), an unknown one 404s, and a lookup failure (no

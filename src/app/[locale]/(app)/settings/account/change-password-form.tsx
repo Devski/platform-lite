@@ -2,6 +2,9 @@
 
 import { useTranslations } from "next-intl";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { FormField } from "@/components/ui/form-field";
+import { Input } from "@/components/ui/input";
 import { authClient } from "@/lib/auth-client";
 import { PASSWORD_MAX, PASSWORD_MIN, passwordSchema } from "@/lib/auth-schemas";
 
@@ -69,16 +72,10 @@ export function ChangePasswordForm() {
     <form
       onSubmit={handleSubmit}
       noValidate
-      className="mt-4 flex flex-col gap-4"
+      className="mt-(--sp-5) flex flex-col gap-(--sp-5)"
     >
-      <div className="flex flex-col gap-1">
-        <label
-          htmlFor="current-password"
-          className="text-sm font-medium text-gray-700"
-        >
-          {t("currentLabel")}
-        </label>
-        <input
+      <FormField label={t("currentLabel")} htmlFor="current-password">
+        <Input
           id="current-password"
           name="currentPassword"
           type="password"
@@ -90,23 +87,21 @@ export function ChangePasswordForm() {
           aria-describedby={
             fieldErrors.current ? "current-password-error" : undefined
           }
-          className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-600 focus:outline-none"
         />
         {fieldErrors.current && (
-          <p id="current-password-error" className="text-sm text-red-700">
+          <p id="current-password-error" className="type-sm text-(--state-danger)">
             {fieldErrors.current}
           </p>
         )}
-      </div>
+      </FormField>
 
-      <div className="flex flex-col gap-1">
-        <label
-          htmlFor="new-password"
-          className="text-sm font-medium text-gray-700"
-        >
-          {t("newLabel")}
-        </label>
-        <input
+      <FormField
+        label={t("newLabel")}
+        htmlFor="new-password"
+        hint={!fieldErrors.next && t("newHint", { min: PASSWORD_MIN, max: PASSWORD_MAX })}
+        hintId="new-password-hint"
+      >
+        <Input
           id="new-password"
           name="newPassword"
           type="password"
@@ -118,37 +113,28 @@ export function ChangePasswordForm() {
           aria-describedby={
             fieldErrors.next ? "new-password-error" : "new-password-hint"
           }
-          className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-600 focus:outline-none"
         />
-        {fieldErrors.next ? (
-          <p id="new-password-error" className="text-sm text-red-700">
+        {fieldErrors.next && (
+          <p id="new-password-error" className="type-sm text-(--state-danger)">
             {fieldErrors.next}
           </p>
-        ) : (
-          <p id="new-password-hint" className="text-sm text-gray-500">
-            {t("newHint", { min: PASSWORD_MIN, max: PASSWORD_MAX })}
-          </p>
         )}
-      </div>
+      </FormField>
 
       {formError && (
-        <p className="text-sm text-red-700" role="alert">
+        <p className="type-sm text-(--state-danger)" role="alert">
           {formError}
         </p>
       )}
       {done && (
-        <p className="text-sm text-green-700" role="status">
+        <p className="type-sm text-(--state-success)" role="status">
           {t("done")}
         </p>
       )}
 
-      <button
-        type="submit"
-        disabled={submitting}
-        className="self-start rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:bg-gray-400"
-      >
+      <Button type="submit" disabled={submitting} className="self-start">
         {submitting ? t("submitting") : t("submit")}
-      </button>
+      </Button>
     </form>
   );
 }

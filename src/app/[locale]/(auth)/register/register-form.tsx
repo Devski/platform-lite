@@ -3,10 +3,15 @@
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { getPathname } from "@/i18n/navigation";
+import { Button } from "@/components/ui/button";
+import { FormField } from "@/components/ui/form-field";
+import { Input } from "@/components/ui/input";
+import { textButtonClassName } from "@/components/ui/text-link";
 import { REGISTRATION_NAME } from "@/lib/account";
 import { authClient } from "@/lib/auth-client";
 import { PASSWORD_MAX, PASSWORD_MIN, signUpSchema } from "@/lib/auth-schemas";
 import { ResendStatus } from "../resend-status";
+import { AUTH_SENT_BODY, AUTH_SUBMIT, AUTH_TOUCH } from "../shell";
 import { useResendVerification } from "../use-resend-verification";
 
 type FieldErrors = { email?: string; password?: string };
@@ -79,18 +84,14 @@ export function RegisterForm() {
 
   if (sentTo) {
     return (
-      <div className="mt-4 flex flex-col gap-4">
-        <h2 className="text-lg font-semibold text-gray-900">
-          {t("sent.heading")}
-        </h2>
-        <p className="text-sm text-gray-600">
-          {t("sent.body", { email: sentTo })}
-        </p>
+      <div className="mt-(--sp-6) flex flex-col gap-(--sp-5)">
+        <h2 className="type-h4 text-(--text-strong)">{t("sent.heading")}</h2>
+        <p className={AUTH_SENT_BODY}>{t("sent.body", { email: sentTo })}</p>
         <button
           type="button"
           onClick={() => resend(sentTo)}
           disabled={resendState === "sending"}
-          className="self-start text-sm font-semibold text-blue-700 hover:underline disabled:text-gray-400"
+          className={textButtonClassName("default", `self-start ${AUTH_TOUCH}`)}
         >
           {resendState === "sending" ? t("sent.resending") : t("sent.resend")}
         </button>
@@ -108,13 +109,10 @@ export function RegisterForm() {
     <form
       onSubmit={handleSubmit}
       noValidate
-      className="mt-6 flex flex-col gap-4"
+      className="mt-(--sp-7) flex flex-col gap-(--sp-5)"
     >
-      <div className="flex flex-col gap-1">
-        <label htmlFor="email" className="text-sm font-medium text-gray-700">
-          {t("emailLabel")}
-        </label>
-        <input
+      <FormField label={t("emailLabel")} htmlFor="email">
+        <Input
           id="email"
           name="email"
           type="email"
@@ -124,20 +122,24 @@ export function RegisterForm() {
           onChange={(event) => setEmail(event.target.value)}
           aria-invalid={fieldErrors.email ? true : undefined}
           aria-describedby={fieldErrors.email ? "email-error" : undefined}
-          className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-600 focus:outline-none"
         />
         {fieldErrors.email && (
-          <p id="email-error" className="text-sm text-red-700">
+          <p id="email-error" className="type-sm text-(--state-danger)">
             {fieldErrors.email}
           </p>
         )}
-      </div>
+      </FormField>
 
-      <div className="flex flex-col gap-1">
-        <label htmlFor="password" className="text-sm font-medium text-gray-700">
-          {t("passwordLabel")}
-        </label>
-        <input
+      <FormField
+        label={t("passwordLabel")}
+        htmlFor="password"
+        hint={
+          !fieldErrors.password &&
+          t("passwordHint", { min: PASSWORD_MIN, max: PASSWORD_MAX })
+        }
+        hintId="password-hint"
+      >
+        <Input
           id="password"
           name="password"
           type="password"
@@ -149,32 +151,23 @@ export function RegisterForm() {
           aria-describedby={
             fieldErrors.password ? "password-error" : "password-hint"
           }
-          className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-600 focus:outline-none"
         />
-        {fieldErrors.password ? (
-          <p id="password-error" className="text-sm text-red-700">
+        {fieldErrors.password && (
+          <p id="password-error" className="type-sm text-(--state-danger)">
             {fieldErrors.password}
           </p>
-        ) : (
-          <p id="password-hint" className="text-sm text-gray-500">
-            {t("passwordHint", { min: PASSWORD_MIN, max: PASSWORD_MAX })}
-          </p>
         )}
-      </div>
+      </FormField>
 
       {formError && (
-        <p className="text-sm text-red-700" role="alert">
+        <p className="type-sm text-(--state-danger)" role="alert">
           {formError}
         </p>
       )}
 
-      <button
-        type="submit"
-        disabled={submitting}
-        className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:bg-gray-400"
-      >
+      <Button type="submit" disabled={submitting} className={AUTH_SUBMIT}>
         {submitting ? t("submitting") : t("submit")}
-      </button>
+      </Button>
     </form>
   );
 }

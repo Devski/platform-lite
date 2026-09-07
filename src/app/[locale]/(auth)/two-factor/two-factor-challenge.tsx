@@ -3,8 +3,27 @@
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { useRouter } from "@/i18n/navigation";
+import { Button } from "@/components/ui/button";
+import { FormField } from "@/components/ui/form-field";
+import { Icon } from "@/components/ui/icon";
+import { Input } from "@/components/ui/input";
+import { textButtonClassName } from "@/components/ui/text-link";
 import { authClient } from "@/lib/auth-client";
+import { AUTH_SUBMIT, AUTH_TOUCH } from "../shell";
 import type { Mode } from "./modes";
+
+// The method pills. Below sm they take the same 48px touch floor as the
+// buttons and one step more side padding, so a thumb has something to hit;
+// at 360px "Aplikacja" and "Kod e-mail" still share one line inside the card
+// (~213px of the ~248px between the card's paddings) and "Kod zapasowy"
+// wraps underneath — which is what flex-wrap on the row has always been for.
+// From sm they are back to the handoff's compact pill, untouched.
+const MODE_PILL =
+  "flex min-h-(--control-h-lg) items-center gap-(--sp-2) rounded-sm border px-(--sp-4) py-(--sp-1) type-sm sm:min-h-0 sm:px-(--sp-3)";
+const MODE_PILL_SELECTED =
+  "border-(--action-solid) bg-(--surface-sunken) font-semibold text-(--text-strong)";
+const MODE_PILL_IDLE =
+  "border-(--border-default) text-(--text-body) hover:border-(--action-solid)";
 
 export function TwoFactorChallenge({ modes }: { modes: Mode[] }) {
   const t = useTranslations("TwoFactor");
@@ -76,64 +95,85 @@ export function TwoFactorChallenge({ modes }: { modes: Mode[] }) {
   const codeReady = mode !== "otp" || otpSent;
 
   return (
-    <div className="mt-6 flex flex-col gap-4">
+    <div className="mt-(--sp-6) flex flex-col gap-(--sp-5)">
       {modes.length > 1 && (
         <div
-          className="flex flex-wrap gap-2"
+          className="flex flex-wrap items-center gap-(--sp-3)"
           role="group"
           aria-label={t("methodsLabel")}
         >
-          {modes.map((option) => (
-            <button
-              key={option}
-              type="button"
-              aria-pressed={mode === option}
-              onClick={() => switchMode(option)}
-              className={
-                mode === option
-                  ? "rounded-md border border-blue-600 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-800"
-                  : "rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:border-blue-600"
-              }
-            >
-              {t(`methods.${option}`)}
-            </button>
-          ))}
+          {modes.map((option) =>
+            // Backup reads as a lightweight fallback, not a co-equal choice
+            // (design-system-source's dedicated "use a backup code" link),
+            // so it renders as a text link rather than a pill — same button
+            // semantics and click handler as the other options either way.
+            option === "backup" ? (
+              <button
+                key={option}
+                type="button"
+                aria-pressed={mode === option}
+                onClick={() => switchMode(option)}
+                className={textButtonClassName("muted", AUTH_TOUCH)}
+              >
+                {t(`methods.${option}`)}
+              </button>
+            ) : (
+              <button
+                key={option}
+                type="button"
+                aria-pressed={mode === option}
+                onClick={() => switchMode(option)}
+                className={`${MODE_PILL} ${
+                  mode === option ? MODE_PILL_SELECTED : MODE_PILL_IDLE
+                }`}
+              >
+                {option === "totp" && <Icon name="smartphone" size={16} />}
+                {t(`methods.${option}`)}
+              </button>
+            ),
+          )}
         </div>
       )}
 
-      <p className="text-sm text-gray-600">{t(`intro.${mode}`)}</p>
+      <p className="type-sm text-(--text-muted)">{t(`intro.${mode}`)}</p>
 
       {mode === "otp" && (
-        <div className="flex flex-col gap-1">
-          <button
+        <div className="flex flex-col gap-(--sp-1)">
+          <Button
             type="button"
+            variant="quiet"
             onClick={sendCode}
             disabled={sending}
-            className="self-start rounded-md border border-blue-600 px-3 py-1.5 text-sm font-semibold text-blue-700 hover:bg-blue-50 disabled:text-gray-400"
+            className={`self-start ${AUTH_TOUCH}`}
           >
             {sending
               ? t("otp.sending")
               : otpSent
                 ? t("otp.resend")
                 : t("otp.send")}
-          </button>
+          </Button>
           {otpSent && (
-            <p className="text-sm text-green-700" role="status">
+            <p className="type-sm text-(--state-success)" role="status">
               {t("otp.sent")}
             </p>
           )}
         </div>
       )}
 
-      <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
-        <div className="flex flex-col gap-1">
-          <label htmlFor="code" className="text-sm font-medium text-gray-700">
-            {t(mode === "backup" ? "backupLabel" : "codeLabel")}
-          </label>
-          <input
+      <form
+        onSubmit={handleSubmit}
+        noValidate
+        className="flex flex-col gap-(--sp-5)"
+      >
+        <FormField
+          label={t(mode === "backup" ? "backupLabel" : "codeLabel")}
+          htmlFor="code"
+        >
+          <Input
             id="code"
             name="code"
             type="text"
+            mono
             inputMode={mode === "backup" ? "text" : "numeric"}
             autoComplete="one-time-code"
             required
@@ -142,23 +182,27 @@ export function TwoFactorChallenge({ modes }: { modes: Mode[] }) {
             onChange={(event) => setCode(event.target.value)}
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? "code-error" : undefined}
-            className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-600 focus:outline-none disabled:bg-gray-100"
+            className="max-w-[140px]"
           />
-        </div>
+        </FormField>
 
         {error && (
-          <p id="code-error" className="text-sm text-red-700" role="alert">
+          <p
+            id="code-error"
+            className="type-sm text-(--state-danger)"
+            role="alert"
+          >
             {error}
           </p>
         )}
 
-        <button
+        <Button
           type="submit"
           disabled={submitting || !codeReady}
-          className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:bg-gray-400"
+          className={AUTH_SUBMIT}
         >
           {submitting ? t("submitting") : t("submit")}
-        </button>
+        </Button>
       </form>
     </div>
   );

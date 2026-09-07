@@ -14,7 +14,10 @@ test.describe("Polish browser", () => {
   }, testInfo) => {
     await page.goto("/");
     await expect(
-      page.getByRole("heading", { level: 1, name: "Architektów 3d" }),
+      page.getByRole("heading", {
+        level: 1,
+        name: "Twoje portfolio pod dobrym adresem.",
+      }),
     ).toBeVisible();
     await expectNoAxeViolations(page, testInfo, "landing-pl");
   });
@@ -24,7 +27,7 @@ test.describe("Polish browser", () => {
   }, testInfo) => {
     await page.goto("/some-profile");
     await expect(
-      page.getByRole("heading", { level: 1, name: "Nie znaleziono strony" }),
+      page.getByRole("heading", { level: 1, name: "Zgubiliśmy się?" }),
     ).toBeVisible();
     await expectNoAxeViolations(page, testInfo, "not-found-pl");
   });
@@ -38,7 +41,10 @@ test.describe("English browser", () => {
   }, testInfo) => {
     await page.goto("/en");
     await expect(
-      page.getByText("Public profiles for architecture studios and 3D artists"),
+      page.getByRole("heading", {
+        level: 1,
+        name: "Your portfolio, at a good address.",
+      }),
     ).toBeVisible();
     await expectNoAxeViolations(page, testInfo, "landing-en");
   });
@@ -48,7 +54,7 @@ test.describe("English browser", () => {
   }, testInfo) => {
     await page.goto("/en/some-profile");
     await expect(
-      page.getByRole("heading", { level: 1, name: "Page not found" }),
+      page.getByRole("heading", { level: 1, name: "Lost?" }),
     ).toBeVisible();
     await expectNoAxeViolations(page, testInfo, "not-found-en");
   });

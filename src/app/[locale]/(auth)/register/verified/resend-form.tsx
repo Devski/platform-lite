@@ -2,8 +2,12 @@
 
 import { useTranslations } from "next-intl";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { FormField } from "@/components/ui/form-field";
+import { Input } from "@/components/ui/input";
 import { emailSchema } from "@/lib/auth-schemas";
 import { ResendStatus } from "../../resend-status";
+import { AUTH_SUBMIT } from "../../shell";
 import { useResendVerification } from "../../use-resend-verification";
 
 // Requests a fresh verification link when the one from the e-mail was
@@ -32,37 +36,38 @@ export function ResendForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-3">
-      <label
-        htmlFor="resend-email"
-        className="text-sm font-medium text-gray-700"
-      >
-        {tRegister("emailLabel")}
-      </label>
-      <input
-        id="resend-email"
-        name="email"
-        type="email"
-        autoComplete="email"
-        required
-        value={email}
-        onChange={(event) => setEmail(event.target.value)}
-        aria-invalid={validationError ? true : undefined}
-        aria-describedby={validationError ? "resend-email-error" : undefined}
-        className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-600 focus:outline-none"
-      />
-      {validationError && (
-        <p id="resend-email-error" className="text-sm text-red-700">
-          {validationError}
-        </p>
-      )}
-      <button
+    <form
+      onSubmit={handleSubmit}
+      noValidate
+      className="mt-(--sp-7) flex flex-col gap-(--sp-5)"
+    >
+      <FormField label={tRegister("emailLabel")} htmlFor="resend-email">
+        <Input
+          id="resend-email"
+          name="email"
+          type="email"
+          autoComplete="email"
+          required
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          aria-invalid={validationError ? true : undefined}
+          aria-describedby={validationError ? "resend-email-error" : undefined}
+        />
+        {validationError && (
+          <p id="resend-email-error" className="type-sm text-(--state-danger)">
+            {validationError}
+          </p>
+        )}
+      </FormField>
+
+      <Button
         type="submit"
         disabled={state === "sending"}
-        className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:bg-gray-400"
+        className={AUTH_SUBMIT}
       >
         {state === "sending" ? t("resendSending") : t("resendSubmit")}
-      </button>
+      </Button>
+
       <ResendStatus
         state={state}
         done={t("resendDone")}

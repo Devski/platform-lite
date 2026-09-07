@@ -45,11 +45,14 @@ test("a new user goes from the landing page to a live public profile", async ({
   test.setTimeout(180_000);
 
   const identity = newIdentity();
+  // The name typed in onboarding rides with the address claim (#36), so it is
+  // already on the profile when the page opens. Starting from a draft is what
+  // lets the A4 step below prove it can still be corrected afterwards — and
+  // the two names share no substring, because getByRole's name option matches
+  // by substring and would otherwise accept the draft as the final name.
+  const draftName = `Draft ${identity.handle}`;
   const baseURL = testInfo.project.use.baseURL;
   expect(baseURL, "the project must declare a baseURL").toBeTruthy();
-  // What the page prints in front of a handle: APP_URL's origin, which the
-  // web server is started with (playwright.config.ts).
-  const origin = new URL(baseURL!).origin;
 
   await test.step("A11: the landing page offers the way in", async () => {
     await page.goto("/");
@@ -70,7 +73,7 @@ test("a new user goes from the landing page to a live public profile", async ({
   await test.step("A2: log in", async () => {
     await logIn(page, identity);
     await expect(
-      page.getByRole("heading", { level: 1, name: "Ustaw swój adres profilu" }),
+      page.getByRole("heading", { level: 1, name: "Ustaw nazwę profilu" }),
     ).toBeVisible();
   });
 
@@ -80,7 +83,7 @@ test("a new user goes from the landing page to a live public profile", async ({
     // registration no longer invents a name from the e-mail address.
     const next = page.getByRole("button", { name: "Dalej" });
     await expect(next).toBeDisabled();
-    await page.getByLabel("Twoja nazwa").fill(identity.displayName);
+    await page.getByLabel("Twoja nazwa").fill(draftName);
     await expect(next).toBeEnabled();
     await next.click();
   });
@@ -97,18 +100,30 @@ test("a new user goes from the landing page to a live public profile", async ({
       timeout: 15_000,
     });
     await page.getByRole("button", { name: "Ustaw adres" }).click();
-    // #15 sends the onboarding step on to the name and the photo.
+    // #58: the claim lands on the live page it just created, not on a
+    // settings screen — the name and the photo are edited right there.
+    await expect(page).toHaveURL(new RegExp(`/${identity.handle}$`));
     await expect(
-      page.getByRole("heading", { level: 1, name: "Twój profil" }),
+      page.getByRole("heading", { level: 1, name: draftName }),
     ).toBeVisible();
   });
 
-  await test.step("A4: set the display name", async () => {
-    await page
-      .getByLabel("Nazwa (studia albo Twoja)")
-      .fill(identity.displayName);
-    await page.getByRole("button", { name: "Zapisz nazwę" }).click();
-    await expect(page.getByText("Nazwa zapisana.")).toBeVisible();
+  const pencil = page.getByRole("button", { name: "Edytuj profil" });
+
+  await test.step("A4: correct the display name on the profile itself", async () => {
+    // The pencil in the top bar turns the profile's own heading into an
+    // input, saved on blur (#58).
+    await pencil.click();
+    const field = page.getByLabel("Nazwa (studia albo Twoja)");
+    await expect(field).toHaveValue(draftName);
+    await field.fill(identity.displayName);
+    await field.blur();
+    // Leaving edit mode puts the SERVER's copy back on screen, so the heading
+    // is the saved name and not whatever is still sitting in the input.
+    await pencil.click();
+    await expect(
+      page.getByRole("heading", { level: 1, name: identity.displayName }),
+    ).toBeVisible({ timeout: 15_000 });
   });
 
   // A skipped STEP, not a skipped test: test.skip() inside a test body aborts
@@ -128,15 +143,22 @@ test("a new user goes from the landing page to a live public profile", async ({
       })
         .png()
         .toBuffer();
-      await page.getByLabel("Wybierz zdjęcie").setInputFiles({
+      // The camera badge is a <label> over a visually hidden file input, and
+      // both exist only while the pencil is on.
+      await pencil.click();
+      await page.locator("#owner-avatar-file").setInputFiles({
         name: "studio.png",
         mimeType: "image/png",
         buffer: photo,
       });
       // Upload, fetch back, decode, two variants, publish: slower than a form.
-      await expect(page.getByText("Zdjęcie ustawione.")).toBeVisible({
-        timeout: 60_000,
-      });
+      // The photo landing on the card IS the confirmation now — the screen
+      // has no separate success line to show.
+      await expect(page.locator("article img")).toHaveAttribute(
+        "alt",
+        `Zdjęcie profilowe ${identity.displayName}`,
+        { timeout: 60_000 },
+      );
     });
   }
 
@@ -146,7 +168,8 @@ test("a new user goes from the landing page to a live public profile", async ({
     await expect(
       page.getByRole("heading", { level: 1, name: identity.displayName }),
     ).toBeVisible();
-    await expect(page.getByText(`${origin}/${identity.handle}`)).toBeVisible();
+    // The design (#58) dropped the visible address from the card — it's
+    // still the page's own URL (A5), just not printed on it a second time.
     // A7's <head>: the profile's own title, not the not-found one.
     await expect(page).toHaveTitle(`${identity.displayName} · Architektów 3d`);
 
@@ -177,20 +200,19 @@ test("a new user goes from the landing page to a live public profile", async ({
     await expectNoAxeViolations(page, testInfo, "public-profile");
   });
 
-  await test.step("A11: the signed-in homepage, and signing out", async () => {
+  await test.step("A11: '/' sends a signed-in visitor to their own profile, and signing out", async () => {
+    // #58 replaced the old signed-in homepage banner with a redirect
+    // straight to the live profile (signed-in-destination.ts) — the account
+    // menu in that page's top bar is where "Konto" and "Wyloguj" live now.
     await page.goto("/");
-    await expect(
-      page.getByText(`Zalogowano jako ${identity.email}`),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("link", { name: "Ustawienia konta" }),
-    ).toBeVisible();
-    await page.getByRole("button", { name: "Wyloguj" }).click();
+    await expect(page).toHaveURL(new RegExp(`/${identity.handle}$`));
+    await page.getByRole("button", { name: "Menu konta" }).click();
+    // The menu's items carry an explicit role="menuitem" (ARIA menu pattern),
+    // overriding the <a>'s implicit "link" role.
+    await expect(page.getByRole("menuitem", { name: "Konto" })).toBeVisible();
+    await page.getByRole("menuitem", { name: "Wyloguj" }).click();
     // Back to the two entry buttons the signed-out visitor sees.
     await expect(page.getByRole("link", { name: "Załóż konto" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Zaloguj się" })).toBeVisible();
-    await expect(
-      page.getByText(`Zalogowano jako ${identity.email}`),
-    ).toHaveCount(0);
   });
 });

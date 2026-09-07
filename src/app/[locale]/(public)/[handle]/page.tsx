@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { hasLocale } from "next-intl";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound, permanentRedirect } from "next/navigation";
@@ -6,19 +7,39 @@ import { cache } from "react";
 import { getDb } from "@/db/client";
 import { getPathname } from "@/i18n/navigation";
 import { routing, type Locale } from "@/i18n/routing";
+import { getAuth } from "@/lib/auth";
 import { appOrigin, isMissingEnv } from "@/lib/env";
-import {
-  initialsFrom,
-  monogramImagePath,
-  MONOGRAM_BACKGROUND,
-  MONOGRAM_FOREGROUND,
-} from "@/lib/monogram";
+import { monogramImagePath } from "@/lib/monogram";
 import {
   loadPublicProfile,
   profileMetadata,
   type PublicProfileLookup,
 } from "@/lib/public-profile";
 import { getStorage, keyPrefix } from "@/lib/storage";
+import { Avatar } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { ButtonLink } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Footer } from "@/components/ui/footer";
+import { LanguageChip } from "@/components/ui/language-chip";
+import { Logo } from "@/components/ui/logo";
+import { MobileMenu } from "@/components/ui/mobile-menu";
+import { Plaque } from "@/components/ui/plaque";
+import { TopBar } from "@/components/ui/top-bar";
+import { OwnerProfileView } from "./owner-profile-view";
+
+// Whether the CURRENT viewer owns this profile (screen 6 vs screen 2). Fails
+// closed like every other session read here: a session that cannot be
+// verified (including a preview environment with no database at all) is
+// treated as "not the owner", never the other way round.
+async function isOwnerViewing(userId: string): Promise<boolean> {
+  try {
+    const session = await getAuth().api.getSession({ headers: await headers() });
+    return session?.user.id === userId;
+  } catch {
+    return false;
+  }
+}
 
 // A7: the public profile — the one page an anonymous visitor (and a crawler)
 // sees. The §9 resolution and the <head> live in src/lib/public-profile.ts;
@@ -151,49 +172,90 @@ export default async function PublicProfilePage({
     permanentRedirect(`${handlePath(profile.handle, locale)}${query}`);
   }
 
+  if (await isOwnerViewing(profile.userId)) {
+    return (
+      <>
+        <OwnerProfileView profile={profile} />
+        <Footer maxWidth="measure-page" />
+      </>
+    );
+  }
+
   const t = await getTranslations("PublicProfile");
-  const address = `${appOrigin()}/${profile.handle}`;
+  const tSession = await getTranslations("Session");
+
+  // The bar's actions, rendered twice by TopBar: as the row from sm up, and
+  // inside the hamburger's panel below it. A 360px screen leaves the bar
+  // 328px between its gutters, and this bar wants 393 of them — logo 160,
+  // the bar's own 12px gap, then the language chip (101) + 12 + "Załóż
+  // konto" (108). The left box is min-w-0, so the overflow showed up as the
+  // wordmark printed over the language chip rather than as a wider bar. The
+  // panel is a card surface and so is this bar, so both copies are the very
+  // same on-card elements (unlike the hero's, which has to flip tone).
+  const actions = (
+    <>
+      <LanguageChip locale={locale} />
+      <ButtonLink variant="quiet" href="/register">
+        {tSession("register")}
+      </ButtonLink>
+    </>
+  );
 
   return (
-    <main className="flex min-h-screen justify-center bg-gray-50 px-4 py-12">
-      <article className="flex w-full max-w-md flex-col items-center gap-4 rounded-lg border border-gray-200 bg-white p-8 text-center">
-        {profile.avatar ? (
-          // Pre-optimized WebP served from storage (G2/G5) — next/image would
-          // only re-proxy an already-final asset from a runtime-configured
-          // host, as the settings page notes.
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={profile.avatar.url128}
-            alt={t("avatarAlt", { name: profile.displayName })}
-            width={128}
-            height={128}
-            className="h-32 w-32 rounded-full border border-gray-200 object-cover"
-          />
-        ) : (
-          // The same monogram the share card draws (#27), so the page a
-          // visitor lands on looks like the preview that brought them here.
-          // Decorative: the name below already says whose profile this is.
-          <div
-            aria-hidden="true"
-            className="flex h-32 w-32 items-center justify-center rounded-full border border-gray-200 text-4xl font-semibold"
-            style={{
-              backgroundColor: MONOGRAM_BACKGROUND,
-              color: MONOGRAM_FOREGROUND,
-            }}
-          >
-            {initialsFrom(profile.displayName)}
+    <>
+      {/* This screen is the signed-out visitor's view of someone else's
+          profile (README screen 2) — the mark goes to the hero, not to a
+          session-dependent destination. The owner sees OwnerProfileView
+          instead (screen 6), above. */}
+      <TopBar
+        maxWidth="measure-page"
+        left={<Logo href="/" />}
+        right={actions}
+        mobileMenu={<MobileMenu>{actions}</MobileMenu>}
+      />
+      <main className="mx-auto flex max-w-(--measure-page) flex-col gap-(--sp-5) px-(--sp-5) pt-(--sp-8) pb-(--sp-10) sm:gap-(--sp-6) sm:px-(--sp-7) sm:pt-(--sp-12) sm:pb-(--sp-14)">
+        <Card as="article" padding="lg">
+          {/* Stacked below sm. A 128px avatar plus a display-size name has
+              no way to share the 248px a 360px phone leaves inside this
+              card, and the name was the half that ran off the right edge;
+              given the full width instead it wraps like text. The size
+              itself needs no breakpoint — --fs-display is a clamp() that has
+              already stepped 48px down to 32px by the time a phone reads
+              it. From sm up this is the handoff's row again. */}
+          <div className="flex flex-col gap-(--sp-5) sm:flex-row sm:flex-wrap sm:items-center sm:gap-(--sp-9)">
+            {/* Pre-optimized WebP served from storage (G2/G5) — next/image
+                would only re-proxy an already-final asset from a runtime-
+                configured host, as the settings page notes. */}
+            <Avatar
+              src={profile.avatar?.url128 ?? null}
+              name={profile.displayName}
+              size={128}
+              alt={t("avatarAlt", { name: profile.displayName })}
+              className="shrink-0 [--avatar-size:96px] sm:[--avatar-size:128px]"
+            />
+            <div className="flex w-full min-w-0 flex-col gap-(--sp-5) sm:flex-1">
+              {/* break-words is the guarantee, not the layout: a display
+                  name is one 80-character field and may hold a single word
+                  longer than any column we can give it. */}
+              <h1 className="type-display break-words text-(--text-strong)">
+                {profile.displayName}
+              </h1>
+            </div>
           </div>
-        )}
-        <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
-          {profile.displayName}
-        </h1>
-        {/* The address is the profile's identity (A5) — shown, not linked:
-            the visitor is already on it. */}
-        <p className="text-sm text-gray-600">
-          <span className="sr-only">{t("addressLabel")}</span>
-          <span className="font-mono">{address}</span>
-        </p>
-      </article>
-    </main>
+        </Card>
+        <Card padding="sm" tone="sunken">
+          <div className="flex flex-wrap items-center gap-(--sp-4)">
+            <Badge uppercase>{t("scopeBadge")}</Badge>
+            <span className="type-sm text-(--text-muted)">
+              {t("scopeNote")}
+            </span>
+          </div>
+        </Card>
+      </main>
+      <div className="mx-auto flex max-w-(--measure-page) justify-center px-(--sp-5) py-(--sp-7) sm:px-(--sp-7) sm:py-(--sp-8)">
+        <Plaque name={profile.displayName} width={150} tilt={0} shadow={false} />
+      </div>
+      <Footer maxWidth="measure-page" />
+    </>
   );
 }

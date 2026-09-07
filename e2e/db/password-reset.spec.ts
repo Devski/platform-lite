@@ -100,7 +100,7 @@ test("a forgotten password is reset through the e-mailed link", async ({
     await logIn(page, { email: identity.email, password: newPassword });
     // No handle yet, so #15's onboarding step is where a login lands.
     await expect(
-      page.getByRole("heading", { level: 1, name: "Ustaw swój adres profilu" }),
+      page.getByRole("heading", { level: 1, name: "Ustaw nazwę profilu" }),
     ).toBeVisible();
   });
 });

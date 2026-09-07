@@ -18,6 +18,9 @@ test.describe("Polish browser", () => {
     ).toBeVisible();
   });
 
+  // #58 turned this address into a redirect to the account settings. It is
+  // still behind the (app) gate on purpose: a signed-out visitor belongs on
+  // the login page, not on a settings address that would bounce them again.
   test("/settings/profile without a session lands on the login page", async ({
     page,
   }) => {

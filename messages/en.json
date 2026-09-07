@@ -37,10 +37,18 @@
       "body": "Hello!\n\nYour profile address has been changed from {oldHandle} to {newHandle}.\n\nYour new profile address:\n{profileUrl}\n\nThe old address redirects to the new one until someone else claims {oldHandle}."
     }
   },
+  "Brand": {
+    "wordmark": "Architektów 3d"
+  },
   "HomePage": {
-    "brand": "Architektów 3d",
-    "tagline": "Public profiles for architecture studios and 3D artists",
-    "lead": "Build a public profile in a few minutes and share it with a single link."
+    "heading": "Your portfolio, at a good address.",
+    "lead": "3D scenes online in minutes. Public profiles for architects and artists.",
+    "ctaPrimary": "Check in",
+    "ctaSecondary": "I'm already checked in"
+  },
+  "Footer": {
+    "company": "Architectorium Sp. z o.o.",
+    "copyright": "© 2026"
   },
   "Login": {
     "title": "Log in",
@@ -69,16 +77,17 @@
   "Session": {
     "logIn": "Log in",
     "register": "Sign up",
-    "signedInAs": "Signed in as {email}",
-    "settings": "Account settings",
     "logOut": "Log out",
     "loggingOut": "Logging out…",
     "error": "Logging out failed. Try again."
   },
   "Onboarding": {
     "title": "Profile address",
+    "stepBadge": "Step {step} of 2",
+    "nameStepHeading": "Set your profile name",
     "heading": "Set your profile address",
-    "intro": "This is the public address of your profile. We prefilled a proposal based on your account — change it if you like.",
+    "intro": "This is the public address of your profile. We prefilled a proposal based on your account name — change it if you like.",
+    "plaqueCaption": "Your portfolio, at a good address.",
     "next": "Next",
     "nameLabel": "Your name",
     "nameHint": "How your profile is signed. The address below is proposed from it — you can change it."
@@ -111,7 +120,6 @@
     "account": {
       "title": "Account settings",
       "heading": "Account settings",
-      "currentEmail": "Account address: {email}",
       "password": {
         "heading": "Change password",
         "currentLabel": "Current password",
@@ -145,12 +153,13 @@
           "generic": "Sending failed. Try again."
         }
       },
-      "profileLink": "Public profile: name, photo and address",
       "twoFactor": {
         "heading": "Two-factor authentication",
         "status": {
           "on": "Two-factor authentication is on.",
-          "off": "Two-factor authentication is off. Turn on a second factor to better protect your account."
+          "off": "Two-factor authentication is off. Turn on a second factor to better protect your account.",
+          "badgeOn": "on",
+          "badgeOff": "off"
         },
         "passwordLabel": "Confirm with your password",
         "email": {
@@ -161,8 +170,8 @@
         },
         "app": {
           "title": "Authenticator app",
-          "description": "Stronger protection — a code from an app (such as Google Authenticator) works even if someone takes over your mailbox.",
-          "setup": "Set up the app",
+          "description": "Stronger protection — a code from an app works even if someone takes over your mailbox.",
+          "setup": "Set up",
           "settingUp": "Preparing…",
           "keyLabel": "Enter this key in your authenticator app:",
           "backupTitle": "Backup codes",
@@ -188,15 +197,8 @@
       }
     },
     "profile": {
-      "title": "Profile",
-      "heading": "Your profile",
-      "accountLink": "Account settings: password, e-mail, verification",
       "name": {
-        "heading": "Display name",
         "label": "Name (your studio's or your own)",
-        "save": "Save the name",
-        "saving": "Saving…",
-        "saved": "Name saved.",
         "errors": {
           "invalid": "The name needs 1 to {max} characters.",
           "rateLimited": "Too many saves. Wait a moment and try again.",
@@ -204,13 +206,7 @@
         }
       },
       "avatar": {
-        "heading": "Profile photo",
-        "currentAlt": "Your current profile photo",
-        "empty": "You have no profile photo yet.",
-        "chooseLabel": "Choose a photo",
-        "hint": "JPEG, PNG or WebP, up to 10 MB. We crop it to a square.",
         "uploading": "Uploading and processing…",
-        "done": "Photo set.",
         "errors": {
           "file_type": "That format is not supported — choose JPEG, PNG or WebP.",
           "file_size": "The file needs to be between 1 byte and 10 MB.",
@@ -365,13 +361,25 @@
   "PublicProfile": {
     "description": "{name}'s profile on {brand}",
     "avatarAlt": "{name}'s profile photo",
-    "addressLabel": "Profile address"
+    "scopeBadge": "Scope",
+    "scopeNote": "The profile has a photo, a name and an address. Project galleries, an about section and tabs aren't part of the product yet.",
+    "editProfile": "Edit profile",
+    "ownerScopeNote": "The profile is a photo, a name and an address. Click the pencil to edit them right on the profile.",
+    "emptyStateTitle": "Projects aren't part of the product yet",
+    "emptyStateBody": "The profile is a photo, a name and an address. Once galleries exist, they'll live here."
+  },
+  "AccountMenu": {
+    "menuLabel": "Account menu",
+    "profile": "Profile",
+    "account": "Account"
+  },
+  "MobileMenu": {
+    "menuLabel": "Main menu"
   },
   "NotFound": {
     "title": "Page not found",
-    "heading": "Page not found",
-    "body": "This address does not exist or the profile has moved.",
-    "homeLink": "Go to the home page"
+    "heading": "Lost?",
+    "homeLink": "Back home"
   },
   "LanguageSwitcher": {
     "label": "Language selection",
