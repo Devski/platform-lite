@@ -175,20 +175,17 @@ test("a new user goes from the landing page to a live public profile", async ({
     await expectNoAxeViolations(page, testInfo, "public-profile");
   });
 
-  await test.step("A11: the signed-in homepage, and signing out", async () => {
+  await test.step("A11: '/' sends a signed-in visitor to their own profile, and signing out", async () => {
+    // #58 replaced the old signed-in homepage banner with a redirect
+    // straight to the live profile (signed-in-destination.ts) — the account
+    // menu in that page's top bar is where "Konto" and "Wyloguj" live now.
     await page.goto("/");
-    await expect(
-      page.getByText(`Zalogowano jako ${identity.email}`),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("link", { name: "Ustawienia konta" }),
-    ).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/${identity.handle}$`));
+    await page.getByRole("button", { name: "Menu konta" }).click();
+    await expect(page.getByRole("link", { name: "Konto" })).toBeVisible();
     await page.getByRole("button", { name: "Wyloguj" }).click();
     // Back to the two entry buttons the signed-out visitor sees.
     await expect(page.getByRole("link", { name: "Załóż konto" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Zaloguj się" })).toBeVisible();
-    await expect(
-      page.getByText(`Zalogowano jako ${identity.email}`),
-    ).toHaveCount(0);
   });
 });

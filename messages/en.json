@@ -77,8 +77,6 @@
   "Session": {
     "logIn": "Log in",
     "register": "Sign up",
-    "signedInAs": "Signed in as {email}",
-    "settings": "Account settings",
     "logOut": "Log out",
     "loggingOut": "Logging out…",
     "error": "Logging out failed. Try again."

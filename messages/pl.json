@@ -77,8 +77,6 @@
   "Session": {
     "logIn": "Zaloguj się",
     "register": "Załóż konto",
-    "signedInAs": "Zalogowano jako {email}",
-    "settings": "Ustawienia konta",
     "logOut": "Wyloguj",
     "loggingOut": "Wylogowywanie…",
     "error": "Nie udało się wylogować. Spróbuj ponownie."
