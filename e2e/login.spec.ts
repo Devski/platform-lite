@@ -142,7 +142,7 @@ test.describe("Polish browser", () => {
     // toBeVisible() would pass with a 404 behind it — assert the bitmap
     // decoded instead. And decorative means out of the accessibility tree,
     // whichever way that is spelled in the markup.
-    const photo = page.locator('img[src="/landing-placeholder.webp"]');
+    const photo = page.locator('img[src="/hero-facade-plaque.webp"]');
     await expect
       .poll(() => photo.evaluate((el) => (el as HTMLImageElement).naturalWidth))
       .toBeGreaterThan(0);

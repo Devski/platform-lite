@@ -161,7 +161,7 @@ export async function completeOnboarding(
   // whatever happens to be on screen — without this the fill raced the
   // navigation and failed one run in four.
   await expect(
-    page.getByRole("heading", { level: 1, name: "Ustaw swój adres profilu" }),
+    page.getByRole("heading", { level: 1, name: "Ustaw nazwę profilu" }),
   ).toBeVisible();
   await page.getByLabel("Twoja nazwa").fill(identity.displayName);
   await page.getByRole("button", { name: "Dalej" }).click();

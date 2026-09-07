@@ -37,10 +37,18 @@
       "body": "Cześć!\n\nAdres Twojego profilu został zmieniony z {oldHandle} na {newHandle}.\n\nNowy adres profilu:\n{profileUrl}\n\nStary adres przekierowuje na nowy, dopóki nazwa {oldHandle} nie zostanie zajęta przez kogoś innego."
     }
   },
+  "Brand": {
+    "wordmark": "Architektów 3d"
+  },
   "HomePage": {
-    "brand": "Architektów 3d",
-    "tagline": "Publiczne profile dla studiów architektury i artystów 3D",
-    "lead": "Stwórz publiczny profil w kilka minut i udostępnij go jednym linkiem."
+    "heading": "Twoje portfolio pod dobrym adresem.",
+    "lead": "Sceny 3D w internecie w kilka minut. Publiczne profile dla architektów i artystów.",
+    "ctaPrimary": "Zamelduj się",
+    "ctaSecondary": "Jestem zameldowany"
+  },
+  "Footer": {
+    "company": "Architectorium Sp. z o.o.",
+    "copyright": "© 2026"
   },
   "Login": {
     "title": "Logowanie",
@@ -77,8 +85,11 @@
   },
   "Onboarding": {
     "title": "Adres profilu",
-    "heading": "Ustaw swój adres profilu",
-    "intro": "To publiczny adres Twojego profilu. Zaproponowaliśmy adres na podstawie Twojego konta — możesz go zmienić.",
+    "stepBadge": "Krok {step} z 2",
+    "nameStepHeading": "Ustaw nazwę profilu",
+    "heading": "Ustaw adres profilu",
+    "intro": "To publiczny adres Twojego profilu. Zaproponowaliśmy go na podstawie nazwy konta — możesz go zmienić.",
+    "plaqueCaption": "Twoje portfolio pod dobrym adresem.",
     "next": "Dalej",
     "nameLabel": "Twoja nazwa",
     "nameHint": "Tak podpiszemy Twój profil. Adres poniżej podpowiadamy z niej — możesz go zmienić."
@@ -111,7 +122,6 @@
     "account": {
       "title": "Ustawienia konta",
       "heading": "Ustawienia konta",
-      "currentEmail": "Adres konta: {email}",
       "password": {
         "heading": "Zmiana hasła",
         "currentLabel": "Bieżące hasło",
@@ -145,24 +155,25 @@
           "generic": "Wysyłka nie powiodła się. Spróbuj ponownie."
         }
       },
-      "profileLink": "Profil publiczny: nazwa, zdjęcie i adres",
       "twoFactor": {
         "heading": "Weryfikacja dwuskładnikowa",
         "status": {
           "on": "Weryfikacja dwuskładnikowa jest włączona.",
-          "off": "Weryfikacja dwuskładnikowa jest wyłączona. Włącz drugi składnik, aby lepiej chronić konto."
+          "off": "Weryfikacja dwuskładnikowa jest wyłączona. Włącz drugi składnik, aby lepiej chronić konto.",
+          "badgeOn": "wł.",
+          "badgeOff": "wył."
         },
         "passwordLabel": "Potwierdź hasłem",
         "email": {
-          "title": "Kody e-mail",
-          "description": "Przy każdym logowaniu wyślemy 6-cyfrowy kod na adres e-mail konta. Bez instalowania czegokolwiek.",
+          "title": "Kody e-mailowe",
+          "description": "Przy każdym logowaniu wysyłamy 6-cyfrowy kod na e-mail konta. Nic do instalowania.",
           "enable": "Włącz kody e-mail",
           "enabling": "Włączanie…"
         },
         "app": {
           "title": "Aplikacja uwierzytelniająca",
-          "description": "Silniejsza ochrona — kod z aplikacji (np. Google Authenticator) działa nawet, gdy ktoś przejmie Twoją skrzynkę.",
-          "setup": "Skonfiguruj aplikację",
+          "description": "Silniejsza ochrona — kod z aplikacji działa nawet, gdy ktoś przejmie Twoją skrzynkę.",
+          "setup": "Skonfiguruj",
           "settingUp": "Przygotowywanie…",
           "keyLabel": "Wpisz ten klucz w aplikacji uwierzytelniającej:",
           "backupTitle": "Kody zapasowe",
@@ -365,13 +376,22 @@
   "PublicProfile": {
     "description": "Profil {name} na {brand}",
     "avatarAlt": "Zdjęcie profilowe {name}",
-    "addressLabel": "Adres profilu"
+    "scopeBadge": "Zakres",
+    "scopeNote": "Profil zawiera zdjęcie, nazwę i adres. Galerie projektów, sekcja o mnie i zakładki nie istnieją jeszcze w produkcie.",
+    "editProfile": "Edytuj profil",
+    "ownerScopeNote": "Profil to zdjęcie, nazwa i adres. Kliknij ikonę ołówka, aby edytować dane bezpośrednio na profilu.",
+    "emptyStateTitle": "Projekty nie są jeszcze częścią produktu",
+    "emptyStateBody": "Profil to zdjęcie, nazwa i adres. Gdy powstaną galerie, to tutaj się znajdą."
+  },
+  "AccountMenu": {
+    "menuLabel": "Menu konta",
+    "profile": "Profil",
+    "account": "Konto"
   },
   "NotFound": {
     "title": "Nie znaleziono strony",
-    "heading": "Nie znaleziono strony",
-    "body": "Ten adres nie istnieje albo profil został przeniesiony.",
-    "homeLink": "Przejdź na stronę główną"
+    "heading": "Zgubiliśmy się?",
+    "homeLink": "Wróć do domu"
   },
   "LanguageSwitcher": {
     "label": "Wybór języka",

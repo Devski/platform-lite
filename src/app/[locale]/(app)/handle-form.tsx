@@ -3,6 +3,9 @@
 import { useFormatter, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { useRouter } from "@/i18n/navigation";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { textButtonClassName } from "@/components/ui/text-link";
 import { postJson } from "@/lib/api-client";
 import {
   HANDLE_CHANGE_COOLDOWN_DAYS,
@@ -58,9 +61,9 @@ const PROBLEMS: ReadonlySet<Verdict> = new Set([
 type Tone = "problem" | "success" | "neutral";
 
 const NOTE_CLASS: Record<Tone, string> = {
-  problem: "text-sm text-red-700",
-  success: "text-sm text-green-700",
-  neutral: "text-sm text-gray-600",
+  problem: "type-sm text-(--state-danger)",
+  success: "type-sm text-(--state-success)",
+  neutral: "type-sm text-(--text-muted)",
 };
 
 interface AvailabilityResponse {
@@ -328,9 +331,9 @@ export function HandleForm({
     <form
       onSubmit={handleSubmit}
       noValidate
-      className="mt-4 flex flex-col gap-3"
+      className="flex flex-col gap-(--sp-3)"
     >
-      <label htmlFor="handle" className="text-sm font-medium text-gray-700">
+      <label htmlFor="handle" className="type-label text-(--text-body)">
         {t("label")}
       </label>
       {/* The prefix used to sit INSIDE the field, where it ate the width the
@@ -338,38 +341,36 @@ export function HandleForm({
           they were typing (seen 05.09.2026). The field is the address alone
           now, full width, and the finished link is shown below it — where it
           can wrap instead of being cut off. */}
-      <div className="flex rounded-md border border-gray-300 focus-within:border-blue-600">
-        <input
-          id="handle"
-          name="handle"
-          type="text"
-          autoComplete="off"
-          autoCapitalize="none"
-          spellCheck={false}
-          maxLength={HANDLE_MAX}
-          required
-          disabled={cooldownUntil !== null}
-          value={value}
-          onChange={(event) => {
-            // Lowercase as typed, so the group always shows the exact
-            // address that will be claimed; trimming stays server-side, so a
-            // space mid-typing is not fought.
-            setValue(event.target.value.toLowerCase());
-            setSubmitError(null);
-            setSaved(null);
-          }}
-          aria-invalid={problem ? true : undefined}
-          aria-describedby={describedBy}
-          className="min-w-0 flex-1 rounded-md bg-white px-3 py-2 font-mono text-sm text-gray-900 focus:outline-none disabled:bg-gray-100 disabled:text-gray-500"
-        />
-      </div>
+      <Input
+        id="handle"
+        name="handle"
+        type="text"
+        mono
+        autoComplete="off"
+        autoCapitalize="none"
+        spellCheck={false}
+        maxLength={HANDLE_MAX}
+        required
+        disabled={cooldownUntil !== null}
+        value={value}
+        onChange={(event) => {
+          // Lowercase as typed, so the group always shows the exact
+          // address that will be claimed; trimming stays server-side, so a
+          // space mid-typing is not fought.
+          setValue(event.target.value.toLowerCase());
+          setSubmitError(null);
+          setSaved(null);
+        }}
+        aria-invalid={problem ? true : undefined}
+        aria-describedby={describedBy}
+      />
       {normalized !== "" && (
-        <p className="text-sm break-all text-gray-600">
+        <p className="type-sm break-all text-(--text-muted)">
           <span className="sr-only">{t("addressPreviewLabel")}</span>
           <span className="font-mono">{`${origin}/${normalized}`}</span>
         </p>
       )}
-      <p id="handle-hint" className="text-sm text-gray-500">
+      <p id="handle-hint" className="type-sm text-(--text-muted)">
         {t("hint", { min: HANDLE_MIN, max: HANDLE_MAX })}
       </p>
       {note && (
@@ -382,7 +383,7 @@ export function HandleForm({
         </p>
       )}
       {cooldownUntil && (
-        <p className="text-sm text-gray-600" role="status">
+        <p className="type-sm text-(--text-muted)" role="status">
           {t("cooldownNote", { date: formatDate(cooldownUntil) })}
         </p>
       )}
@@ -400,39 +401,31 @@ export function HandleForm({
         !saved &&
         normalized !== "" &&
         normalized !== currentHandle && (
-          <p className="text-sm text-gray-600">
+          <p className="type-sm text-(--text-muted)">
             {t("cooldownAhead", { days: HANDLE_CHANGE_COOLDOWN_DAYS })}
           </p>
         )}
       {saved && (
-        <p className="text-sm text-green-700" role="status">
+        <p className="type-sm text-(--state-success)" role="status">
           {t("saved", { address: saved.address })}
         </p>
       )}
       {saved?.redirects && (
-        <p className="text-sm text-gray-600" role="status">
+        <p className="type-sm text-(--text-muted)" role="status">
           {t("savedRedirect")}
         </p>
       )}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-(--sp-4)">
+        <Button type="submit" size="lg" disabled={!canSubmit} className="self-start">
+          {submitting
+            ? t("submitting")
+            : t(mode === "onboarding" ? "submitOnboarding" : "submitSettings")}
+        </Button>
         {onBack && (
-          <button
-            type="button"
-            onClick={onBack}
-            className="rounded-md px-3 py-2 text-sm font-medium text-gray-700 underline hover:text-gray-900"
-          >
+          <button type="button" onClick={onBack} className={textButtonClassName("muted")}>
             {t("back")}
           </button>
         )}
-      <button
-        type="submit"
-        disabled={!canSubmit}
-        className="self-start rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:bg-gray-400"
-      >
-        {submitting
-          ? t("submitting")
-          : t(mode === "onboarding" ? "submitOnboarding" : "submitSettings")}
-      </button>
       </div>
     </form>
   );

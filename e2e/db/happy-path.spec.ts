@@ -47,9 +47,6 @@ test("a new user goes from the landing page to a live public profile", async ({
   const identity = newIdentity();
   const baseURL = testInfo.project.use.baseURL;
   expect(baseURL, "the project must declare a baseURL").toBeTruthy();
-  // What the page prints in front of a handle: APP_URL's origin, which the
-  // web server is started with (playwright.config.ts).
-  const origin = new URL(baseURL!).origin;
 
   await test.step("A11: the landing page offers the way in", async () => {
     await page.goto("/");
@@ -70,7 +67,7 @@ test("a new user goes from the landing page to a live public profile", async ({
   await test.step("A2: log in", async () => {
     await logIn(page, identity);
     await expect(
-      page.getByRole("heading", { level: 1, name: "Ustaw swój adres profilu" }),
+      page.getByRole("heading", { level: 1, name: "Ustaw nazwę profilu" }),
     ).toBeVisible();
   });
 
@@ -146,7 +143,8 @@ test("a new user goes from the landing page to a live public profile", async ({
     await expect(
       page.getByRole("heading", { level: 1, name: identity.displayName }),
     ).toBeVisible();
-    await expect(page.getByText(`${origin}/${identity.handle}`)).toBeVisible();
+    // The design (#58) dropped the visible address from the card — it's
+    // still the page's own URL (A5), just not printed on it a second time.
     // A7's <head>: the profile's own title, not the not-found one.
     await expect(page).toHaveTitle(`${identity.displayName} · Architektów 3d`);
 

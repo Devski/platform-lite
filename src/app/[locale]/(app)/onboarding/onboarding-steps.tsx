@@ -2,6 +2,12 @@
 
 import { useState } from "react";
 import { useTranslations } from "next-intl";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { FormField } from "@/components/ui/form-field";
+import { Input } from "@/components/ui/input";
+import { Plaque } from "@/components/ui/plaque";
 import { handleBaseFrom } from "@/lib/handle";
 import { DISPLAY_NAME_MAX } from "@/lib/profile-schemas";
 import { HandleForm } from "../handle-form";
@@ -34,60 +40,80 @@ export function OnboardingSteps({
 
   const trimmed = displayName.trim();
 
-  if (handle === null) {
-    return (
-      <form
-        className="mt-6 flex flex-col gap-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (trimmed === "") return;
-          setHandle(handleBaseFrom(trimmed) ?? fallbackHandle);
-        }}
-      >
-        <label
-          htmlFor="display-name"
-          className="text-sm font-medium text-gray-700"
-        >
-          {t("nameLabel")}
-        </label>
-        <input
-          id="display-name"
-          name="displayName"
-          type="text"
-          autoComplete="name"
-          autoFocus
-          maxLength={DISPLAY_NAME_MAX}
-          required
-          value={displayName}
-          onChange={(event) => setDisplayName(event.target.value)}
-          aria-describedby="display-name-hint"
-          className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-600 focus:outline-none"
-        />
-        <p id="display-name-hint" className="text-sm text-gray-500">
-          {t("nameHint")}
-        </p>
-        <button
-          type="submit"
-          disabled={trimmed === ""}
-          className="mt-2 self-start rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:bg-gray-400"
-        >
-          {t("next")}
-        </button>
-      </form>
-    );
-  }
-
   return (
-    <HandleForm
-      mode="onboarding"
-      origin={origin}
-      initialValue={handle}
-      currentHandle={null}
-      nextChangeAt={null}
-      displayName={trimmed}
-      // Deliberately does NOT clear the handle: returning re-enters this
-      // component with the address already decided.
-      onBack={() => setHandle(null)}
-    />
+    // Card and plaque are each a fixed size, not flexed to fill the page —
+    // a fixed 64px gap, and the pair centered as one unit, the same way the
+    // auth cards (screen 4) center on their own.
+    <div className="flex w-full flex-col items-center gap-(--sp-8) md:w-auto md:flex-row md:gap-(--sp-12)">
+      <Card padding="lg" className="w-full md:w-[420px]">
+        <Badge uppercase>{t("stepBadge", { step: handle === null ? 1 : 2 })}</Badge>
+        {handle === null ? (
+          <>
+            <h1 className="mt-(--sp-5) type-h1 text-(--text-strong)">
+              {t("nameStepHeading")}
+            </h1>
+            <form
+              className="mt-(--sp-7) flex flex-col gap-(--sp-5)"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (trimmed === "") return;
+                setHandle(handleBaseFrom(trimmed) ?? fallbackHandle);
+              }}
+            >
+              <FormField
+                label={t("nameLabel")}
+                htmlFor="display-name"
+                hint={t("nameHint")}
+                hintId="display-name-hint"
+              >
+                <Input
+                  id="display-name"
+                  name="displayName"
+                  type="text"
+                  autoComplete="name"
+                  autoFocus
+                  maxLength={DISPLAY_NAME_MAX}
+                  required
+                  value={displayName}
+                  onChange={(event) => setDisplayName(event.target.value)}
+                  aria-describedby="display-name-hint"
+                />
+              </FormField>
+              <Button type="submit" size="lg" disabled={trimmed === ""} className="self-start">
+                {t("next")}
+              </Button>
+            </form>
+          </>
+        ) : (
+          <>
+            <h1 className="mt-(--sp-5) type-h1 text-(--text-strong)">
+              {t("heading")}
+            </h1>
+            <p className="mt-(--sp-3) type-sm text-(--text-muted)">
+              {t("intro")}
+            </p>
+            <div className="mt-(--sp-7)">
+              <HandleForm
+                mode="onboarding"
+                origin={origin}
+                initialValue={handle}
+                currentHandle={null}
+                nextChangeAt={null}
+                displayName={trimmed}
+                // Deliberately does NOT clear the handle: returning
+                // re-enters this component with the address already decided.
+                onBack={() => setHandle(null)}
+              />
+            </div>
+          </>
+        )}
+      </Card>
+      <div className="flex flex-col items-center gap-(--sp-5)">
+        <Plaque name={trimmed || undefined} width={260} tilt={0} />
+        <p className="type-sm max-w-[16rem] text-center text-(--text-subtle)">
+          {t("plaqueCaption")}
+        </p>
+      </div>
+    </div>
   );
 }

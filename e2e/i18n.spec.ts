@@ -9,16 +9,14 @@ test.describe("Polish browser", () => {
     await expect(page).toHaveTitle("Architektów 3d");
     await expect(page.locator("html")).toHaveAttribute("lang", "pl");
     await expect(
-      page.getByRole("heading", { level: 1, name: "Architektów 3d" }),
+      page.getByRole("heading", {
+        level: 1,
+        name: "Twoje portfolio pod dobrym adresem.",
+      }),
     ).toBeVisible();
     await expect(
       page.getByText(
-        "Publiczne profile dla studiów architektury i artystów 3D",
-      ),
-    ).toBeVisible();
-    await expect(
-      page.getByText(
-        "Stwórz publiczny profil w kilka minut i udostępnij go jednym linkiem.",
+        "Sceny 3D w internecie w kilka minut. Publiczne profile dla architektów i artystów.",
       ),
     ).toBeVisible();
   });
@@ -56,11 +54,14 @@ test.describe("English browser", () => {
     await expect(page).toHaveURL(/\/en$/);
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
     await expect(
-      page.getByText("Public profiles for architecture studios and 3D artists"),
+      page.getByRole("heading", {
+        level: 1,
+        name: "Your portfolio, at a good address.",
+      }),
     ).toBeVisible();
     await expect(
       page.getByText(
-        "Build a public profile in a few minutes and share it with a single link.",
+        "3D scenes online in minutes. Public profiles for architects and artists.",
       ),
     ).toBeVisible();
   });

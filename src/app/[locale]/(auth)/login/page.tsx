@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { getTranslations, setRequestLocale } from "next-intl/server";
-import { Link } from "@/i18n/navigation";
+import { Card } from "@/components/ui/card";
+import { Logo } from "@/components/ui/logo";
+import { TextLink } from "@/components/ui/text-link";
 import { LoginForm } from "./login-form";
 
 export async function generateMetadata({
@@ -23,28 +25,16 @@ export default async function LoginPage({
   const t = await getTranslations("Login");
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
-      <div className="w-full max-w-md rounded-lg border border-gray-200 bg-white p-8">
-        <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
-          {t("heading")}
-        </h1>
-        <LoginForm />
-        <p className="mt-4 text-sm">
-          <Link
-            href="/reset-password"
-            className="font-semibold text-blue-700 hover:underline"
-          >
-            {t("forgotPassword")}
-          </Link>
-        </p>
-        <p className="mt-2 text-sm text-gray-600">
+    <main className="flex min-h-screen items-center justify-center bg-(--surface-page) p-(--sp-7)">
+      <div className="flex w-full max-w-(--measure-form) flex-col items-center gap-(--sp-6)">
+        <Logo href="/" size="compact" />
+        <Card padding="lg" className="w-full">
+          <h1 className="type-h1 text-(--text-strong)">{t("heading")}</h1>
+          <LoginForm />
+        </Card>
+        <p className="type-sm text-center text-(--text-muted)">
           {t("registerPrompt")}{" "}
-          <Link
-            href="/register"
-            className="font-semibold text-blue-700 hover:underline"
-          >
-            {t("registerLink")}
-          </Link>
+          <TextLink href="/register">{t("registerLink")}</TextLink>
         </p>
       </div>
     </main>

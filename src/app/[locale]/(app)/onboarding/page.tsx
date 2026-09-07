@@ -9,10 +9,10 @@ import { getHandleState, suggestHandle } from "@/lib/profile-handle";
 import { OnboardingSteps } from "./onboarding-steps";
 
 // #15: the one step between login and the app. Login and the 2FA challenge
-// land here; a user who already has a handle is forwarded to /, everyone
-// else picks one (a proposal is prefilled). Deliberately its own page, not a
-// settings section: the address is the point of the product (§1), so it
-// comes before the name and the photo.
+// land here; a user who already has a handle is forwarded straight to their
+// profile, everyone else picks one (a proposal is prefilled). Deliberately
+// its own page, not a settings section: the address is the point of the
+// product (§1), so it comes before the name and the photo.
 
 export async function generateMetadata({
   params,
@@ -42,21 +42,17 @@ export default async function OnboardingPage({
   const db = getDb();
   const state = await getHandleState(db, session.user.id);
   if (state.handle) {
-    redirect({ href: "/", locale });
+    // Straight to the profile that's already set up — "/" now redirects
+    // signed-in visitors right back here, so going through it would just add
+    // a hop.
+    redirect({ href: `/${state.handle}`, locale });
     return null;
   }
-  const t = await getTranslations("Onboarding");
   const suggestion = await suggestHandle(db, session.user.id);
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
-      <div className="w-full max-w-md rounded-lg border border-gray-200 bg-white p-8">
-        <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
-          {t("heading")}
-        </h1>
-        <p className="mt-2 text-sm text-gray-600">{t("intro")}</p>
-        <OnboardingSteps origin={appOrigin()} fallbackHandle={suggestion} />
-      </div>
+    <main className="flex min-h-screen items-center justify-center bg-(--surface-page) p-(--sp-7)">
+      <OnboardingSteps origin={appOrigin()} fallbackHandle={suggestion} />
     </main>
   );
 }

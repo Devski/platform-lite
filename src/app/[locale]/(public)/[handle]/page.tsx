@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { hasLocale } from "next-intl";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound, permanentRedirect } from "next/navigation";
@@ -6,19 +7,38 @@ import { cache } from "react";
 import { getDb } from "@/db/client";
 import { getPathname } from "@/i18n/navigation";
 import { routing, type Locale } from "@/i18n/routing";
+import { getAuth } from "@/lib/auth";
 import { appOrigin, isMissingEnv } from "@/lib/env";
-import {
-  initialsFrom,
-  monogramImagePath,
-  MONOGRAM_BACKGROUND,
-  MONOGRAM_FOREGROUND,
-} from "@/lib/monogram";
+import { monogramImagePath } from "@/lib/monogram";
 import {
   loadPublicProfile,
   profileMetadata,
   type PublicProfileLookup,
 } from "@/lib/public-profile";
 import { getStorage, keyPrefix } from "@/lib/storage";
+import { Avatar } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { ButtonLink } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Footer } from "@/components/ui/footer";
+import { LanguageChip } from "@/components/ui/language-chip";
+import { Logo } from "@/components/ui/logo";
+import { Plaque } from "@/components/ui/plaque";
+import { TopBar } from "@/components/ui/top-bar";
+import { OwnerProfileView } from "./owner-profile-view";
+
+// Whether the CURRENT viewer owns this profile (screen 6 vs screen 2). Fails
+// closed like every other session read here: a session that cannot be
+// verified (including a preview environment with no database at all) is
+// treated as "not the owner", never the other way round.
+async function isOwnerViewing(userId: string): Promise<boolean> {
+  try {
+    const session = await getAuth().api.getSession({ headers: await headers() });
+    return session?.user.id === userId;
+  } catch {
+    return false;
+  }
+}
 
 // A7: the public profile — the one page an anonymous visitor (and a crawler)
 // sees. The §9 resolution and the <head> live in src/lib/public-profile.ts;
@@ -151,49 +171,69 @@ export default async function PublicProfilePage({
     permanentRedirect(`${handlePath(profile.handle, locale)}${query}`);
   }
 
+  if (await isOwnerViewing(profile.userId)) {
+    return (
+      <>
+        <OwnerProfileView profile={profile} />
+        <Footer maxWidth="measure-page" />
+      </>
+    );
+  }
+
   const t = await getTranslations("PublicProfile");
-  const address = `${appOrigin()}/${profile.handle}`;
+  const tSession = await getTranslations("Session");
 
   return (
-    <main className="flex min-h-screen justify-center bg-gray-50 px-4 py-12">
-      <article className="flex w-full max-w-md flex-col items-center gap-4 rounded-lg border border-gray-200 bg-white p-8 text-center">
-        {profile.avatar ? (
-          // Pre-optimized WebP served from storage (G2/G5) — next/image would
-          // only re-proxy an already-final asset from a runtime-configured
-          // host, as the settings page notes.
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={profile.avatar.url128}
-            alt={t("avatarAlt", { name: profile.displayName })}
-            width={128}
-            height={128}
-            className="h-32 w-32 rounded-full border border-gray-200 object-cover"
-          />
-        ) : (
-          // The same monogram the share card draws (#27), so the page a
-          // visitor lands on looks like the preview that brought them here.
-          // Decorative: the name below already says whose profile this is.
-          <div
-            aria-hidden="true"
-            className="flex h-32 w-32 items-center justify-center rounded-full border border-gray-200 text-4xl font-semibold"
-            style={{
-              backgroundColor: MONOGRAM_BACKGROUND,
-              color: MONOGRAM_FOREGROUND,
-            }}
-          >
-            {initialsFrom(profile.displayName)}
+    <>
+      {/* This screen is the signed-out visitor's view of someone else's
+          profile (README screen 2) — the mark goes to the hero, not to a
+          session-dependent destination. The owner sees OwnerProfileView
+          instead (screen 6), above. */}
+      <TopBar
+        maxWidth="measure-page"
+        left={<Logo href="/" />}
+        right={
+          <>
+            <LanguageChip locale={locale} />
+            <ButtonLink variant="quiet" href="/register">
+              {tSession("register")}
+            </ButtonLink>
+          </>
+        }
+      />
+      <main className="mx-auto flex max-w-(--measure-page) flex-col gap-(--sp-6) px-(--sp-7) pt-(--sp-12) pb-(--sp-14)">
+        <Card as="article" padding="lg">
+          <div className="flex flex-wrap items-center gap-(--sp-9)">
+            {/* Pre-optimized WebP served from storage (G2/G5) — next/image
+                would only re-proxy an already-final asset from a runtime-
+                configured host, as the settings page notes. */}
+            <Avatar
+              src={profile.avatar?.url128 ?? null}
+              name={profile.displayName}
+              size={128}
+              alt={t("avatarAlt", { name: profile.displayName })}
+              className="shrink-0"
+            />
+            <div className="flex min-w-0 flex-1 flex-col gap-(--sp-5)">
+              <h1 className="type-display text-(--text-strong)">
+                {profile.displayName}
+              </h1>
+            </div>
           </div>
-        )}
-        <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
-          {profile.displayName}
-        </h1>
-        {/* The address is the profile's identity (A5) — shown, not linked:
-            the visitor is already on it. */}
-        <p className="text-sm text-gray-600">
-          <span className="sr-only">{t("addressLabel")}</span>
-          <span className="font-mono">{address}</span>
-        </p>
-      </article>
-    </main>
+        </Card>
+        <Card padding="sm" tone="sunken">
+          <div className="flex flex-wrap items-center gap-(--sp-4)">
+            <Badge uppercase>{t("scopeBadge")}</Badge>
+            <span className="type-sm text-(--text-muted)">
+              {t("scopeNote")}
+            </span>
+          </div>
+        </Card>
+      </main>
+      <div className="mx-auto flex max-w-(--measure-page) justify-center px-(--sp-7) py-(--sp-8)">
+        <Plaque name={profile.displayName} width={150} tilt={0} shadow={false} />
+      </div>
+      <Footer maxWidth="measure-page" />
+    </>
   );
 }

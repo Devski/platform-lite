@@ -3,6 +3,11 @@
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { useRouter } from "@/i18n/navigation";
+import { Button } from "@/components/ui/button";
+import { FormField } from "@/components/ui/form-field";
+import { Icon } from "@/components/ui/icon";
+import { Input } from "@/components/ui/input";
+import { textButtonClassName } from "@/components/ui/text-link";
 import { authClient } from "@/lib/auth-client";
 import type { Mode } from "./modes";
 
@@ -76,64 +81,83 @@ export function TwoFactorChallenge({ modes }: { modes: Mode[] }) {
   const codeReady = mode !== "otp" || otpSent;
 
   return (
-    <div className="mt-6 flex flex-col gap-4">
+    <div className="mt-(--sp-6) flex flex-col gap-(--sp-5)">
       {modes.length > 1 && (
         <div
-          className="flex flex-wrap gap-2"
+          className="flex flex-wrap items-center gap-(--sp-3)"
           role="group"
           aria-label={t("methodsLabel")}
         >
-          {modes.map((option) => (
-            <button
-              key={option}
-              type="button"
-              aria-pressed={mode === option}
-              onClick={() => switchMode(option)}
-              className={
-                mode === option
-                  ? "rounded-md border border-blue-600 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-800"
-                  : "rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:border-blue-600"
-              }
-            >
-              {t(`methods.${option}`)}
-            </button>
-          ))}
+          {modes.map((option) =>
+            // Backup reads as a lightweight fallback, not a co-equal choice
+            // (design-system-source's dedicated "use a backup code" link),
+            // so it renders as a text link rather than a pill — same button
+            // semantics and click handler as the other options either way.
+            option === "backup" ? (
+              <button
+                key={option}
+                type="button"
+                aria-pressed={mode === option}
+                onClick={() => switchMode(option)}
+                className={textButtonClassName("muted")}
+              >
+                {t(`methods.${option}`)}
+              </button>
+            ) : (
+              <button
+                key={option}
+                type="button"
+                aria-pressed={mode === option}
+                onClick={() => switchMode(option)}
+                className={
+                  mode === option
+                    ? "flex items-center gap-(--sp-2) rounded-sm border border-(--action-solid) bg-(--surface-sunken) px-(--sp-3) py-(--sp-1) type-sm font-semibold text-(--text-strong)"
+                    : "flex items-center gap-(--sp-2) rounded-sm border border-(--border-default) px-(--sp-3) py-(--sp-1) type-sm text-(--text-body) hover:border-(--action-solid)"
+                }
+              >
+                {option === "totp" && <Icon name="smartphone" size={16} />}
+                {t(`methods.${option}`)}
+              </button>
+            ),
+          )}
         </div>
       )}
 
-      <p className="text-sm text-gray-600">{t(`intro.${mode}`)}</p>
+      <p className="type-sm text-(--text-muted)">{t(`intro.${mode}`)}</p>
 
       {mode === "otp" && (
-        <div className="flex flex-col gap-1">
-          <button
+        <div className="flex flex-col gap-(--sp-1)">
+          <Button
             type="button"
+            variant="quiet"
             onClick={sendCode}
             disabled={sending}
-            className="self-start rounded-md border border-blue-600 px-3 py-1.5 text-sm font-semibold text-blue-700 hover:bg-blue-50 disabled:text-gray-400"
+            className="self-start"
           >
             {sending
               ? t("otp.sending")
               : otpSent
                 ? t("otp.resend")
                 : t("otp.send")}
-          </button>
+          </Button>
           {otpSent && (
-            <p className="text-sm text-green-700" role="status">
+            <p className="type-sm text-(--state-success)" role="status">
               {t("otp.sent")}
             </p>
           )}
         </div>
       )}
 
-      <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
-        <div className="flex flex-col gap-1">
-          <label htmlFor="code" className="text-sm font-medium text-gray-700">
-            {t(mode === "backup" ? "backupLabel" : "codeLabel")}
-          </label>
-          <input
+      <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-(--sp-5)">
+        <FormField
+          label={t(mode === "backup" ? "backupLabel" : "codeLabel")}
+          htmlFor="code"
+        >
+          <Input
             id="code"
             name="code"
             type="text"
+            mono
             inputMode={mode === "backup" ? "text" : "numeric"}
             autoComplete="one-time-code"
             required
@@ -142,23 +166,19 @@ export function TwoFactorChallenge({ modes }: { modes: Mode[] }) {
             onChange={(event) => setCode(event.target.value)}
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? "code-error" : undefined}
-            className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-600 focus:outline-none disabled:bg-gray-100"
+            className="max-w-[140px]"
           />
-        </div>
+        </FormField>
 
         {error && (
-          <p id="code-error" className="text-sm text-red-700" role="alert">
+          <p id="code-error" className="type-sm text-(--state-danger)" role="alert">
             {error}
           </p>
         )}
 
-        <button
-          type="submit"
-          disabled={submitting || !codeReady}
-          className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:bg-gray-400"
-        >
+        <Button type="submit" disabled={submitting || !codeReady} className="w-full">
           {submitting ? t("submitting") : t("submit")}
-        </button>
+        </Button>
       </form>
     </div>
   );

@@ -16,21 +16,21 @@ export function ResendStatus({
 }) {
   if (state === "done") {
     return (
-      <p className="text-sm text-green-700" role="status">
+      <p className="type-sm text-(--state-success)" role="status">
         {done}
       </p>
     );
   }
   if (state === "limited") {
     return (
-      <p className="text-sm text-red-700" role="status">
+      <p className="type-sm text-(--state-danger)" role="status">
         {limited}
       </p>
     );
   }
   if (state === "failed") {
     return (
-      <p className="text-sm text-red-700" role="status">
+      <p className="type-sm text-(--state-danger)" role="status">
         {failed}
       </p>
     );

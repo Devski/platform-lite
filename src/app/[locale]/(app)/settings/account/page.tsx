@@ -1,8 +1,15 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { getTranslations, setRequestLocale } from "next-intl/server";
-import { Link, redirect } from "@/i18n/navigation";
+import { redirect } from "@/i18n/navigation";
 import { getAuth } from "@/lib/auth";
+import { AccountMenu } from "@/components/ui/account-menu";
+import { Card } from "@/components/ui/card";
+import { Divider } from "@/components/ui/divider";
+import { Logo } from "@/components/ui/logo";
+import { TopBar } from "@/components/ui/top-bar";
+import { getDb } from "@/db/client";
+import { getHandleState } from "@/lib/profile-handle";
 import { ChangeEmailForm } from "./change-email-form";
 import { ChangePasswordForm } from "./change-password-form";
 import { TwoFactorSettings } from "./two-factor-settings";
@@ -34,48 +41,40 @@ export default async function AccountSettingsPage({
     return null;
   }
   const t = await getTranslations("Settings.account");
+  // The top bar's account menu needs somewhere for "Profil" to point at —
+  // the same handle lookup the (app) pages already do.
+  const { handle } = await getHandleState(getDb(), session.user.id);
 
   return (
-    <main className="flex min-h-screen justify-center bg-gray-50 px-4 py-12">
-      <div className="flex w-full max-w-md flex-col gap-6">
-        <div className="rounded-lg border border-gray-200 bg-white p-8">
-          <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
-            {t("heading")}
-          </h1>
-          <p className="mt-2 text-sm text-gray-600">
-            {t("currentEmail", { email: session.user.email })}
-          </p>
-          <p className="mt-2 text-sm">
-            <Link
-              href="/settings/profile"
-              className="font-semibold text-blue-700 hover:underline"
-            >
-              {t("profileLink")}
-            </Link>
-          </p>
-        </div>
-
-        <section className="rounded-lg border border-gray-200 bg-white p-8">
-          <h2 className="text-lg font-semibold text-gray-900">
+    <>
+      <TopBar
+        maxWidth="measure-page"
+        left={<Logo href={handle ? `/${handle}` : "/"} />}
+        right={
+          <AccountMenu
+            handle={handle ?? ""}
+            avatarUrl={null}
+            displayName={session.user.email}
+          />
+        }
+      />
+      <main className="mx-auto max-w-(--measure-form) px-(--sp-7) pt-(--sp-10) pb-(--sp-14)">
+        <Card padding="default" className="flex flex-col gap-(--sp-6)">
+          <h1 className="type-h1 text-(--text-strong)">{t("heading")}</h1>
+          <Divider />
+          <h2 className="type-h3 text-(--text-strong)">
             {t("password.heading")}
           </h2>
           <ChangePasswordForm />
-        </section>
-
-        <section className="rounded-lg border border-gray-200 bg-white p-8">
-          <h2 className="text-lg font-semibold text-gray-900">
+          <Divider />
+          <h2 className="type-h3 text-(--text-strong)">
             {t("email.heading")}
           </h2>
           <ChangeEmailForm currentEmail={session.user.email} />
-        </section>
-
-        <section className="rounded-lg border border-gray-200 bg-white p-8">
-          <h2 className="text-lg font-semibold text-gray-900">
-            {t("twoFactor.heading")}
-          </h2>
+          <Divider />
           <TwoFactorSettings enabled={session.user.twoFactorEnabled === true} />
-        </section>
-      </div>
-    </main>
+        </Card>
+      </main>
+    </>
   );
 }
