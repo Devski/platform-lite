@@ -15,8 +15,6 @@ const WARMUP_PATHS = [
   "/two-factor",
   "/email-changed",
   "/settings/account",
-  // The #20 journey walks onboarding into the profile settings.
-  "/settings/profile",
   "/onboarding",
   "/en/login",
   // The public profile page (#18) and, through it, the localized 404 body.

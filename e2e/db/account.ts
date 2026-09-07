@@ -142,8 +142,9 @@ async function submitLogin(
 }
 
 /**
- * Past the onboarding gate (#15/#36) and onto the profile screen: the name
- * first, then the address derived from it.
+ * Past the onboarding gate (#15/#36) and onto the live profile page: the name
+ * first, then the address derived from it, which is where the claim lands
+ * since #58 folded the profile-settings screen away.
  *
  * Deliberately not shared with e2e/db/happy-path.spec.ts, which walks the same
  * two steps by hand. There the steps ARE the subject — that the button is
@@ -172,7 +173,9 @@ export async function completeOnboarding(
     timeout: 15_000,
   });
   await page.getByRole("button", { name: "Ustaw adres" }).click();
+  // The claim lands on the address it just created, carrying the name it was
+  // submitted with as the profile's heading.
   await expect(
-    page.getByRole("heading", { level: 1, name: "Twój profil" }),
+    page.getByRole("heading", { level: 1, name: identity.displayName }),
   ).toBeVisible();
 }

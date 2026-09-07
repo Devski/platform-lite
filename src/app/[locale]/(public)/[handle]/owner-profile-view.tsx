@@ -101,10 +101,11 @@ export function OwnerProfileView({ profile }: { profile: OwnerProfile }) {
     return tAvatar("errors.generic");
   }
 
-  // Same presign→PUT→confirm→assign chain as
-  // settings/profile/avatar-section.tsx — duplicated for now rather than
-  // extracted, since that screen hasn't had its design-system pass yet;
-  // worth a shared hook once it does.
+  // The #12 upload contract from the browser's side, and since #58 the only
+  // copy of it: presign a staging slot, PUT the file straight to storage with
+  // the signed headers (G4 — the bytes never touch the app server), confirm
+  // so the server verifies and publishes, then point the profile at the
+  // returned original.
   async function handleAvatarFile(file: File) {
     setAvatarError(null);
     if (fileInputRef.current) fileInputRef.current.value = "";

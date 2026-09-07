@@ -197,15 +197,8 @@
       }
     },
     "profile": {
-      "title": "Profile",
-      "heading": "Your profile",
-      "accountLink": "Account settings: password, e-mail, verification",
       "name": {
-        "heading": "Display name",
         "label": "Name (your studio's or your own)",
-        "save": "Save the name",
-        "saving": "Saving…",
-        "saved": "Name saved.",
         "errors": {
           "invalid": "The name needs 1 to {max} characters.",
           "rateLimited": "Too many saves. Wait a moment and try again.",
@@ -213,13 +206,7 @@
         }
       },
       "avatar": {
-        "heading": "Profile photo",
-        "currentAlt": "Your current profile photo",
-        "empty": "You have no profile photo yet.",
-        "chooseLabel": "Choose a photo",
-        "hint": "JPEG, PNG or WebP, up to 10 MB. We crop it to a square.",
         "uploading": "Uploading and processing…",
-        "done": "Photo set.",
         "errors": {
           "file_type": "That format is not supported — choose JPEG, PNG or WebP.",
           "file_size": "The file needs to be between 1 byte and 10 MB.",

@@ -1,120 +1,20 @@
-import type { Metadata } from "next";
-import { headers } from "next/headers";
-import { getTranslations, setRequestLocale } from "next-intl/server";
-import { Link, redirect } from "@/i18n/navigation";
-import { getDb } from "@/db/client";
-import { getAuth } from "@/lib/auth";
-import { appOrigin } from "@/lib/env";
-import { getProfile } from "@/lib/profile";
-import { getHandleState, suggestHandle } from "@/lib/profile-handle";
-import { getStorage, keyPrefix } from "@/lib/storage";
-import { HandleForm } from "../../handle-form";
-import { AvatarSection } from "./avatar-section";
-import { DisplayNameForm } from "./display-name-form";
+import { redirect } from "@/i18n/navigation";
 
-export async function generateMetadata({
-  params,
-}: {
-  params: Promise<{ locale: string }>;
-}): Promise<Metadata> {
-  const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "Settings.profile" });
-  return { title: t("title") };
-}
-
-export default async function ProfileSettingsPage({
+// #58 folded this screen away: the name and the photo are edited straight on
+// the owner's own profile page, and the address moved next to the rest of the
+// account identity. The route survives as a redirect so bookmarks, old
+// e-mails and anything else still pointing here land somewhere.
+//
+// It stays inside (app) on purpose — the layout's session gate sends a
+// signed-out visitor to the login page rather than bouncing them through a
+// settings address they cannot open.
+export default async function ProfileSettingsRedirect({
   params,
 }: {
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await params;
-  setRequestLocale(locale);
-  const session = await getAuth().api.getSession({ headers: await headers() });
-  if (!session) {
-    // redirect() throws; the return only narrows the type below.
-    redirect({ href: "/login", locale });
-    return null;
-  }
-  const t = await getTranslations("Settings.profile");
-  const db = getDb();
-  const profile = await getProfile({
-    db,
-    // Resolved on first use: the bucket is needed only to address an
-    // existing avatar, so the page renders without S3_* (the local runner).
-    storage: { publicUrl: (key) => getStorage().publicUrl(key) },
-    prefix: keyPrefix(),
-    userId: session.user.id,
-  });
-  const handleState = await getHandleState(db, session.user.id);
-  const handle = handleState.handle;
-  // No handle yet (an account from before #15, or onboarding left early):
-  // the form opens on the same proposal the onboarding step would make.
-  const handleValue = handle ?? (await suggestHandle(db, session.user.id));
-  const origin = appOrigin();
-
-  return (
-    <main className="flex min-h-screen justify-center bg-gray-50 px-4 py-12">
-      <div className="flex w-full max-w-md flex-col gap-6">
-        <div className="rounded-lg border border-gray-200 bg-white p-8">
-          <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
-            {t("heading")}
-          </h1>
-          <p className="mt-2 text-sm">
-            <Link
-              href="/settings/account"
-              className="font-semibold text-blue-700 hover:underline"
-            >
-              {t("accountLink")}
-            </Link>
-          </p>
-        </div>
-
-        <section className="rounded-lg border border-gray-200 bg-white p-8">
-          <h2 className="text-lg font-semibold text-gray-900">
-            {t("name.heading")}
-          </h2>
-          <DisplayNameForm initialName={profile.displayName ?? ""} />
-        </section>
-
-        <section className="rounded-lg border border-gray-200 bg-white p-8">
-          <h2 className="text-lg font-semibold text-gray-900">
-            {t("avatar.heading")}
-          </h2>
-          <AvatarSection currentUrl={profile.avatar?.url512 ?? null} />
-        </section>
-
-        <section className="rounded-lg border border-gray-200 bg-white p-8">
-          <h2 className="text-lg font-semibold text-gray-900">
-            {t("handle.heading")}
-          </h2>
-          <p className="mt-2 text-sm text-gray-600">
-            {handle
-              ? // The address is a live page since #18, so the line is the way
-                // to it: the owner sees exactly what a visitor sees.
-                t.rich("handle.current", {
-                  address: `${origin}/${handle}`,
-                  link: (chunks) => (
-                    <Link
-                      href={`/${handle}`}
-                      // Inline in a sentence: underlined always, so colour
-                      // is not the only thing marking it as a link.
-                      className="text-blue-700 underline hover:no-underline"
-                    >
-                      {chunks}
-                    </Link>
-                  ),
-                })
-              : t("handle.empty")}
-          </p>
-          <HandleForm
-            mode="settings"
-            origin={origin}
-            currentHandle={handle}
-            initialValue={handleValue}
-            nextChangeAt={handleState.nextChangeAt?.toISOString() ?? null}
-          />
-        </section>
-      </div>
-    </main>
-  );
+  redirect({ href: "/settings/account", locale });
+  // redirect() throws; the return only keeps the component a ReactNode.
+  return null;
 }

@@ -302,8 +302,10 @@ export function HandleForm({
         return;
       }
       if (mode === "onboarding") {
-        // Name and photo are the next steps toward the MVP goal (§1).
-        router.push("/settings/profile");
+        // Straight to the page the address just created (§1). The name came
+        // with the claim, and the photo is set on the profile itself since
+        // #58 — there is no settings screen left to send anyone to.
+        router.push(`/${response.data.handle}`);
         return;
       }
       // Show what was stored (normalized), not what was typed.

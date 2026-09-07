@@ -3,6 +3,9 @@
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { getPathname } from "@/i18n/navigation";
+import { Button } from "@/components/ui/button";
+import { FormField } from "@/components/ui/form-field";
+import { Input } from "@/components/ui/input";
 import { authClient } from "@/lib/auth-client";
 import { emailSchema } from "@/lib/auth-schemas";
 
@@ -54,11 +57,9 @@ export function RequestForm() {
 
   if (sentTo) {
     return (
-      <div className="mt-4 flex flex-col gap-4">
-        <h2 className="text-lg font-semibold text-gray-900">
-          {t("sent.heading")}
-        </h2>
-        <p className="text-sm text-gray-600">
+      <div className="mt-(--sp-6) flex flex-col gap-(--sp-5)">
+        <h2 className="type-h4 text-(--text-strong)">{t("sent.heading")}</h2>
+        <p className="type-sm text-(--text-muted)">
           {t("sent.body", { email: sentTo })}
         </p>
       </div>
@@ -66,49 +67,43 @@ export function RequestForm() {
   }
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      noValidate
-      className="mt-6 flex flex-col gap-4"
-    >
-      <p className="text-sm text-gray-600">{t("body")}</p>
+    <>
+      <p className="mt-(--sp-3) type-sm text-(--text-muted)">{t("body")}</p>
 
-      <div className="flex flex-col gap-1">
-        <label htmlFor="email" className="text-sm font-medium text-gray-700">
-          {t("emailLabel")}
-        </label>
-        <input
-          id="email"
-          name="email"
-          type="email"
-          autoComplete="email"
-          required
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          aria-invalid={fieldError ? true : undefined}
-          aria-describedby={fieldError ? "email-error" : undefined}
-          className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-600 focus:outline-none"
-        />
-        {fieldError && (
-          <p id="email-error" className="text-sm text-red-700">
-            {fieldError}
+      <form
+        onSubmit={handleSubmit}
+        noValidate
+        className="mt-(--sp-7) flex flex-col gap-(--sp-5)"
+      >
+        <FormField label={t("emailLabel")} htmlFor="email">
+          <Input
+            id="email"
+            name="email"
+            type="email"
+            autoComplete="email"
+            required
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            aria-invalid={fieldError ? true : undefined}
+            aria-describedby={fieldError ? "email-error" : undefined}
+          />
+          {fieldError && (
+            <p id="email-error" className="type-sm text-(--state-danger)">
+              {fieldError}
+            </p>
+          )}
+        </FormField>
+
+        {formError && (
+          <p className="type-sm text-(--state-danger)" role="alert">
+            {formError}
           </p>
         )}
-      </div>
 
-      {formError && (
-        <p className="text-sm text-red-700" role="alert">
-          {formError}
-        </p>
-      )}
-
-      <button
-        type="submit"
-        disabled={submitting}
-        className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:bg-gray-400"
-      >
-        {submitting ? t("submitting") : t("submit")}
-      </button>
-    </form>
+        <Button type="submit" disabled={submitting} className="w-full">
+          {submitting ? t("submitting") : t("submit")}
+        </Button>
+      </form>
+    </>
   );
 }

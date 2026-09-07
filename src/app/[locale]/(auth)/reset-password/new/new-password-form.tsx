@@ -2,7 +2,10 @@
 
 import { useTranslations } from "next-intl";
 import { useState } from "react";
-import { Link } from "@/i18n/navigation";
+import { Button } from "@/components/ui/button";
+import { FormField } from "@/components/ui/form-field";
+import { Input } from "@/components/ui/input";
+import { TextLink } from "@/components/ui/text-link";
 import { authClient } from "@/lib/auth-client";
 import { PASSWORD_MAX, PASSWORD_MIN, passwordSchema } from "@/lib/auth-schemas";
 
@@ -60,31 +63,23 @@ export function NewPasswordForm({ token }: { token: string }) {
 
   if (outcome === "done") {
     return (
-      <div className="mt-4 flex flex-col gap-4">
-        <h2 className="text-lg font-semibold text-gray-900">
-          {t("success.heading")}
-        </h2>
-        <p className="text-sm text-gray-600">{t("success.body")}</p>
-        <Link
-          href="/login"
-          className="text-sm font-semibold text-blue-700 hover:underline"
-        >
+      <div className="mt-(--sp-6) flex flex-col gap-(--sp-5)">
+        <h2 className="type-h4 text-(--text-strong)">{t("success.heading")}</h2>
+        <p className="type-sm text-(--text-muted)">{t("success.body")}</p>
+        <TextLink href="/login" className="self-start">
           {t("success.loginLink")}
-        </Link>
+        </TextLink>
       </div>
     );
   }
 
   if (outcome === "invalidToken") {
     return (
-      <div className="mt-4 flex flex-col gap-4" role="alert">
-        <p className="text-sm text-red-700">{t("invalid.body")}</p>
-        <Link
-          href="/reset-password"
-          className="text-sm font-semibold text-blue-700 hover:underline"
-        >
+      <div className="mt-(--sp-6) flex flex-col gap-(--sp-5)" role="alert">
+        <p className="type-sm text-(--state-danger)">{t("invalid.body")}</p>
+        <TextLink href="/reset-password" className="self-start">
           {t("invalid.requestLink")}
-        </Link>
+        </TextLink>
       </div>
     );
   }
@@ -93,13 +88,18 @@ export function NewPasswordForm({ token }: { token: string }) {
     <form
       onSubmit={handleSubmit}
       noValidate
-      className="mt-6 flex flex-col gap-4"
+      className="mt-(--sp-7) flex flex-col gap-(--sp-5)"
     >
-      <div className="flex flex-col gap-1">
-        <label htmlFor="password" className="text-sm font-medium text-gray-700">
-          {t("passwordLabel")}
-        </label>
-        <input
+      <FormField
+        label={t("passwordLabel")}
+        htmlFor="password"
+        hint={
+          !fieldError &&
+          t("passwordHint", { min: PASSWORD_MIN, max: PASSWORD_MAX })
+        }
+        hintId="password-hint"
+      >
+        <Input
           id="password"
           name="password"
           type="password"
@@ -109,32 +109,23 @@ export function NewPasswordForm({ token }: { token: string }) {
           onChange={(event) => setPassword(event.target.value)}
           aria-invalid={fieldError ? true : undefined}
           aria-describedby={fieldError ? "password-error" : "password-hint"}
-          className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-600 focus:outline-none"
         />
-        {fieldError ? (
-          <p id="password-error" className="text-sm text-red-700">
+        {fieldError && (
+          <p id="password-error" className="type-sm text-(--state-danger)">
             {fieldError}
           </p>
-        ) : (
-          <p id="password-hint" className="text-sm text-gray-500">
-            {t("passwordHint", { min: PASSWORD_MIN, max: PASSWORD_MAX })}
-          </p>
         )}
-      </div>
+      </FormField>
 
       {formError && (
-        <p className="text-sm text-red-700" role="alert">
+        <p className="type-sm text-(--state-danger)" role="alert">
           {formError}
         </p>
       )}
 
-      <button
-        type="submit"
-        disabled={submitting}
-        className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:bg-gray-400"
-      >
+      <Button type="submit" disabled={submitting} className="w-full">
         {submitting ? t("submitting") : t("submit")}
-      </button>
+      </Button>
     </form>
   );
 }

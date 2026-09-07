@@ -1,26 +1,62 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useRef, useState } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import { Link, usePathname } from "@/i18n/navigation";
 import { routing, type Locale } from "@/i18n/routing";
 import { useDismissable } from "./use-dismissable";
 
-// Simple two-color rects, not emoji flags (design-system-source note).
-const FLAG_COLORS: Record<Locale, [string, string]> = {
-  pl: ["#ffffff", "#dc143c"],
-  en: ["#0f4eb1", "#c9150f"],
+// Drawn, not emoji flags (design-system-source note). Each is authored on the
+// same 60x30 field and stretched to the chip's box, so both sit identically.
+// The Union Jack follows the official construction — widths as fractions of
+// the hoist, and the red saltire counterchanged (offset to one side of each
+// arm), which is what separates it from a generic diagonal cross. The clip id
+// is passed in because it has to be unique to the rendered instance.
+const FLAG_SHAPES: Record<Locale, (clipId: string) => ReactNode> = {
+  pl: () => (
+    <>
+      <rect width="60" height="15" fill="#ffffff" />
+      <rect y="15" width="60" height="15" fill="#dc143c" />
+    </>
+  ),
+  en: (clipId) => (
+    <>
+      {/* Four triangles, one per arm, each bounded by the diagonal itself:
+          clipping the centred red stroke with them leaves the offset half. */}
+      <clipPath id={clipId}>
+        <path d="M30 15 h30 v15 z v15 h-30 z h-30 v-15 z v-15 h30 z" />
+      </clipPath>
+      <rect width="60" height="30" fill="#012169" />
+      <path d="M0 0 L60 30 M60 0 L0 30" stroke="#ffffff" strokeWidth={6} />
+      <path
+        d="M0 0 L60 30 M60 0 L0 30"
+        clipPath={`url(#${clipId})`}
+        stroke="#c8102e"
+        strokeWidth={4}
+      />
+      <path d="M30 0 v30 M0 15 h60" stroke="#ffffff" strokeWidth={10} />
+      <path d="M30 0 v30 M0 15 h60" stroke="#c8102e" strokeWidth={6} />
+    </>
+  ),
 };
 
 function Flag({ locale }: { locale: Locale }) {
-  const [top, bottom] = FLAG_COLORS[locale];
+  // useId's raw value is wrapped in punctuation a url(#...) fragment can't
+  // carry, so only the unique part of it is kept.
+  const clipId = `flag-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
   return (
     <span
       aria-hidden="true"
       className="inline-block h-3.5 w-5 shrink-0 overflow-hidden rounded-[2px] border border-(--border-default)"
     >
-      <span className="block h-1/2" style={{ backgroundColor: top }} />
-      <span className="block h-1/2" style={{ backgroundColor: bottom }} />
+      <svg
+        viewBox="0 0 60 30"
+        preserveAspectRatio="none"
+        fill="none"
+        className="block h-full w-full"
+      >
+        {FLAG_SHAPES[locale](clipId)}
+      </svg>
     </span>
   );
 }

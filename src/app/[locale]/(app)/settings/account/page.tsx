@@ -7,9 +7,12 @@ import { AccountMenu } from "@/components/ui/account-menu";
 import { Card } from "@/components/ui/card";
 import { Divider } from "@/components/ui/divider";
 import { Logo } from "@/components/ui/logo";
+import { TextLink } from "@/components/ui/text-link";
 import { TopBar } from "@/components/ui/top-bar";
 import { getDb } from "@/db/client";
-import { getHandleState } from "@/lib/profile-handle";
+import { appOrigin } from "@/lib/env";
+import { getHandleState, suggestHandle } from "@/lib/profile-handle";
+import { HandleForm } from "../../handle-form";
 import { ChangeEmailForm } from "./change-email-form";
 import { ChangePasswordForm } from "./change-password-form";
 import { TwoFactorSettings } from "./two-factor-settings";
@@ -41,9 +44,17 @@ export default async function AccountSettingsPage({
     return null;
   }
   const t = await getTranslations("Settings.account");
-  // The top bar's account menu needs somewhere for "Profil" to point at —
-  // the same handle lookup the (app) pages already do.
-  const { handle } = await getHandleState(getDb(), session.user.id);
+  // The address section moved here when #58 folded the profile-settings
+  // screen away; it kept its own message keys.
+  const tProfile = await getTranslations("Settings.profile");
+  const db = getDb();
+  // Also what the top bar's account menu needs, for "Profil" to point at.
+  const handleState = await getHandleState(db, session.user.id);
+  const handle = handleState.handle;
+  // No handle yet (an account from before #15, or onboarding left early):
+  // the form opens on the same proposal the onboarding step would make.
+  const handleValue = handle ?? (await suggestHandle(db, session.user.id));
+  const origin = appOrigin();
 
   return (
     <>
@@ -61,6 +72,39 @@ export default async function AccountSettingsPage({
       <main className="mx-auto max-w-(--measure-form) px-(--sp-7) pt-(--sp-10) pb-(--sp-14)">
         <Card padding="default" className="flex flex-col gap-(--sp-6)">
           <h1 className="type-h1 text-(--text-strong)">{t("heading")}</h1>
+          <Divider />
+          {/* First of the sections: the address is the point of the product
+              (§1), and the rest of this page is what protects it.
+
+              The heading and the current-address line are one group, so they
+              sit closer to each other than to the form. Every other section
+              here is heading-then-form with the card's own gap between them,
+              and this keeps that same rhythm rather than adding margins that
+              would compound with it. */}
+          <div className="flex flex-col gap-(--sp-3)">
+            <h2 className="type-h3 text-(--text-strong)">
+              {tProfile("handle.heading")}
+            </h2>
+            <p className="type-sm text-(--text-muted)">
+              {handle
+                ? // The address is a live page since #18, so the line is the
+                  // way to it: the owner sees exactly what a visitor sees.
+                  tProfile.rich("handle.current", {
+                    address: `${origin}/${handle}`,
+                    link: (chunks) => (
+                      <TextLink href={`/${handle}`}>{chunks}</TextLink>
+                    ),
+                  })
+                : tProfile("handle.empty")}
+            </p>
+          </div>
+          <HandleForm
+            mode="settings"
+            origin={origin}
+            currentHandle={handle}
+            initialValue={handleValue}
+            nextChangeAt={handleState.nextChangeAt?.toISOString() ?? null}
+          />
           <Divider />
           <h2 className="type-h3 text-(--text-strong)">
             {t("password.heading")}

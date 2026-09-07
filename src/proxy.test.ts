@@ -171,7 +171,7 @@ describe("proxy: old address → 301", () => {
   });
 
   it("never looks up a route segment or a nested path", async () => {
-    for (const path of ["/", "/login", "/en/login", "/settings/profile"]) {
+    for (const path of ["/", "/login", "/en/login", "/settings/account"]) {
       await expectFallThrough(path);
     }
     expect(mocks.resolveHandle).not.toHaveBeenCalled();
