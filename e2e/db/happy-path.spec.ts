@@ -182,8 +182,10 @@ test("a new user goes from the landing page to a live public profile", async ({
     await page.goto("/");
     await expect(page).toHaveURL(new RegExp(`/${identity.handle}$`));
     await page.getByRole("button", { name: "Menu konta" }).click();
-    await expect(page.getByRole("link", { name: "Konto" })).toBeVisible();
-    await page.getByRole("button", { name: "Wyloguj" }).click();
+    // The menu's items carry an explicit role="menuitem" (ARIA menu pattern),
+    // overriding the <a>'s implicit "link" role.
+    await expect(page.getByRole("menuitem", { name: "Konto" })).toBeVisible();
+    await page.getByRole("menuitem", { name: "Wyloguj" }).click();
     // Back to the two entry buttons the signed-out visitor sees.
     await expect(page.getByRole("link", { name: "Załóż konto" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Zaloguj się" })).toBeVisible();
