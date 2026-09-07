@@ -33,6 +33,9 @@ test.describe("Polish browser", () => {
     context,
   }) => {
     await page.goto("/");
+    // The switcher is a closed chip now (design system, #58) — "Polski" is
+    // its collapsed label, and it opens to reveal the other language.
+    await page.getByRole("button", { name: "Polski" }).click();
     await page.getByRole("link", { name: "English" }).click();
     await expect(page).toHaveURL(/\/en$/);
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
