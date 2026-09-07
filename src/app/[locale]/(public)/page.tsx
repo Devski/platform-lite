@@ -109,20 +109,27 @@ export default async function HomePage({
                 wide, no width constraint of its own beyond that) so the text
                 below tracks the logo's actual x position at any viewport
                 width, instead of a fixed offset from the full-bleed photo. */}
-            <div className="absolute inset-0 mx-auto max-w-(--measure-wide)">
-              {/* left/right are the top bar's own gutter, expression for
-                  expression (px-(--sp-5) sm:px-(--sp-7)) rather than a copy
-                  of what it happens to compute to — the slogan has to start
-                  at exactly the logo's x position at every width, so the two
-                  must switch at the same breakpoint or the alignment breaks
-                  on one size only. There is no indent on top of it. */}
-              {/* The bottom offset is the one figure that does NOT step down
-                  on a phone. svh keeps the second CTA clear of the address
-                  bar, but not of the system navigation bar drawn below the
-                  browser, and 32px left it looking pinned to the edge on a
-                  real device. 64px at every width, same as the handoff's
-                  desktop value; the photo above has room to give. */}
-              <div className="absolute right-(--sp-5) bottom-(--sp-12) left-(--sp-5) flex max-w-[44rem] flex-col gap-(--sp-5) sm:right-(--sp-7) sm:left-(--sp-7) sm:gap-(--sp-7)">
+            {/* The horizontal padding is the top bar's own gutter, expression
+                for expression (px-(--sp-5) sm:px-(--sp-7)) rather than a copy
+                of what it happens to compute to — the slogan has to start at
+                exactly the logo's x position at every width, so the two must
+                switch at the same breakpoint or the alignment breaks on one
+                size only. There is no indent on top of it.
+
+                Vertically the block sits at the bottom, py-(--sp-12) off the
+                edge. svh already keeps the last CTA clear of a phone's
+                address bar; 64px keeps it clear of the system navigation bar
+                drawn below the browser, which svh knows nothing about.
+
+                On a desktop-shaped window that is tall enough to have the
+                room, it centers instead — bottom-pinned text on a 1080px
+                screen leaves the whole upper half empty. Both conditions
+                matter: a portrait phone is TALL (844px) but must keep the
+                bottom placement, so the height rule is gated behind sm. The
+                44rem floor is roughly the block's own height plus the bar,
+                below which centering would crowd both. */}
+            <div className="absolute inset-0 mx-auto flex max-w-(--measure-wide) flex-col justify-end px-(--sp-5) py-(--sp-12) sm:px-(--sp-7) sm:[@media(min-height:44rem)]:justify-center">
+              <div className="flex w-full max-w-[44rem] flex-col gap-(--sp-5) sm:gap-(--sp-7)">
                 {/* --fs-hero bottoms out at 2.5rem, drawn for a desktop
                     column; on a 390px screen that heading runs to four lines
                     and crowds everything under it. Below sm it steps to
