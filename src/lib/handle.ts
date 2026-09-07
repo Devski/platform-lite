@@ -37,6 +37,14 @@ export const RESERVED_HANDLES: ReadonlySet<string> = new Set([
   "fi",
   // Route segments, present and foreseeable.
   "api",
+  // Next's metadata routes (src/app/icon.tsx and friends). They are
+  // top-level segments like any other, and src/proxy.ts must skip them for
+  // the browser to fetch them at all — so a profile could not live at these
+  // addresses even if the list allowed it.
+  "icon",
+  "apple-icon",
+  "opengraph-image",
+  "favicon",
   "auth",
   "login",
   "logout",

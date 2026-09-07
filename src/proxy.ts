@@ -135,5 +135,16 @@ export const config = {
   // proxy buffering (`proxyClientMaxBodySize`), which lib/api-route's 64 KiB
   // body bound relies on — a matched route would be buffered before its
   // handler ran.
-  matcher: "/((?!api(?:/|$)|_next(?:/|$)|_vercel(?:/|$)|.*\\..*).*)",
+  // Next's generated metadata routes are excluded for the same reason: they
+  // carry no dot, so the file exclusion misses them, and the locale
+  // middleware would answer /icon with a 404 and /pl/opengraph-image with a
+  // redirect — leaving a tab with no icon and a shared link with no picture.
+  // All three are on RESERVED_HANDLES, so excluding them costs no address.
+  //
+  // The share picture keeps its locale prefix (it is declared inside
+  // [locale], which is what makes it resolve against metadataBase), so the
+  // exclusion allows an optional two-letter one. Two letters can only be a
+  // locale here: a handle is at least three characters (HANDLE_MIN).
+  matcher:
+    "/((?!api(?:/|$)|_next(?:/|$)|_vercel(?:/|$)|icon(?:/|$)|apple-icon(?:/|$)|(?:[a-z]{2}/)?opengraph-image(?:/|$)|.*\\..*).*)",
 };

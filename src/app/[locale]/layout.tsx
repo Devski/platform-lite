@@ -19,7 +19,32 @@ export async function generateMetadata({
   return {
     title: t("title"),
     description: t("description"),
+    // What the share picture's address is resolved against. og:image must be
+    // absolute, and Next's own default is http://localhost:<port> — it does
+    // NOT read the request's Host — so without this a shared link advertises
+    // a picture on the reader's own machine.
+    //
+    // Read leniently, not through appOrigin(): this runs during `next build`
+    // too, where the container has no APP_URL and requireEnv would fail the
+    // build. A page rendered per request (the landing page, which is what
+    // gets shared) picks up the deployment's real value; a prerendered one
+    // keeps Next's default, which is why this cannot simply be baked in at
+    // build time — one image serves dev, the previews and production.
+    metadataBase: metadataBase(),
   };
+}
+
+function metadataBase(): URL | undefined {
+  const origin = process.env.APP_URL?.trim();
+  if (!origin) return undefined;
+  try {
+    return new URL(origin);
+  } catch {
+    // An unparsable APP_URL is a deployment fault, but metadata is the wrong
+    // place to take the site down over it: the pages still render, the share
+    // picture just falls back to Next's default.
+    return undefined;
+  }
 }
 
 export default async function LocaleLayout({
