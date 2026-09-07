@@ -11,7 +11,9 @@ import { TextLink } from "@/components/ui/text-link";
 import { TopBar } from "@/components/ui/top-bar";
 import { getDb } from "@/db/client";
 import { appOrigin } from "@/lib/env";
+import { getProfile } from "@/lib/profile";
 import { getHandleState, suggestHandle } from "@/lib/profile-handle";
+import { getStorage, keyPrefix } from "@/lib/storage";
 import { HandleForm } from "../../handle-form";
 import { ChangeEmailForm } from "./change-email-form";
 import { ChangePasswordForm } from "./change-password-form";
@@ -48,6 +50,18 @@ export default async function AccountSettingsPage({
   // screen away; it kept its own message keys.
   const tProfile = await getTranslations("Settings.profile");
   const db = getDb();
+  // The account menu draws the same avatar and monogram here as it does on
+  // the profile page, so it reads the same profile row. Passing null for the
+  // photo (and the e-mail for the name) left this one screen showing a
+  // monogram of the address while every other screen showed the face.
+  const profile = await getProfile({
+    db,
+    // Resolved on first use: the bucket is only needed to address an existing
+    // avatar, so the page still renders without S3_* configured.
+    storage: { publicUrl: (key) => getStorage().publicUrl(key) },
+    prefix: keyPrefix(),
+    userId: session.user.id,
+  });
   // Also what the top bar's account menu needs, for "Profil" to point at.
   const handleState = await getHandleState(db, session.user.id);
   const handle = handleState.handle;
@@ -64,8 +78,11 @@ export default async function AccountSettingsPage({
         right={
           <AccountMenu
             handle={handle ?? ""}
-            avatarUrl={null}
-            displayName={session.user.email}
+            avatarUrl={profile.avatar?.url128 ?? null}
+            // The e-mail is the last resort, not the source: since #36 a
+            // profile always has a name by the time it has a handle, and a
+            // monogram cut from an address reads as a different account.
+            displayName={profile.displayName ?? session.user.email}
           />
         }
       />
