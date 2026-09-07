@@ -4,6 +4,12 @@ import { Card } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { Logo } from "@/components/ui/logo";
 import { TextLink } from "@/components/ui/text-link";
+import {
+  AUTH_COLUMN,
+  AUTH_HEADING,
+  AUTH_MAIN,
+  AUTH_SUBMIT,
+} from "../../shell";
 import { ResendForm } from "./resend-form";
 
 // Landing page for the e-mail verification link (A1). Better Auth redirects
@@ -37,8 +43,8 @@ export default async function VerifiedPage({
   const state = verificationState(error);
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-(--surface-page) p-(--sp-7)">
-      <div className="flex w-full max-w-(--measure-form) flex-col items-center gap-(--sp-6)">
+    <main className={AUTH_MAIN}>
+      <div className={AUTH_COLUMN}>
         <Logo href="/" size="compact" />
         <Card padding="lg" className="w-full">
           {state === "success" ? (
@@ -48,13 +54,16 @@ export default async function VerifiedPage({
               >
                 <Icon name="check" size={24} />
               </span>
-              <h1 className="mt-(--sp-5) type-h1 text-(--text-strong)">
+              <h1 className={`mt-(--sp-5) ${AUTH_HEADING}`}>
                 {t("successHeading")}
               </h1>
               <p className="mt-(--sp-3) type-sm text-(--text-muted)">
                 {t("successBody")}
               </p>
-              <ButtonLink href="/onboarding" className="mt-(--sp-7) w-full">
+              <ButtonLink
+                href="/onboarding"
+                className={`mt-(--sp-7) ${AUTH_SUBMIT}`}
+              >
                 {t("onboardingLink")}
               </ButtonLink>
             </>
@@ -65,7 +74,7 @@ export default async function VerifiedPage({
               >
                 <Icon name="mail" size={24} />
               </span>
-              <h1 className="mt-(--sp-5) type-h1 text-(--text-strong)">
+              <h1 className={`mt-(--sp-5) ${AUTH_HEADING}`}>
                 {t(state === "expired" ? "expiredHeading" : "invalidHeading")}
               </h1>
               <p className="mt-(--sp-3) type-sm text-(--text-muted)">

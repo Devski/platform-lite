@@ -13,7 +13,8 @@ type IconName =
   | "folder-open"
   | "camera"
   | "check"
-  | "mail";
+  | "mail"
+  | "menu";
 
 const PATHS: Record<IconName, ReactNode> = {
   "map-pin-off": (
@@ -69,6 +70,15 @@ const PATHS: Record<IconName, ReactNode> = {
     <>
       <rect x="2.5" y="4.5" width="19" height="15" rx="2" />
       <path d="m3 6.5 9 6.5 9-6.5" />
+    </>
+  ),
+  // Lucide's own "menu" — the hamburger that stands in for the top bar's
+  // action row below sm (see mobile-menu.tsx).
+  menu: (
+    <>
+      <line x1="4" y1="6" x2="20" y2="6" />
+      <line x1="4" y1="12" x2="20" y2="12" />
+      <line x1="4" y1="18" x2="20" y2="18" />
     </>
   ),
 };

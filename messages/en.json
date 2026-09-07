@@ -373,6 +373,9 @@
     "profile": "Profile",
     "account": "Account"
   },
+  "MobileMenu": {
+    "menuLabel": "Main menu"
+  },
   "NotFound": {
     "title": "Page not found",
     "heading": "Lost?",

@@ -366,10 +366,25 @@ export function HandleForm({
         aria-invalid={problem ? true : undefined}
         aria-describedby={describedBy}
       />
+      {/* The preview used to carry break-all, which breaks the address at
+          whatever character happens to land on the edge — on a phone it read
+          as an address ending in "-d" with a lone "1" underneath (reported
+          07.09.2026). A URL has exactly one break a reader expects, after the
+          slash, so that is where the <wbr> goes; the browser takes it only
+          when nothing better fits, and a hyphenated handle still prefers its
+          own hyphen. wrap-break-word is the backstop for the one case with no
+          break opportunity at all — a handle with no hyphen — which without a
+          rule overflows the card by 25px at 360px rather than wrapping.
+          Truncating was the alternative and is wrong here: the tail is the
+          part being decided, so it is the part that must stay visible. */}
       {normalized !== "" && (
-        <p className="type-sm break-all text-(--text-muted)">
+        <p className="type-sm wrap-break-word text-(--text-muted)">
           <span className="sr-only">{t("addressPreviewLabel")}</span>
-          <span className="font-mono">{`${origin}/${normalized}`}</span>
+          <span className="font-mono">
+            {`${origin}/`}
+            <wbr />
+            {normalized}
+          </span>
         </p>
       )}
       <p id="handle-hint" className="type-sm text-(--text-muted)">
@@ -408,7 +423,16 @@ export function HandleForm({
           </p>
         )}
       {saved && (
-        <p className="type-sm text-(--state-success)" role="status">
+        // The same unbreakable token as the preview above, but the copy
+        // interpolates it as a plain value, so there is nowhere to put a
+        // <wbr>: break-word is all this line can have. Without it a
+        // 30-character handle with no hyphen measured 59px past the card at
+        // 360px — a sideways scroll on the whole page, at the moment the
+        // save has just succeeded and the address is what is being read.
+        <p
+          className="type-sm wrap-break-word text-(--state-success)"
+          role="status"
+        >
           {t("saved", { address: saved.address })}
         </p>
       )}

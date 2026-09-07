@@ -195,10 +195,18 @@ export function OwnerProfileView({ profile }: { profile: OwnerProfile }) {
           </>
         }
       />
-      <main className="mx-auto flex max-w-(--measure-page) flex-col gap-(--sp-6) px-(--sp-7) pt-(--sp-10) pb-(--sp-14)">
+      <main className="mx-auto flex max-w-(--measure-page) flex-col gap-(--sp-5) px-(--sp-5) pt-(--sp-7) pb-(--sp-10) sm:gap-(--sp-6) sm:px-(--sp-7) sm:pt-(--sp-10) sm:pb-(--sp-14)">
         <Card as="article" padding="lg">
-          <div className="flex flex-wrap items-center gap-(--sp-8)">
-            <div className="relative shrink-0" style={{ width: 128, height: 128 }}>
+          {/* Stacked below sm, exactly as the visitor's copy of this card is
+              (screen 2): a 128px avatar plus a display-size name cannot
+              share the 248px a 360px phone leaves inside the card, and the
+              name was the half that ran off the right edge. The type needs
+              no breakpoint — --fs-display is a clamp() that has already
+              stepped 48px down to 32px by the time a phone reads it. */}
+          <div className="flex flex-col gap-(--sp-5) sm:flex-row sm:flex-wrap sm:items-center sm:gap-(--sp-8)">
+            {/* One variable sizes the avatar and the box the camera button
+                is pinned inside, so the two can never drift apart. */}
+            <div className="relative h-(--avatar-size) w-(--avatar-size) shrink-0 [--avatar-size:96px] sm:[--avatar-size:128px]">
               <Avatar
                 src={profile.avatar?.url128 ?? null}
                 name={profile.displayName}
@@ -230,7 +238,7 @@ export function OwnerProfileView({ profile }: { profile: OwnerProfile }) {
                 </>
               )}
             </div>
-            <div className="flex min-w-0 flex-1 flex-col gap-(--sp-4)">
+            <div className="flex w-full min-w-0 flex-col gap-(--sp-4) sm:flex-1">
               {editing ? (
                 <input
                   type="text"
@@ -251,7 +259,10 @@ export function OwnerProfileView({ profile }: { profile: OwnerProfile }) {
                   className="type-display w-full border-b-2 border-(--border-default) bg-transparent text-(--text-strong) focus:border-(--action-solid) focus:outline-none"
                 />
               ) : (
-                <h1 className="type-display text-(--text-strong)">
+                // break-words is the guarantee, not the layout: a display
+                // name is one 80-character field and may hold a single word
+                // longer than any column we can give it.
+                <h1 className="type-display break-words text-(--text-strong)">
                   {profile.displayName}
                 </h1>
               )}
@@ -286,7 +297,7 @@ export function OwnerProfileView({ profile }: { profile: OwnerProfile }) {
           body={t("emptyStateBody")}
         />
       </main>
-      <div className="mx-auto flex max-w-(--measure-page) justify-center px-(--sp-7) py-(--sp-8)">
+      <div className="mx-auto flex max-w-(--measure-page) justify-center px-(--sp-5) py-(--sp-7) sm:px-(--sp-7) sm:py-(--sp-8)">
         <Plaque name={profile.displayName} width={150} tilt={0} shadow={false} />
       </div>
     </>

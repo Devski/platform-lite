@@ -22,9 +22,15 @@ export function LogoMark({ href, wordmark, onPhoto = false, size = "default" }: 
   const markSize = size === "compact" ? 26 : 30;
   const wordmarkClass = size === "compact" ? "type-h4" : "type-h3";
   return (
+    // whitespace-nowrap: "Architektów 3d" broke across two lines inside the
+    // top bar on a phone, which stretched the bar and shoved the actions off
+    // screen. It fits without wrapping at every width we support — 30px mark
+    // + 8px gap + ~123px of wordmark is 161px of the 328px a 360px screen
+    // leaves between the gutters — so the mark and type keep their one size
+    // rather than gaining a second, smaller pairing to maintain.
     <Link
       href={href}
-      className={`flex items-center gap-(--sp-4) rounded-xs focus-visible:outline-none ${ring}`}
+      className={`flex items-center gap-(--sp-3) rounded-xs whitespace-nowrap focus-visible:outline-none sm:gap-(--sp-4) ${ring}`}
     >
       <Mark size={markSize} />
       <span className={`${wordmarkClass} ${text}`}>{wordmark}</span>

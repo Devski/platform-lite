@@ -11,6 +11,7 @@ import { REGISTRATION_NAME } from "@/lib/account";
 import { authClient } from "@/lib/auth-client";
 import { PASSWORD_MAX, PASSWORD_MIN, signUpSchema } from "@/lib/auth-schemas";
 import { ResendStatus } from "../resend-status";
+import { AUTH_SENT_BODY, AUTH_SUBMIT, AUTH_TOUCH } from "../shell";
 import { useResendVerification } from "../use-resend-verification";
 
 type FieldErrors = { email?: string; password?: string };
@@ -85,14 +86,12 @@ export function RegisterForm() {
     return (
       <div className="mt-(--sp-6) flex flex-col gap-(--sp-5)">
         <h2 className="type-h4 text-(--text-strong)">{t("sent.heading")}</h2>
-        <p className="type-sm text-(--text-muted)">
-          {t("sent.body", { email: sentTo })}
-        </p>
+        <p className={AUTH_SENT_BODY}>{t("sent.body", { email: sentTo })}</p>
         <button
           type="button"
           onClick={() => resend(sentTo)}
           disabled={resendState === "sending"}
-          className={textButtonClassName("default", "self-start")}
+          className={textButtonClassName("default", `self-start ${AUTH_TOUCH}`)}
         >
           {resendState === "sending" ? t("sent.resending") : t("sent.resend")}
         </button>
@@ -166,7 +165,7 @@ export function RegisterForm() {
         </p>
       )}
 
-      <Button type="submit" disabled={submitting} className="w-full">
+      <Button type="submit" disabled={submitting} className={AUTH_SUBMIT}>
         {submitting ? t("submitting") : t("submit")}
       </Button>
     </form>

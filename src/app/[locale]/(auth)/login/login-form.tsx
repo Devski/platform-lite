@@ -10,6 +10,7 @@ import { TextLink, textButtonClassName } from "@/components/ui/text-link";
 import { authClient } from "@/lib/auth-client";
 import { emailSchema } from "@/lib/auth-schemas";
 import { ResendStatus } from "../resend-status";
+import { AUTH_SUBMIT, AUTH_TOUCH } from "../shell";
 import { useResendVerification } from "../use-resend-verification";
 
 type FieldErrors = { email?: string; password?: string };
@@ -149,7 +150,10 @@ export function LoginForm() {
             type="button"
             onClick={() => resend(notVerifiedFor)}
             disabled={resendState === "sending"}
-            className={textButtonClassName("default", "self-start")}
+            className={textButtonClassName(
+              "default",
+              `self-start ${AUTH_TOUCH}`,
+            )}
           >
             {resendState === "sending" ? t("resending") : t("resend")}
           </button>
@@ -162,7 +166,7 @@ export function LoginForm() {
         </div>
       )}
 
-      <Button type="submit" disabled={submitting} className="w-full">
+      <Button type="submit" disabled={submitting} className={AUTH_SUBMIT}>
         {submitting ? t("submitting") : t("submit")}
       </Button>
 

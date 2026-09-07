@@ -3,6 +3,7 @@ import { getTranslations, setRequestLocale } from "next-intl/server";
 import { Card } from "@/components/ui/card";
 import { Logo } from "@/components/ui/logo";
 import { TextLink } from "@/components/ui/text-link";
+import { AUTH_COLUMN, AUTH_HEADING, AUTH_MAIN } from "../shell";
 
 // Landing page for the two-step e-mail-change links (A10). Better Auth
 // redirects here after each click: the old-address approval lands plain
@@ -42,13 +43,11 @@ export default async function EmailChangedPage({
   const state = changeState(error, status);
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-(--surface-page) p-(--sp-7)">
-      <div className="flex w-full max-w-(--measure-form) flex-col items-center gap-(--sp-6)">
+    <main className={AUTH_MAIN}>
+      <div className={AUTH_COLUMN}>
         <Logo href="/" size="compact" />
         <Card padding="lg" className="w-full">
-          <h1 className="type-h1 text-(--text-strong)">
-            {t(`${state}Heading`)}
-          </h1>
+          <h1 className={AUTH_HEADING}>{t(`${state}Heading`)}</h1>
           <p className="mt-(--sp-3) type-sm text-(--text-muted)">
             {t(`${state}Body`)}
           </p>

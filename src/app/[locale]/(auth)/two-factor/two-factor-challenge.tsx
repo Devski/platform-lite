@@ -9,7 +9,21 @@ import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { textButtonClassName } from "@/components/ui/text-link";
 import { authClient } from "@/lib/auth-client";
+import { AUTH_SUBMIT, AUTH_TOUCH } from "../shell";
 import type { Mode } from "./modes";
+
+// The method pills. Below sm they take the same 48px touch floor as the
+// buttons and one step more side padding, so a thumb has something to hit;
+// at 360px "Aplikacja" and "Kod e-mail" still share one line inside the card
+// (~213px of the ~248px between the card's paddings) and "Kod zapasowy"
+// wraps underneath — which is what flex-wrap on the row has always been for.
+// From sm they are back to the handoff's compact pill, untouched.
+const MODE_PILL =
+  "flex min-h-(--control-h-lg) items-center gap-(--sp-2) rounded-sm border px-(--sp-4) py-(--sp-1) type-sm sm:min-h-0 sm:px-(--sp-3)";
+const MODE_PILL_SELECTED =
+  "border-(--action-solid) bg-(--surface-sunken) font-semibold text-(--text-strong)";
+const MODE_PILL_IDLE =
+  "border-(--border-default) text-(--text-body) hover:border-(--action-solid)";
 
 export function TwoFactorChallenge({ modes }: { modes: Mode[] }) {
   const t = useTranslations("TwoFactor");
@@ -99,7 +113,7 @@ export function TwoFactorChallenge({ modes }: { modes: Mode[] }) {
                 type="button"
                 aria-pressed={mode === option}
                 onClick={() => switchMode(option)}
-                className={textButtonClassName("muted")}
+                className={textButtonClassName("muted", AUTH_TOUCH)}
               >
                 {t(`methods.${option}`)}
               </button>
@@ -109,11 +123,9 @@ export function TwoFactorChallenge({ modes }: { modes: Mode[] }) {
                 type="button"
                 aria-pressed={mode === option}
                 onClick={() => switchMode(option)}
-                className={
-                  mode === option
-                    ? "flex items-center gap-(--sp-2) rounded-sm border border-(--action-solid) bg-(--surface-sunken) px-(--sp-3) py-(--sp-1) type-sm font-semibold text-(--text-strong)"
-                    : "flex items-center gap-(--sp-2) rounded-sm border border-(--border-default) px-(--sp-3) py-(--sp-1) type-sm text-(--text-body) hover:border-(--action-solid)"
-                }
+                className={`${MODE_PILL} ${
+                  mode === option ? MODE_PILL_SELECTED : MODE_PILL_IDLE
+                }`}
               >
                 {option === "totp" && <Icon name="smartphone" size={16} />}
                 {t(`methods.${option}`)}
@@ -132,7 +144,7 @@ export function TwoFactorChallenge({ modes }: { modes: Mode[] }) {
             variant="quiet"
             onClick={sendCode}
             disabled={sending}
-            className="self-start"
+            className={`self-start ${AUTH_TOUCH}`}
           >
             {sending
               ? t("otp.sending")
@@ -148,7 +160,11 @@ export function TwoFactorChallenge({ modes }: { modes: Mode[] }) {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-(--sp-5)">
+      <form
+        onSubmit={handleSubmit}
+        noValidate
+        className="flex flex-col gap-(--sp-5)"
+      >
         <FormField
           label={t(mode === "backup" ? "backupLabel" : "codeLabel")}
           htmlFor="code"
@@ -171,12 +187,20 @@ export function TwoFactorChallenge({ modes }: { modes: Mode[] }) {
         </FormField>
 
         {error && (
-          <p id="code-error" className="type-sm text-(--state-danger)" role="alert">
+          <p
+            id="code-error"
+            className="type-sm text-(--state-danger)"
+            role="alert"
+          >
             {error}
           </p>
         )}
 
-        <Button type="submit" disabled={submitting || !codeReady} className="w-full">
+        <Button
+          type="submit"
+          disabled={submitting || !codeReady}
+          className={AUTH_SUBMIT}
+        >
           {submitting ? t("submitting") : t("submit")}
         </Button>
       </form>

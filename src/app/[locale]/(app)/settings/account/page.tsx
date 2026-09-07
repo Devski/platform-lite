@@ -69,7 +69,12 @@ export default async function AccountSettingsPage({
           />
         }
       />
-      <main className="mx-auto max-w-(--measure-form) px-(--sp-7) pt-(--sp-10) pb-(--sp-14)">
+      {/* The gutter mirrors TopBar's own (16px below sm, 24px from sm up), so
+          the card's edge lines up with the logo above it on a phone. The
+          vertical padding is the handoff's desktop rhythm and only that: 40
+          above and 80 below is a seventh of a 390px screen spent on nothing,
+          so both step down one stop below sm. */}
+      <main className="mx-auto max-w-(--measure-form) px-(--sp-5) pt-(--sp-7) pb-(--sp-10) sm:px-(--sp-7) sm:pt-(--sp-10) sm:pb-(--sp-14)">
         <Card padding="default" className="flex flex-col gap-(--sp-6)">
           <h1 className="type-h1 text-(--text-strong)">{t("heading")}</h1>
           <Divider />
@@ -85,14 +90,27 @@ export default async function AccountSettingsPage({
             <h2 className="type-h3 text-(--text-strong)">
               {tProfile("handle.heading")}
             </h2>
-            <p className="type-sm text-(--text-muted)">
+            {/* wrap-break-word is inherited, so it covers the address inside
+                the link too: an address is one unbreakable token, and a
+                handle with no hyphen in it has no break opportunity at all —
+                without a rule it runs straight out of the card on a phone. */}
+            <p className="type-sm wrap-break-word text-(--text-muted)">
               {handle
                 ? // The address is a live page since #18, so the line is the
                   // way to it: the owner sees exactly what a visitor sees.
                   tProfile.rich("handle.current", {
                     address: `${origin}/${handle}`,
-                    link: (chunks) => (
-                      <TextLink href={`/${handle}`}>{chunks}</TextLink>
+                    // Renders the same address the placeholder carries, split
+                    // at the slash — the one break a reader expects in a URL,
+                    // and the same treatment the preview under the field
+                    // below gets. Without it the fallback break lands
+                    // mid-handle, which reads as a broken address.
+                    link: () => (
+                      <TextLink href={`/${handle}`}>
+                        {`${origin}/`}
+                        <wbr />
+                        {handle}
+                      </TextLink>
                     ),
                   })
                 : tProfile("handle.empty")}

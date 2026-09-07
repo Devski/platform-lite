@@ -49,7 +49,13 @@ export function OnboardingSteps({
         <Badge uppercase>{t("stepBadge", { step: handle === null ? 1 : 2 })}</Badge>
         {handle === null ? (
           <>
-            <h1 className="mt-(--sp-5) type-h1 text-(--text-strong)">
+            {/* Both step headings step down to the h2 size below sm and keep
+                type-h1's weight, line-height and tracking. The lg card leaves
+                278px of content on a 390px phone and 248px on a 360px one,
+                and every one of these headings measures wider than that at
+                --fs-h1 (286–353px), so at the handoff size all four wrap to
+                two lines; at --fs-h2 (197–242px) each is one line again. */}
+            <h1 className="mt-(--sp-5) type-h1 text-(length:--fs-h2) text-(--text-strong) sm:text-(length:--fs-h1)">
               {t("nameStepHeading")}
             </h1>
             <form
@@ -86,7 +92,7 @@ export function OnboardingSteps({
           </>
         ) : (
           <>
-            <h1 className="mt-(--sp-5) type-h1 text-(--text-strong)">
+            <h1 className="mt-(--sp-5) type-h1 text-(length:--fs-h2) text-(--text-strong) sm:text-(length:--fs-h1)">
               {t("heading")}
             </h1>
             <p className="mt-(--sp-3) type-sm text-(--text-muted)">

@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { TextLink } from "@/components/ui/text-link";
 import { authClient } from "@/lib/auth-client";
 import { PASSWORD_MAX, PASSWORD_MIN, passwordSchema } from "@/lib/auth-schemas";
+import { AUTH_SUBMIT } from "../../shell";
 
 export function NewPasswordForm({ token }: { token: string }) {
   const t = useTranslations("ResetPassword.new");
@@ -123,7 +124,7 @@ export function NewPasswordForm({ token }: { token: string }) {
         </p>
       )}
 
-      <Button type="submit" disabled={submitting} className="w-full">
+      <Button type="submit" disabled={submitting} className={AUTH_SUBMIT}>
         {submitting ? t("submitting") : t("submit")}
       </Button>
     </form>

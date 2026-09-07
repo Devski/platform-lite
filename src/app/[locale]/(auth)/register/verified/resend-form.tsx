@@ -7,6 +7,7 @@ import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { emailSchema } from "@/lib/auth-schemas";
 import { ResendStatus } from "../../resend-status";
+import { AUTH_SUBMIT } from "../../shell";
 import { useResendVerification } from "../../use-resend-verification";
 
 // Requests a fresh verification link when the one from the e-mail was
@@ -59,7 +60,11 @@ export function ResendForm() {
         )}
       </FormField>
 
-      <Button type="submit" disabled={state === "sending"} className="w-full">
+      <Button
+        type="submit"
+        disabled={state === "sending"}
+        className={AUTH_SUBMIT}
+      >
         {state === "sending" ? t("resendSending") : t("resendSubmit")}
       </Button>
 

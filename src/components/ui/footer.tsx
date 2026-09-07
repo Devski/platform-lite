@@ -19,8 +19,11 @@ export async function Footer({
     // A hairline + a page-tint background separate the footer from
     // whatever content sits directly above it, instead of blending in.
     <footer className="border-t border-(--border-hairline) bg-(--surface-page)">
+      {/* The horizontal padding is the top bar's gutter, expression for
+          expression, so the company line keeps sitting under the logo on a
+          phone as well; the vertical one steps down with it. */}
       <div
-        className={`mx-auto flex flex-col items-start gap-(--sp-1) px-(--sp-7) py-(--sp-8) text-left ${maxWidthClass}`}
+        className={`mx-auto flex flex-col items-start gap-(--sp-1) px-(--sp-5) py-(--sp-7) text-left sm:px-(--sp-7) sm:py-(--sp-8) ${maxWidthClass}`}
       >
         <p className="type-label text-(--text-strong)">{t("company")}</p>
         {/* --text-subtle (n-500) measures under 4.5:1 on a white/page

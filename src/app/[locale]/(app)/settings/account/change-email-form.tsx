@@ -63,7 +63,13 @@ export function ChangeEmailForm({ currentEmail }: { currentEmail: string }) {
     return (
       <div className="mt-(--sp-5) flex flex-col gap-(--sp-2)">
         <h3 className="type-h4 text-(--text-strong)">{t("sent.heading")}</h3>
-        <p className="type-sm text-(--text-muted)">
+        {/* The address is whatever was just typed, and an e-mail with no
+            hyphen in it offers no break opportunity: measured 27px past the
+            card at 360px for a plausible one, 155px for a long one, which
+            drags the document sideways. The register and reset screens carry
+            the same line and the same rule (AUTH_SENT_BODY). Every other
+            paragraph here is translated prose and wraps on its own spaces. */}
+        <p className="type-sm wrap-break-word text-(--text-muted)">
           {t("sent.body", { email: sentTo })}
         </p>
       </div>

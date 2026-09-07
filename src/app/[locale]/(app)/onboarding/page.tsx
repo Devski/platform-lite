@@ -51,7 +51,17 @@ export default async function OnboardingPage({
   const suggestion = await suggestHandle(db, session.user.id);
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-(--surface-page) p-(--sp-7)">
+    // items-center only from md up, which is exactly where OnboardingSteps
+    // puts the card and the plaque side by side and the pair is short enough
+    // to centre. Stacked below md the two together can outgrow a phone screen,
+    // and a centred flex item that overflows its container loses its top edge
+    // above the scroll origin — the step badge and heading become unreachable.
+    //
+    // svh, not vh: mobile Chrome sizes vh to the viewport with its address bar
+    // hidden, so a 100vh frame is taller than what is on screen and step one
+    // scrolled a bar's worth with nothing under it. On a desktop the two are
+    // the same number. Same rule as the hero and the auth screens.
+    <main className="flex min-h-svh items-start justify-center bg-(--surface-page) p-(--sp-5) sm:p-(--sp-7) md:items-center">
       <OnboardingSteps origin={appOrigin()} fallbackHandle={suggestion} />
     </main>
   );

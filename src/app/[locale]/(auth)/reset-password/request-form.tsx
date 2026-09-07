@@ -8,6 +8,7 @@ import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { authClient } from "@/lib/auth-client";
 import { emailSchema } from "@/lib/auth-schemas";
+import { AUTH_SENT_BODY, AUTH_SUBMIT } from "../shell";
 
 export function RequestForm() {
   const t = useTranslations("ResetPassword.request");
@@ -59,9 +60,7 @@ export function RequestForm() {
     return (
       <div className="mt-(--sp-6) flex flex-col gap-(--sp-5)">
         <h2 className="type-h4 text-(--text-strong)">{t("sent.heading")}</h2>
-        <p className="type-sm text-(--text-muted)">
-          {t("sent.body", { email: sentTo })}
-        </p>
+        <p className={AUTH_SENT_BODY}>{t("sent.body", { email: sentTo })}</p>
       </div>
     );
   }
@@ -100,7 +99,7 @@ export function RequestForm() {
           </p>
         )}
 
-        <Button type="submit" disabled={submitting} className="w-full">
+        <Button type="submit" disabled={submitting} className={AUTH_SUBMIT}>
           {submitting ? t("submitting") : t("submit")}
         </Button>
       </form>

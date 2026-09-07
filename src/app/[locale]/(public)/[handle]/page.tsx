@@ -23,6 +23,7 @@ import { Card } from "@/components/ui/card";
 import { Footer } from "@/components/ui/footer";
 import { LanguageChip } from "@/components/ui/language-chip";
 import { Logo } from "@/components/ui/logo";
+import { MobileMenu } from "@/components/ui/mobile-menu";
 import { Plaque } from "@/components/ui/plaque";
 import { TopBar } from "@/components/ui/top-bar";
 import { OwnerProfileView } from "./owner-profile-view";
@@ -183,6 +184,23 @@ export default async function PublicProfilePage({
   const t = await getTranslations("PublicProfile");
   const tSession = await getTranslations("Session");
 
+  // The bar's actions, rendered twice by TopBar: as the row from sm up, and
+  // inside the hamburger's panel below it. A 360px screen leaves the bar
+  // 328px between its gutters, and this bar wants 393 of them — logo 160,
+  // the bar's own 12px gap, then the language chip (101) + 12 + "Załóż
+  // konto" (108). The left box is min-w-0, so the overflow showed up as the
+  // wordmark printed over the language chip rather than as a wider bar. The
+  // panel is a card surface and so is this bar, so both copies are the very
+  // same on-card elements (unlike the hero's, which has to flip tone).
+  const actions = (
+    <>
+      <LanguageChip locale={locale} />
+      <ButtonLink variant="quiet" href="/register">
+        {tSession("register")}
+      </ButtonLink>
+    </>
+  );
+
   return (
     <>
       {/* This screen is the signed-out visitor's view of someone else's
@@ -192,18 +210,19 @@ export default async function PublicProfilePage({
       <TopBar
         maxWidth="measure-page"
         left={<Logo href="/" />}
-        right={
-          <>
-            <LanguageChip locale={locale} />
-            <ButtonLink variant="quiet" href="/register">
-              {tSession("register")}
-            </ButtonLink>
-          </>
-        }
+        right={actions}
+        mobileMenu={<MobileMenu>{actions}</MobileMenu>}
       />
-      <main className="mx-auto flex max-w-(--measure-page) flex-col gap-(--sp-6) px-(--sp-7) pt-(--sp-12) pb-(--sp-14)">
+      <main className="mx-auto flex max-w-(--measure-page) flex-col gap-(--sp-5) px-(--sp-5) pt-(--sp-8) pb-(--sp-10) sm:gap-(--sp-6) sm:px-(--sp-7) sm:pt-(--sp-12) sm:pb-(--sp-14)">
         <Card as="article" padding="lg">
-          <div className="flex flex-wrap items-center gap-(--sp-9)">
+          {/* Stacked below sm. A 128px avatar plus a display-size name has
+              no way to share the 248px a 360px phone leaves inside this
+              card, and the name was the half that ran off the right edge;
+              given the full width instead it wraps like text. The size
+              itself needs no breakpoint — --fs-display is a clamp() that has
+              already stepped 48px down to 32px by the time a phone reads
+              it. From sm up this is the handoff's row again. */}
+          <div className="flex flex-col gap-(--sp-5) sm:flex-row sm:flex-wrap sm:items-center sm:gap-(--sp-9)">
             {/* Pre-optimized WebP served from storage (G2/G5) — next/image
                 would only re-proxy an already-final asset from a runtime-
                 configured host, as the settings page notes. */}
@@ -212,10 +231,13 @@ export default async function PublicProfilePage({
               name={profile.displayName}
               size={128}
               alt={t("avatarAlt", { name: profile.displayName })}
-              className="shrink-0"
+              className="shrink-0 [--avatar-size:96px] sm:[--avatar-size:128px]"
             />
-            <div className="flex min-w-0 flex-1 flex-col gap-(--sp-5)">
-              <h1 className="type-display text-(--text-strong)">
+            <div className="flex w-full min-w-0 flex-col gap-(--sp-5) sm:flex-1">
+              {/* break-words is the guarantee, not the layout: a display
+                  name is one 80-character field and may hold a single word
+                  longer than any column we can give it. */}
+              <h1 className="type-display break-words text-(--text-strong)">
                 {profile.displayName}
               </h1>
             </div>
@@ -230,7 +252,7 @@ export default async function PublicProfilePage({
           </div>
         </Card>
       </main>
-      <div className="mx-auto flex max-w-(--measure-page) justify-center px-(--sp-7) py-(--sp-8)">
+      <div className="mx-auto flex max-w-(--measure-page) justify-center px-(--sp-5) py-(--sp-7) sm:px-(--sp-7) sm:py-(--sp-8)">
         <Plaque name={profile.displayName} width={150} tilt={0} shadow={false} />
       </div>
       <Footer maxWidth="measure-page" />
