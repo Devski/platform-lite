@@ -9,6 +9,21 @@ import { MobileMenu } from "@/components/ui/mobile-menu";
 import { TopBar } from "@/components/ui/top-bar";
 import type { Locale } from "@/i18n/routing";
 
+// Rendered per request, not prerendered at build. Two things need the
+// request itself, and both were silently wrong without this:
+//
+// - the share picture's address. og:image has to be absolute, so Next builds
+//   it from the request's own origin; prerendered, it froze whatever the
+//   BUILD saw — `http://localhost:3000/opengraph-image`, which every chat
+//   client then failed to fetch. It cannot be fixed by configuring an origin
+//   at build time either: one image serves dev, the pull-request previews
+//   and production, and each has a different one.
+// - the signed-in redirect below. signedInDestination() reads the session
+//   from headers(), and its catch swallowed the bail-out that would have
+//   marked this page dynamic — so the signed-out hero was baked into a
+//   static file and served from cache to signed-in visitors too.
+export const dynamic = "force-dynamic";
+
 export default async function HomePage({
   params,
 }: {
