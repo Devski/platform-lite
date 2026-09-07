@@ -195,7 +195,7 @@ export function OwnerProfileView({ profile }: { profile: OwnerProfile }) {
         }
       />
       <main className="mx-auto flex max-w-(--measure-page) flex-col gap-(--sp-6) px-(--sp-7) pt-(--sp-10) pb-(--sp-14)">
-        <Card padding="lg">
+        <Card as="article" padding="lg">
           <div className="flex flex-wrap items-center gap-(--sp-8)">
             <div className="relative shrink-0" style={{ width: 128, height: 128 }}>
               <Avatar
