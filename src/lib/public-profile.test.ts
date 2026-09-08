@@ -122,6 +122,7 @@ describe("loadPublicProfile (§9 for the public page)", () => {
         headline: null,
         locations: [],
         bio: null,
+        works: [],
       },
     });
   });
@@ -143,6 +144,7 @@ describe("loadPublicProfile (§9 for the public page)", () => {
         headline: null,
         locations: [],
         bio: null,
+        works: [],
       },
     });
   });
@@ -218,6 +220,7 @@ describe("profileMetadata", () => {
     headline: null,
     locations: [],
     bio: null,
+    works: [],
   };
   const withoutAvatar: PublicProfile = { ...withAvatar, avatar: null };
   const withHeadline: PublicProfile = {

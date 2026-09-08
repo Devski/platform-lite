@@ -16,8 +16,8 @@ import {
   type PublicProfileLookup,
 } from "@/lib/public-profile";
 import { getStorage, keyPrefix } from "@/lib/storage";
+import { listWorks } from "@/lib/works";
 import { Avatar } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import { ButtonLink } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Footer } from "@/components/ui/footer";
@@ -27,6 +27,7 @@ import { MobileMenu } from "@/components/ui/mobile-menu";
 import { Plaque } from "@/components/ui/plaque";
 import { TopBar } from "@/components/ui/top-bar";
 import { OwnerProfileView } from "./owner-profile-view";
+import { WorksGallery } from "./works-gallery";
 import {
   BioView,
   CARD_BODY_CLASS,
@@ -188,7 +189,15 @@ export default async function PublicProfilePage({
   if (await isOwnerViewing(profile.userId)) {
     return (
       <>
-        <OwnerProfileView profile={profile} />
+        <OwnerProfileView
+          profile={profile}
+          works={await listWorks({
+            db: getDb(),
+            storage: { publicUrl: (key) => getStorage().publicUrl(key) },
+            prefix: keyPrefix(),
+            userId: profile.userId,
+          })}
+        />
         <Footer maxWidth="measure-page" />
       </>
     );
@@ -196,6 +205,7 @@ export default async function PublicProfilePage({
 
   const t = await getTranslations("PublicProfile");
   const tSession = await getTranslations("Session");
+  const tWorks = await getTranslations("Works");
 
   // The bar's actions, rendered twice by TopBar: as the row from sm up, and
   // inside the hamburger's panel below it. A 360px screen leaves the bar
@@ -278,14 +288,16 @@ export default async function PublicProfilePage({
             <BioView bio={profile.bio} />
           </div>
         </Card>
-        <Card padding="sm" tone="sunken">
-          <div className="flex flex-wrap items-center gap-(--sp-4)">
-            <Badge uppercase>{t("scopeBadge")}</Badge>
-            <span className="type-sm text-(--text-muted)">
-              {t("scopeNote")}
-            </span>
-          </div>
-        </Card>
+        {/* #72 / A12: the works, when there are any — a visitor sees the
+            cards and the photo overlay, never the R360 state. */}
+        {profile.works.length > 0 && (
+          <section className="flex flex-col gap-(--sp-5)">
+            <h2 className="type-h2 text-(--text-strong)">
+              {tWorks("heading")}
+            </h2>
+            <WorksGallery works={profile.works} />
+          </section>
+        )}
       </main>
       <div className="mx-auto flex max-w-(--measure-page) justify-center px-(--sp-5) py-(--sp-7) sm:px-(--sp-7) sm:py-(--sp-8)">
         <Plaque

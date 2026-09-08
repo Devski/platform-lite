@@ -12,6 +12,7 @@ import {
 } from "@/lib/email";
 import { checkHandle, handleBaseFrom } from "@/lib/handle";
 import { createMemoryStorage, type FileStorage } from "@/lib/storage";
+import { listWorks } from "@/lib/works";
 import {
   avatarPng,
   SEED_PASSWORD,
@@ -35,9 +36,24 @@ const HANDLES = SEED_PROFILES.map((profile) => profile.handle);
 const COVERED = SEED_PROFILES.filter((profile) => profile.cover).map(
   (profile) => profile.handle,
 );
-const IMAGE_ROWS = HANDLES.length * 3 + COVERED.length * 3;
+// #72 / A12: and every work photo is a set of three rows too.
+const rowsOf = (profile: (typeof SEED_PROFILES)[number]) =>
+  3 +
+  (profile.cover ? 3 : 0) +
+  profile.works.reduce((total, work) => total + work.photos * 3, 0);
+const IMAGE_ROWS = SEED_PROFILES.reduce(
+  (total, profile) => total + rowsOf(profile),
+  0,
+);
+const WITH_WORKS = SEED_PROFILES.filter(
+  (profile) => profile.works.length > 0,
+).map((profile) => profile.handle);
 const withCover = (handle: string, ...added: string[]) =>
-  `resumed  ${handle}  ${[...added, ...(COVERED.includes(handle) ? ["cover"] : [])].join(", ")} added`;
+  `resumed  ${handle}  ${[
+    ...added,
+    ...(COVERED.includes(handle) ? ["cover"] : []),
+    ...(WITH_WORKS.includes(handle) ? ["works"] : []),
+  ].join(", ")} added`;
 const SCRYPT_HASH_RE = /^[0-9a-f]+:[0-9a-f]+$/;
 
 let testDb: TestDb;
@@ -169,17 +185,31 @@ describe("seedProfiles", () => {
       expect(profile?.locations).toEqual(seed.locations);
       expect(profile?.bio).toBe(seed.bio);
       const own = fileRows.filter((row) => row.userId === user!.id);
+      const photoSets = seed.works.reduce(
+        (total, work) => total + work.photos,
+        0,
+      );
       expect(own.map((row) => row.kind).sort()).toEqual(
-        seed.cover
-          ? [
-              "avatar-128",
-              "avatar-512",
-              "avatar-original",
-              "cover-1600",
-              "cover-480",
-              "cover-original",
-            ]
-          : ["avatar-128", "avatar-512", "avatar-original"],
+        [
+          "avatar-128",
+          "avatar-512",
+          "avatar-original",
+          ...(seed.cover ? ["cover-1600", "cover-480", "cover-original"] : []),
+          ...Array(photoSets).fill("work-1600"),
+          ...Array(photoSets).fill("work-480"),
+          ...Array(photoSets).fill("work-original"),
+        ].sort(),
+      );
+      // #72: the works, through createWork, photos in the given number
+      // with the first as main.
+      const ownWorks = await listWorks({
+        db: testDb.db,
+        storage: memory.storage,
+        prefix: PREFIX,
+        userId: user!.id,
+      });
+      expect(ownWorks.map((work) => [work.name, work.images.length])).toEqual(
+        seed.works.map((work) => [work.name, work.photos]),
       );
       // #72: the cover, for the profiles that get one, through setCover.
       if (seed.cover) {
@@ -433,8 +463,9 @@ describe("seedProfiles", () => {
       users: 14,
       accounts: 13,
       profiles: 14,
-      // The skipped profile leaves neither its avatar set nor its cover.
-      files: IMAGE_ROWS - (first.cover ? 6 : 3),
+      // The skipped profile leaves neither its avatar set nor its cover
+      // nor its works' photos.
+      files: IMAGE_ROWS - rowsOf(first),
     });
   }, 60_000);
 });

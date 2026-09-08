@@ -5,7 +5,6 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "@/i18n/navigation";
 import { AccountMenu } from "@/components/ui/account-menu";
 import { Avatar } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -30,6 +29,9 @@ import {
 } from "@/lib/profile-schemas";
 import type { Place, searchPlaces } from "@/lib/teryt";
 import { uploadImage, type UploadFailure } from "@/lib/upload-client";
+import { WORKS_MAX } from "@/lib/work-schemas";
+import { WorkForm } from "./work-form";
+import { WorksGallery, type GalleryWork } from "./works-gallery";
 import {
   BioView,
   CARD_BODY_CLASS,
@@ -95,8 +97,19 @@ async function postSections(
 // after an optimistic change wiped it (#72 step 2 review). Out of editing
 // the server's copy is the truth, re-seeded from the prop during render (the
 // pattern React's docs recommend for derived state), and only then.
-export function OwnerProfileView({ profile }: { profile: OwnerProfile }) {
+export function OwnerProfileView({
+  profile,
+  works,
+}: {
+  profile: OwnerProfile;
+  /** The owner's works with their file ids, for the form. */
+  works: GalleryWork[];
+}) {
   const t = useTranslations("PublicProfile");
+  const tWorks = useTranslations("Works");
+  const [workForm, setWorkForm] = useState<
+    { kind: "new" } | { kind: "edit"; work: GalleryWork } | null
+  >(null);
   const tAvatar = useTranslations("Settings.profile.avatar");
   const tCover = useTranslations("Settings.profile.cover");
   const tUpload = useTranslations("Settings.profile.upload");
@@ -423,7 +436,7 @@ export function OwnerProfileView({ profile }: { profile: OwnerProfile }) {
               {profile.cover ? (
                 <CoverView cover={profile.cover} name={profile.displayName} />
               ) : (
-                <div className="flex aspect-[3/1] w-full items-center justify-center bg-(--surface-sunken) type-sm text-(--text-subtle)">
+                <div className="flex aspect-[3/1] w-full items-center justify-center bg-(--surface-sunken) type-sm text-(--text-muted)">
                   {tCover("add")}
                 </div>
               )}
@@ -628,7 +641,7 @@ export function OwnerProfileView({ profile }: { profile: OwnerProfile }) {
                 <SectionHeading>{t("locationsHeading")}</SectionHeading>
                 <ul className="flex flex-wrap items-center gap-(--sp-3)">
                   {fields.locations.length === 0 && (
-                    <li className="type-sm text-(--text-subtle)">
+                    <li className="type-sm text-(--text-muted)">
                       {tSections("locations.empty")}
                     </li>
                   )}
@@ -670,19 +683,86 @@ export function OwnerProfileView({ profile }: { profile: OwnerProfile }) {
             )}
           </div>
         </Card>
-        <Card padding="sm" tone="sunken">
-          <div className="flex flex-wrap items-center gap-(--sp-4)">
-            <Badge uppercase>{t("scopeBadge")}</Badge>
-            <span className="type-sm text-(--text-muted)">
-              {t("ownerScopeNote")}
-            </span>
+        {editing && (
+          <Card padding="sm" tone="sunken">
+            <p className="type-sm text-(--text-muted)">{t("ownerScopeNote")}</p>
+          </Card>
+        )}
+
+        {/* #72 / A12: the works. The plus unfolds the form card above the
+            list (the approved sketch); edit and delete sit on each card
+            while editing. */}
+        <section className="flex flex-col gap-(--sp-5)">
+          <div className="flex items-center justify-between gap-(--sp-4)">
+            <div className="flex items-baseline gap-(--sp-4)">
+              <h2 className="type-h2 text-(--text-strong)">
+                {tWorks("heading")}
+              </h2>
+              <span className="type-sm text-(--text-muted)">
+                {tWorks("count", { count: works.length, max: WORKS_MAX })}
+              </span>
+              {editing && works.length >= WORKS_MAX && (
+                <span className="type-sm text-(--text-muted)" id="works-limit">
+                  {tWorks("limitReached", { max: WORKS_MAX })}
+                </span>
+              )}
+            </div>
+            {editing && (
+              <Button
+                variant="quiet"
+                onClick={() =>
+                  setWorkForm(workForm?.kind === "new" ? null : { kind: "new" })
+                }
+                disabled={works.length >= WORKS_MAX}
+                aria-describedby={
+                  works.length >= WORKS_MAX ? "works-limit" : undefined
+                }
+                title={tWorks("add")}
+                aria-label={tWorks("add")}
+                aria-expanded={workForm?.kind === "new"}
+              >
+                <Icon name="plus" size={18} />
+              </Button>
+            )}
           </div>
-        </Card>
-        <EmptyState
-          icon="folder-open"
-          title={t("emptyStateTitle")}
-          body={t("emptyStateBody")}
-        />
+          {editing && workForm && (
+            <WorkForm
+              key={workForm.kind === "edit" ? workForm.work.id : "new"}
+              work={workForm.kind === "edit" ? workForm.work : undefined}
+              onSaved={() => {
+                setWorkForm(null);
+                router.refresh();
+              }}
+              onCancel={() => setWorkForm(null)}
+            />
+          )}
+          {works.length > 0 ? (
+            <WorksGallery
+              works={works}
+              owner={{ editing }}
+              onEdit={(work) => setWorkForm({ kind: "edit", work })}
+              onDelete={async (work) => {
+                const response = await fetch(`/api/works/${work.id}`, {
+                  method: "DELETE",
+                }).catch(() => null);
+                if (!response?.ok) return false;
+                if (workForm?.kind === "edit" && workForm.work.id === work.id) {
+                  setWorkForm(null);
+                }
+                router.refresh();
+                return true;
+              }}
+            />
+          ) : (
+            !workForm && (
+              <EmptyState
+                icon="folder-open"
+                title={tWorks("emptyTitle")}
+                body={tWorks("emptyBody")}
+              />
+            )
+          )}
+        </section>
       </main>
       <div className="mx-auto flex max-w-(--measure-page) justify-center px-(--sp-5) py-(--sp-7) sm:px-(--sp-7) sm:py-(--sp-8)">
         <Plaque name={fields.name} width={150} tilt={0} shadow={false} />
@@ -742,7 +822,7 @@ function TextSectionField({
           {tSections(`${field}.hint`)}
         </span>
         <span
-          className={`type-sm tabular-nums ${near ? "text-(--state-warning)" : "text-(--text-subtle)"}`}
+          className={`type-sm tabular-nums ${near ? "text-(--state-warning)" : "text-(--text-muted)"}`}
           aria-live={near ? "polite" : "off"}
         >
           {tSections("counter", { count: value.length, max })}
@@ -886,7 +966,7 @@ function PlaceCombobox({
                 }`}
               >
                 <span>{place.name}</span>
-                <span className="type-eyebrow text-(--text-subtle)">
+                <span className="type-eyebrow text-(--text-muted)">
                   {place.kind === "voivodeship"
                     ? tSections("locations.kindVoivodeship")
                     : (place.voivodeship ?? tSections("locations.kindCity"))}

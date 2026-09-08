@@ -3,7 +3,7 @@ import { hashPassword } from "better-auth/crypto";
 import { eq } from "drizzle-orm";
 import sharp from "sharp";
 import type { Database } from "@/db/client";
-import { accounts, profiles, users } from "@/db/schema";
+import { accounts, profiles, users, works } from "@/db/schema";
 import {
   confirmImageUpload,
   presignImageUpload,
@@ -17,6 +17,7 @@ import {
   updateProfileSections,
 } from "@/lib/profile";
 import { HandleError, setHandle } from "@/lib/profile-handle";
+import { createWork } from "@/lib/works";
 import type { FileStorage } from "@/lib/storage";
 
 // pnpm db:seed (#17): a dozen-plus sample profiles — accounts, display names,
@@ -62,6 +63,17 @@ export interface SeedProfile {
   // #72: every second profile gets a generated cover, so the pages show
   // both shapes of the card.
   cover: boolean;
+  // #72 / A12: works with generated render photos, for the profiles that
+  // have them; the number of photos per work varies so both card shapes
+  // (one photo, main plus side ones) show up.
+  works: SeedWork[];
+}
+
+export interface SeedWork {
+  name: string;
+  investor?: string;
+  developer?: string;
+  photos: number;
 }
 
 interface SeedEntry {
@@ -69,6 +81,7 @@ interface SeedEntry {
   headline: string;
   locations: string[];
   bio: string;
+  works?: SeedWork[];
 }
 
 // Polish studios and 3D creators, several with diacritics and mixed forms so
@@ -82,6 +95,14 @@ const SEED_ENTRIES: readonly SeedEntry[] = [
     headline:
       "Wizualizacje architektoniczne dla konkursów i pozwoleń. Warszawa, od 2014 roku.",
     locations: ["Warszawa", "mazowieckie"],
+    works: [
+      {
+        name: "Muzeum Sztuki Nowoczesnej, konkurs",
+        investor: "Miasto Stołeczne Warszawa",
+        photos: 3,
+      },
+      { name: "Dom przy Skarpie", photos: 1 },
+    ],
     bio: "Pracownia założona przez dwoje architektów, którzy woleli rysować światło niż liczyć zbrojenie. Robimy widoki zewnętrzne, wnętrza i plansze konkursowe.\n\nPracujemy głównie z biurami architektonicznymi na etapie koncepcji i pozwolenia na budowę. Terminy liczymy w dniach roboczych.",
   },
   {
@@ -89,6 +110,19 @@ const SEED_ENTRIES: readonly SeedEntry[] = [
     headline:
       "Wizualizacje architektoniczne i animacje 3D dla deweloperów. Od koncepcji po materiały sprzedażowe.",
     locations: ["Warszawa", "mazowieckie", "cała Polska"],
+    works: [
+      {
+        name: "Osiedle Nowe Żerniki, etap II",
+        investor: "Archicom S.A.",
+        developer: "Archicom S.A.",
+        photos: 3,
+      },
+      {
+        name: "Kamienica przy Ząbkowskiej 12",
+        investor: "Fundacja Praskiej Kamienicy",
+        photos: 2,
+      },
+    ],
     bio: "Pracownia z warszawskiej Pragi, od 2016 roku. Robimy wizualizacje zewnętrzne i wnętrz, animacje przelotów oraz orbity 360 gotowe do makiet sprzedażowych.\n\nPracujemy z deweloperami i biurami architektonicznymi na etapie koncepcji, pozwolenia i sprzedaży. Trzy osoby, własna farma renderów.",
   },
   {
@@ -103,6 +137,13 @@ const SEED_ENTRIES: readonly SeedEntry[] = [
     headline:
       "Pełna dokumentacja 3D dla inwestycji mieszkaniowych: model, wizualizacje, animacja.",
     locations: ["Warszawa", "Kraków", "Wrocław"],
+    works: [
+      {
+        name: "Apartamenty Wilanowska",
+        developer: "Dom Development S.A.",
+        photos: 2,
+      },
+    ],
     bio: "Biuro projektowe z zespołem wizualizacji w środku, więc model powstaje raz i służy do wszystkiego: rysunków, wizualizacji i animacji sprzedażowej.\n\nObsługujemy inwestycje wielorodzinne w największych miastach. Dla deweloperów przygotowujemy komplet materiałów do biura sprzedaży.",
   },
   {
@@ -117,6 +158,13 @@ const SEED_ENTRIES: readonly SeedEntry[] = [
     headline:
       "Wizualizacje i animacje dla architektury krajobrazu i przestrzeni publicznych.",
     locations: ["Gdańsk", "Gdynia", "Sopot", "pomorskie"],
+    works: [
+      {
+        name: "Park Reagana, nowe nabrzeże",
+        investor: "Miasto Gdańsk",
+        photos: 1,
+      },
+    ],
     bio: "Parki, place, bulwary i podwórka. Roślinność modeluję gatunkami, nie plamami, więc widok z projektu wygląda jak to, co wyrośnie.\n\nWspółpracuję z pracowniami krajobrazu i z urzędami miast przy konsultacjach społecznych.",
   },
   {
@@ -186,6 +234,7 @@ function seedProfile(entry: SeedEntry, index: number): SeedProfile {
     locations: entry.locations,
     bio: entry.bio,
     cover: index % 2 === 0,
+    works: entry.works ?? [],
   };
 }
 
@@ -275,6 +324,28 @@ export async function coverPng(displayName: string): Promise<Buffer> {
   return sharp(Buffer.from(svg)).png().toBuffer();
 }
 
+// #72 / A12: a 1200×800 "render" — a gradient field in the work's hue with
+// a lighter block standing in for a building, numbered so the three photos
+// of one work differ.
+export async function renderPng(
+  workName: string,
+  index: number,
+): Promise<Buffer> {
+  const digest = createHash("sha256").update(workName).digest();
+  const hue = (digest.readUInt16BE(0) + index * 40) % 360;
+  const sky = hslToHex(hue, 0.3, 0.6);
+  const ground = hslToHex(hue, 0.25, 0.35);
+  const block = hslToHex(hue, 0.15, 0.8);
+  const left = 200 + index * 180;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${sky}"/><stop offset="1" stop-color="${ground}"/></linearGradient></defs>
+  <rect width="100%" height="100%" fill="url(#g)"/>
+  <rect x="${left}" y="260" width="520" height="420" fill="${block}" fill-opacity="0.9"/>
+  <rect x="${left + 60}" y="320" width="400" height="20" fill="#ffffff" fill-opacity="0.35"/>
+</svg>`;
+  return sharp(Buffer.from(svg)).png().toBuffer();
+}
+
 // ---- Seeding -------------------------------------------------------------
 
 export interface SeedDeps {
@@ -308,6 +379,8 @@ type CreateOutcome =
       photo: boolean;
       cover: boolean;
       sections: boolean;
+      /** #72: works configured for this profile, none in the database yet. */
+      works: boolean;
     };
 
 // The account-row contract from the header, in one place: the users row and
@@ -365,8 +438,26 @@ async function createProfile(
     const cover =
       ours && profile.cover && existing.coverFileId === null && canAddPhoto;
     const sections = ours && existing.headline === null;
-    if (photo || cover || sections) {
-      return { kind: "resumed", userId: existing.id, photo, cover, sections };
+    const hasWorks =
+      ours &&
+      profile.works.length > 0 &&
+      canAddPhoto &&
+      (
+        await db
+          .select({ id: works.id })
+          .from(works)
+          .where(eq(works.userId, existing.id))
+          .limit(1)
+      ).length === 0;
+    if (photo || cover || sections || hasWorks) {
+      return {
+        kind: "resumed",
+        userId: existing.id,
+        photo,
+        cover,
+        sections,
+        works: hasWorks,
+      };
     }
     return { kind: "skipped", reason: "e-mail exists" };
   }
@@ -405,6 +496,36 @@ function writeSections(
       bio: profile.bio,
     },
   );
+}
+
+// #72: a work's photos through the pipeline (purpose "work"), then the work
+// itself through createWork — the limit and the ownership checks included.
+async function addWorks(
+  deps: ImageUploadDeps,
+  profile: SeedProfile,
+): Promise<void> {
+  for (const work of profile.works) {
+    const imageFileIds: string[] = [];
+    for (let index = 0; index < work.photos; index++) {
+      const png = await renderPng(work.name, index);
+      const { stagingKey } = await presignImageUpload(deps, {
+        sizeBytes: png.length,
+        contentType: "image/png",
+      });
+      await deps.storage.putObject(stagingKey, png, "image/png");
+      const confirmed = await confirmImageUpload(deps, {
+        stagingKey,
+        purpose: "work",
+      });
+      imageFileIds.push(confirmed.original.fileId);
+    }
+    await createWork(deps, {
+      name: work.name,
+      investor: work.investor ?? "",
+      developer: work.developer ?? "",
+      imageFileIds,
+    });
+  }
 }
 
 // The #12 pipeline end to end, the seed standing in for the browser's PUT:
@@ -466,6 +587,10 @@ export async function seedProfiles(deps: SeedDeps): Promise<SeedSummary> {
           await uploadImage(imageDeps, "cover", profile.displayName);
           added.push("cover");
         }
+        if (outcome.works) {
+          await addWorks(imageDeps, profile);
+          added.push("works");
+        }
       }
       log(`resumed  ${handle}  ${added.join(", ")} added`);
       continue;
@@ -476,6 +601,7 @@ export async function seedProfiles(deps: SeedDeps): Promise<SeedSummary> {
       if (profile.cover) {
         await uploadImage(imageDeps, "cover", profile.displayName);
       }
+      await addWorks(imageDeps, profile);
       summary.photos.push(handle);
     }
     summary.created.push(handle);

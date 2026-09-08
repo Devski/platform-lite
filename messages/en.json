@@ -405,12 +405,8 @@
   "PublicProfile": {
     "description": "{name}'s profile on {brand}",
     "avatarAlt": "{name}'s profile photo",
-    "scopeBadge": "Scope",
-    "scopeNote": "The profile has a photo, a cover, a name, an address, a headline, a location and an about section. Project galleries are coming soon.",
     "editProfile": "Edit profile",
     "ownerScopeNote": "Click “Edit profile” to change things right on the profile. Each field saves when you leave it.",
-    "emptyStateTitle": "Projects aren't part of the product yet",
-    "emptyStateBody": "The profile is a photo, a name and an address. Once galleries exist, they'll live here.",
     "saveProfile": "Save",
     "savedProfile": "Profile saved",
     "locationsHeading": "Based in and working across",
@@ -434,5 +430,81 @@
     "label": "Language selection",
     "pl": "Polski",
     "en": "English"
+  },
+  "Works": {
+    "heading": "Works",
+    "count": "{count} of {max}",
+    "add": "Add a work",
+    "limitReached": "The limit is {max} works. Remove one to add another.",
+    "emptyTitle": "No works yet",
+    "emptyBody": "Switch on editing and add the first one with the plus. A name and one photo are enough to start.",
+    "photoAlt": "{name}, photo {index}",
+    "card": {
+      "investor": "Investor",
+      "developer": "Developer",
+      "r360Uploaded": "R360 uploaded",
+      "r360None": "No R360",
+      "edit": "Edit",
+      "delete": "Delete",
+      "confirmDelete": "Delete it with its photos?",
+      "confirmYes": "Yes, delete",
+      "confirmNo": "No",
+      "deleting": "Deleting…",
+      "enlarge": "Enlarge photo {index} of {count}: {name}",
+      "deleteFailed": "Deleting failed. Try again."
+    },
+    "form": {
+      "newTitle": "New work",
+      "editTitle": "Edit work",
+      "optional": "optional",
+      "name": {
+        "label": "Name",
+        "placeholder": "e.g. Nowe Żerniki estate, stage II"
+      },
+      "investor": {
+        "label": "Investor",
+        "placeholder": "Who commissioned the project"
+      },
+      "developer": {
+        "label": "Developer",
+        "placeholder": "Who builds and sells"
+      },
+      "photos": {
+        "label": "Photos",
+        "rule": "1 to 3, JPEG, PNG or WebP up to 10 MB",
+        "hint": "The main photo opens the work's card and is the largest on it. The first one added is main until you pick another.",
+        "add": "Add a photo",
+        "addAnother": "Add another",
+        "required": "required",
+        "main": "Main",
+        "setMain": "Set as main",
+        "remove": "Remove photo",
+        "uploading": "Uploading…"
+      },
+      "save": "Save work",
+      "saveChanges": "Save changes",
+      "saving": "Saving…",
+      "cancel": "Cancel",
+      "errors": {
+        "nameRequired": "Give the work a name.",
+        "nameInvalid": "The name is too long or contains characters that are not allowed.",
+        "partyInvalid": "The text is too long or contains characters that are not allowed.",
+        "photoRequired": "Add at least one photo.",
+        "uploading": "Wait for the photos to finish uploading.",
+        "limit": "The limit is {max} works. Remove one to add another.",
+        "invalidImage": "One of the photos is no longer available. Upload it again.",
+        "rateLimited": "Too many saves. Wait a moment and try again.",
+        "generic": "Saving failed. Try again.",
+        "duplicatePhoto": "That photo is already on the list."
+      }
+    },
+    "lightbox": {
+      "label": "Photo preview",
+      "close": "Close the preview",
+      "prev": "Previous photo",
+      "next": "Next photo",
+      "counter": "{index} / {count}",
+      "hint": "Esc closes, arrows move"
+    }
   }
 }

@@ -405,12 +405,8 @@
   "PublicProfile": {
     "description": "Profil {name} na {brand}",
     "avatarAlt": "Zdjęcie profilowe {name}",
-    "scopeBadge": "Zakres",
-    "scopeNote": "Profil zawiera zdjęcie, tło, nazwę, adres, nagłówek, siedzibę i sekcję o nas. Galerie realizacji dojdą wkrótce.",
     "editProfile": "Edytuj profil",
     "ownerScopeNote": "Kliknij „Edytuj profil”, aby zmieniać dane bezpośrednio na profilu. Każde pole zapisuje się, gdy je opuścisz.",
-    "emptyStateTitle": "Projekty nie są jeszcze częścią produktu",
-    "emptyStateBody": "Profil to zdjęcie, nazwa i adres. Gdy powstaną galerie, to tutaj się znajdą.",
     "saveProfile": "Zapisz",
     "savedProfile": "Zapisano profil",
     "locationsHeading": "Siedziba i obszar działania",
@@ -434,5 +430,81 @@
     "label": "Wybór języka",
     "pl": "Polski",
     "en": "English"
+  },
+  "Works": {
+    "heading": "Realizacje",
+    "count": "{count} z {max}",
+    "add": "Dodaj realizację",
+    "limitReached": "Limit {max} realizacji. Usuń jedną, aby dodać nową.",
+    "emptyTitle": "Jeszcze bez realizacji",
+    "emptyBody": "Włącz edycję i dodaj pierwszą plusem. Nazwa i jedno zdjęcie wystarczą na start.",
+    "photoAlt": "{name}, zdjęcie {index}",
+    "card": {
+      "investor": "Inwestor",
+      "developer": "Deweloper",
+      "r360Uploaded": "R360 wgrany",
+      "r360None": "Bez R360",
+      "edit": "Edytuj",
+      "delete": "Usuń",
+      "confirmDelete": "Usunąć razem ze zdjęciami?",
+      "confirmYes": "Tak, usuń",
+      "confirmNo": "Nie",
+      "deleting": "Usuwanie…",
+      "enlarge": "Powiększ zdjęcie {index} z {count}: {name}",
+      "deleteFailed": "Nie udało się usunąć. Spróbuj ponownie."
+    },
+    "form": {
+      "newTitle": "Nowa realizacja",
+      "editTitle": "Edytuj realizację",
+      "optional": "opcjonalnie",
+      "name": {
+        "label": "Nazwa",
+        "placeholder": "np. Osiedle Nowe Żerniki, etap II"
+      },
+      "investor": {
+        "label": "Inwestor",
+        "placeholder": "Kto zamówił projekt"
+      },
+      "developer": {
+        "label": "Deweloper",
+        "placeholder": "Kto buduje i sprzedaje"
+      },
+      "photos": {
+        "label": "Zdjęcia",
+        "rule": "od 1 do 3, JPEG, PNG lub WebP do 10 MB",
+        "hint": "Zdjęcie główne otwiera kartę realizacji i jest w niej największe. Pierwsze dodane staje się głównym, dopóki nie wskażesz innego.",
+        "add": "Dodaj zdjęcie",
+        "addAnother": "Dodaj kolejne",
+        "required": "wymagane",
+        "main": "Główne",
+        "setMain": "Ustaw jako główne",
+        "remove": "Usuń zdjęcie",
+        "uploading": "Wysyłanie…"
+      },
+      "save": "Zapisz realizację",
+      "saveChanges": "Zapisz zmiany",
+      "saving": "Zapisywanie…",
+      "cancel": "Anuluj",
+      "errors": {
+        "nameRequired": "Podaj nazwę realizacji.",
+        "nameInvalid": "Nazwa jest za długa albo zawiera niedozwolone znaki.",
+        "partyInvalid": "Tekst jest za długi albo zawiera niedozwolone znaki.",
+        "photoRequired": "Dodaj przynajmniej jedno zdjęcie.",
+        "uploading": "Poczekaj, aż zdjęcia się wgrają.",
+        "limit": "Limit {max} realizacji. Usuń jedną, aby dodać nową.",
+        "invalidImage": "Jedno ze zdjęć nie jest już dostępne. Wgraj je ponownie.",
+        "rateLimited": "Zbyt wiele zapisów. Odczekaj chwilę i spróbuj ponownie.",
+        "generic": "Zapis nie powiódł się. Spróbuj ponownie.",
+        "duplicatePhoto": "To zdjęcie jest już na liście."
+      }
+    },
+    "lightbox": {
+      "label": "Podgląd zdjęcia",
+      "close": "Zamknij podgląd",
+      "prev": "Poprzednie zdjęcie",
+      "next": "Następne zdjęcie",
+      "counter": "{index} / {count}",
+      "hint": "Esc zamyka, strzałki przewijają"
+    }
   }
 }

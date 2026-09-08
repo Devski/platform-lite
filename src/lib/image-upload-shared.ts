@@ -26,13 +26,9 @@ export const presignImageSchema = z.object({
   contentType: z.enum(IMAGE_CONTENT_TYPES),
 });
 
-// What confirm accepts TODAY: a work's photos arrive with their own removal
-// path (#72 step 4); until then a caller could only fill their quota with
-// sets nothing frees, so the enum is opened one purpose at a time.
-export const CONFIRMABLE_PURPOSES = ["avatar", "cover"] as const;
 export const confirmImageSchema = z.object({
   stagingKey: z.string().min(1),
-  purpose: z.enum(CONFIRMABLE_PURPOSES),
+  purpose: imagePurposeSchema,
 });
 
 type FileKind = (typeof fileKind.enumValues)[number];

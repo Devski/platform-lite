@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, notInArray, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import type { Database } from "@/db/client";
 import { files, profiles, users } from "@/db/schema";
 import {
@@ -6,7 +6,7 @@ import {
   profileSectionsSchema,
   type ProfileSectionsInput,
 } from "@/lib/profile-schemas";
-import { IMAGE_PROFILES } from "@/lib/image-upload-shared";
+import { IMAGE_PROFILES, type ImagePurpose } from "@/lib/image-upload-shared";
 import { contentKey, type FileStorage } from "@/lib/storage";
 
 // The #14 profile layer: display name, the two image pointers (avatar,
@@ -77,7 +77,7 @@ type ImageSlot = keyof typeof IMAGE_SLOTS;
 // `scripts/backfill-file-keys.ts` has run in an environment, those fall
 // back to the pre-#72 `a/` derivation, which is correct for exactly the
 // environment that wrote them and is the bug everywhere else.
-function variantKeyOf(
+export function variantKeyOf(
   original: { objectKey: string | null; sha256: string },
   size: number,
   prefix: string,
@@ -291,73 +291,95 @@ async function setProfileImage(
 // Keys can be shared: by another user's avatar under the pre-#72 `a/`
 // layout, and since #72 by this user's own cover or work photo with the
 // same bytes (a different kind, the same key). Rows from before #49 carry
-// no key; for those the hash stands in, as it always did. Object deletes
-// are best-effort: a failed delete is logged and the rows still go (an
-// orphaned object joins the reconciliation-sweep residue family); the
-// reverse order would strand rows that keep charging the quota forever.
+// no key; for those the hash stands in, as it always did.
+//
+// Two phases, rows first (#72 step 4 review): the rows go inside the
+// caller's transaction, so a concurrent attach — a work naming the very
+// photo being freed — either sees the rows gone and is refused, or holds
+// them and makes the delete fail before any object is touched; the
+// `restrict` on work_images.file_id is what makes that ordering matter.
+// The objects are deleted afterwards, best-effort: a failed delete is
+// logged and leaves an uncharged orphan object (the reconciliation-sweep
+// residue family), never a charged row pointing at nothing.
 // Accepted residual (#14 audit): a confirm of byte-identical content that
 // is mid-flight for another row (objects put, rows not yet inserted) is
 // invisible to the check — that image 404s until re-uploaded, which fully
 // heals. Needs the exact bytes plus a sub-second window.
-async function removeImageSet(
+export async function removeImageSet(
   deps: ProfileDeps,
   originalFileId: string,
-  slot: ImageSlot,
+  purpose: ImagePurpose,
 ): Promise<void> {
-  const { db, storage, prefix, userId } = deps;
-  const { originalKind, variants } = IMAGE_SLOTS[slot];
-  const [original] = await db
-    .select({
-      id: files.id,
-      sha256: files.sha256,
-      ext: files.ext,
-      objectKey: files.objectKey,
-    })
-    .from(files)
-    .where(
-      and(
-        eq(files.id, originalFileId),
-        eq(files.userId, userId),
-        eq(files.kind, originalKind),
-      ),
-    );
-  if (!original) return;
+  const keys = await deps.db.transaction((tx) =>
+    removeImageSetRows({ ...deps, db: tx }, [originalFileId], purpose),
+  );
+  await deleteObjects(deps, keys, purpose);
+}
 
-  // The set's rows carry their own keys (#49); the variant rows are about to
-  // be taken by the parent cascade, so read them while they exist.
-  const variantRows = await db
-    .select({ id: files.id, objectKey: files.objectKey, kind: files.kind })
-    .from(files)
-    .where(eq(files.parentFileId, original.id));
-  // A set in the pre-#72 `a/` layout — written before #49 (no keys) or
-  // backfilled into that layout — shares its objects with every other
-  // account's set of the same bytes, whose rows may still carry no key at
-  // all. So for such a set a keyless parentless row with the same hash keeps
-  // every one of its keys alive. A set under its owner is judged by its keys
-  // alone: nothing but its own rows can name them.
-  const legacyLayout =
-    original.objectKey === null ||
-    original.objectKey === contentKey(original.sha256, original.ext, prefix);
-  const setKeys = [
-    original.objectKey ?? contentKey(original.sha256, original.ext, prefix),
-    ...variants.map(
-      ({ kind, size }) =>
-        variantRows.find((variant) => variant.kind === kind)?.objectKey ??
-        variantKeyOf(original, size, prefix),
-    ),
-  ];
-  // The set's own rows (the original and its variants) are about to go, so
-  // they never count as "still referenced".
-  const setIds = [original.id, ...variantRows.map((variant) => variant.id)];
-
-  for (const key of setKeys) {
-    // Still named by a row outside this set: the object stays.
-    const [shared] = await db
-      .select({ id: files.id })
+/**
+ * Phase one, inside the caller's transaction: removes the sets' rows and
+ * returns the keys whose objects no row names any more. Sets that are not
+ * the caller's originals of `purpose` are skipped.
+ */
+export async function removeImageSetRows(
+  deps: Pick<ProfileDeps, "db" | "prefix" | "userId">,
+  originalFileIds: string[],
+  purpose: ImagePurpose,
+): Promise<string[]> {
+  const { db, prefix, userId } = deps;
+  const { originalKind, variants } = IMAGE_PROFILES[purpose];
+  const freed: string[] = [];
+  for (const originalFileId of new Set(originalFileIds)) {
+    const [original] = await db
+      .select({
+        id: files.id,
+        sha256: files.sha256,
+        ext: files.ext,
+        objectKey: files.objectKey,
+      })
       .from(files)
       .where(
         and(
-          notInArray(files.id, setIds),
+          eq(files.id, originalFileId),
+          eq(files.userId, userId),
+          eq(files.kind, originalKind),
+        ),
+      );
+    if (!original) continue;
+
+    // The set's rows carry their own keys (#49); read them while they exist.
+    const variantRows = await db
+      .select({ id: files.id, objectKey: files.objectKey, kind: files.kind })
+      .from(files)
+      .where(eq(files.parentFileId, original.id));
+    // A set in the pre-#72 `a/` layout — written before #49 (no keys) or
+    // backfilled into that layout — shares its objects with every other
+    // account's set of the same bytes, whose rows may still carry no key
+    // at all. So for such a set a keyless parentless row with the same
+    // hash keeps every one of its keys alive. A set under its owner is
+    // judged by its keys alone: nothing but its own rows can name them.
+    const legacyLayout =
+      original.objectKey === null ||
+      original.objectKey === contentKey(original.sha256, original.ext, prefix);
+    const setKeys = [
+      original.objectKey ?? contentKey(original.sha256, original.ext, prefix),
+      ...variants.map(
+        ({ kind, size }) =>
+          variantRows.find((variant) => variant.kind === kind)?.objectKey ??
+          variantKeyOf(original, size, prefix),
+      ),
+    ];
+    // The set's own rows (the original and its variants) go now, so they
+    // never count as "still referenced".
+    const setIds = [original.id, ...variantRows.map((variant) => variant.id)];
+    await db.delete(files).where(inArray(files.id, setIds));
+
+    for (const key of setKeys) {
+      // Still named by a surviving row: the object stays.
+      const [shared] = await db
+        .select({ id: files.id })
+        .from(files)
+        .where(
           legacyLayout
             ? or(
                 eq(files.objectKey, key),
@@ -368,18 +390,25 @@ async function removeImageSet(
                 ),
               )
             : eq(files.objectKey, key),
-        ),
-      )
-      .limit(1);
-    if (shared) continue;
-    try {
-      await storage.deleteObject(key);
-    } catch (error) {
-      console.error(`[profile] ${slot} object cleanup failed:`, error);
+        )
+        .limit(1);
+      if (!shared) freed.push(key);
     }
   }
+  return freed;
+}
 
-  // The parent cascade would take the variant rows with the original; naming
-  // them too keeps the delete honest about what it removes.
-  await db.delete(files).where(inArray(files.id, setIds));
+/** Phase two, outside any transaction: the objects nothing names any more. */
+export async function deleteObjects(
+  deps: Pick<ProfileDeps, "storage">,
+  keys: string[],
+  purpose: ImagePurpose,
+): Promise<void> {
+  for (const key of new Set(keys)) {
+    try {
+      await deps.storage.deleteObject(key);
+    } catch (error) {
+      console.error(`[profile] ${purpose} object cleanup failed:`, error);
+    }
+  }
 }

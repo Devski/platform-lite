@@ -16,7 +16,10 @@ type IconName =
   | "mail"
   | "menu"
   | "map-pin"
-  | "x";
+  | "x"
+  | "plus"
+  | "chevron-left"
+  | "chevron-right";
 
 const PATHS: Record<IconName, ReactNode> = {
   "map-pin-off": (
@@ -97,6 +100,16 @@ const PATHS: Record<IconName, ReactNode> = {
       <line x1="18" y1="6" x2="6" y2="18" />
     </>
   ),
+  // #72: add a work.
+  plus: (
+    <>
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
+    </>
+  ),
+  // #72: step through a work's photos in the overlay.
+  "chevron-left": <polyline points="15 5 8 12 15 19" />,
+  "chevron-right": <polyline points="9 5 16 12 9 19" />,
 };
 
 export function Icon({
