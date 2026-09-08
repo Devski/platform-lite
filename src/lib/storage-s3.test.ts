@@ -61,6 +61,45 @@ describe.runIf(configured)("S3 storage against the real bucket", () => {
     );
   });
 
+  it("headObject reports the body's MD5 as the ETag of a single PUT, and copyObject copies privately (#72 step 5)", async () => {
+    // The archive's whole identity rests on these two provider behaviours;
+    // the memory fake only encodes them.
+    const { createHash } = await import("node:crypto");
+    const source = touched(`${prefix}staging/head-copy.zip`);
+    const copy = touched(`${prefix}u/test/r360-copy.zip`);
+    const body = randomBytes(2048);
+    const url = await storage.presignUpload(source, {
+      maxBytes: body.length,
+      contentType: "application/zip",
+    });
+    const put = await fetch(url, {
+      method: "PUT",
+      headers: {
+        "content-type": "application/zip",
+        "content-length": String(body.length),
+        "cache-control": IMMUTABLE_CACHE_CONTROL,
+      },
+      body,
+    });
+    expect(put.status).toBe(200);
+    const head = await storage.headObject(source);
+    expect(head).toEqual({
+      sizeBytes: body.length,
+      contentType: "application/zip",
+      etag: createHash("md5").update(body).digest("hex"),
+    });
+    await storage.copyObject(source, copy, "application/zip");
+    expect(await storage.headObject(copy)).toMatchObject({
+      sizeBytes: body.length,
+      contentType: "application/zip",
+    });
+    // Private: the copy is not readable at its public address.
+    expect((await fetch(storage.publicUrl(copy))).status).not.toBe(200);
+    await expect(storage.headObject(`${prefix}nothing`)).rejects.toBeInstanceOf(
+      ObjectNotFoundError,
+    );
+  });
+
   it("accepts a presigned upload with the declared length and type (G4)", async () => {
     const key = touched(`${prefix}a/presigned.bin`);
     const body = randomBytes(512);

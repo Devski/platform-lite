@@ -257,7 +257,10 @@
           "not_an_image": "This file does not look like a valid image.",
           "unsupported_format": "That format is not supported — choose JPEG, PNG or WebP.",
           "rate_limited": "Too many attempts. Wait a moment and try again.",
-          "generic": "Something went wrong. Try again."
+          "generic": "Something went wrong. Try again.",
+          "archive_type": "That is not a zip archive.",
+          "archive_size": "The archive needs to be between 1 byte and 5 GB.",
+          "not_found": "The file did not reach storage. Try again."
         }
       },
       "cover": {
@@ -495,7 +498,20 @@
         "invalidImage": "One of the photos is no longer available. Upload it again.",
         "rateLimited": "Too many saves. Wait a moment and try again.",
         "generic": "Saving failed. Try again.",
-        "duplicatePhoto": "That photo is already on the list."
+        "duplicatePhoto": "That photo is already on the list.",
+        "invalidArchive": "The R360 archive is no longer available. Upload it again."
+      },
+      "r360": {
+        "label": "Render 360",
+        "rule": "a zip archive with the orbit frames, no size limit",
+        "hint": "Visible only to you. A 360 viewer for visitors comes in a separate step.",
+        "add": "Add an R360 zip",
+        "uploading": "Uploading…",
+        "uploaded": "Uploaded",
+        "attached": "R360 archive",
+        "remove": "Remove",
+        "uploadingPercent": "Uploading… {percent}%",
+        "cancel": "Cancel"
       }
     },
     "lightbox": {

@@ -93,7 +93,7 @@ function sha256(buffer: Buffer): string {
 // and the bucket's lifecycle rule is the backstop for a delete that fails —
 // so nothing here is worth failing a request that otherwise succeeded, and
 // every caller carries on regardless.
-async function discardStagedObject(
+export async function discardStagedObject(
   storage: FileStorage,
   key: string,
 ): Promise<boolean> {
@@ -111,7 +111,9 @@ async function discardStagedObject(
 // the account that created the mess. The bucket lifecycle rule stays as the
 // backstop for what this can never reach: a crash between the browser's PUT
 // and any row this code writes.
-async function sweepExpiredUploads(deps: ImageUploadDeps): Promise<void> {
+export async function sweepExpiredUploads(
+  deps: ImageUploadDeps,
+): Promise<void> {
   const expired = await deps.db
     .select({ stagingKey: pendingUploads.stagingKey })
     .from(pendingUploads)
@@ -146,6 +148,43 @@ async function sweepExpiredUploads(deps: ImageUploadDeps): Promise<void> {
   await deps.db
     .delete(pendingUploads)
     .where(inArray(pendingUploads.stagingKey, swept));
+}
+
+/**
+ * The browser gave up on a staged upload — the PUT failed, or the owner
+ * cancelled it (#72 step 5 review). Settles the reservation the way confirm
+ * does (expires it, never deletes it: the URL may still be live), so the
+ * declared bytes stop counting at once instead of at the window's end, and
+ * discards whatever partial object landed. Idempotent; refuses nothing but
+ * a key outside the caller's namespace, silently.
+ */
+export async function abandonStagedUpload(
+  deps: ImageUploadDeps,
+  input: { stagingKey: string },
+): Promise<void> {
+  if (!isOwnStagingKey(deps.prefix, deps.userId, input.stagingKey)) return;
+  await deps.db
+    .update(pendingUploads)
+    .set({ expiresAt: sql`now()` })
+    .where(
+      and(
+        eq(pendingUploads.stagingKey, input.stagingKey),
+        eq(pendingUploads.userId, deps.userId),
+      ),
+    );
+  await discardStagedObject(deps.storage, input.stagingKey);
+}
+
+/** Only this user's staging namespace: other users' keys, content keys and
+ * arbitrary paths are refused unread. */
+export function isOwnStagingKey(
+  prefix: string,
+  userId: string,
+  key: string,
+): boolean {
+  return new RegExp(
+    `^${escapeRegExp(prefix)}staging/${escapeRegExp(userId)}/[0-9a-f]{32}$`,
+  ).test(key);
 }
 
 /**
@@ -201,12 +240,7 @@ export async function confirmImageUpload(
 ): Promise<ConfirmedImage> {
   const { storage, db, prefix, userId } = deps;
   const profile = IMAGE_PROFILES[input.purpose];
-  // Only this user's staging namespace is confirmable; everything else —
-  // other users' keys, content keys, arbitrary paths — is refused unread.
-  const ownStagingKey = new RegExp(
-    `^${escapeRegExp(prefix)}staging/${escapeRegExp(userId)}/[0-9a-f]{32}$`,
-  );
-  if (!ownStagingKey.test(input.stagingKey)) {
+  if (!isOwnStagingKey(prefix, userId, input.stagingKey)) {
     throw new ImageUploadError("invalid_key");
   }
 

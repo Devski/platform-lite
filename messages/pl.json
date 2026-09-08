@@ -257,7 +257,10 @@
           "not_an_image": "Ten plik nie wygląda na poprawny obraz.",
           "unsupported_format": "Ten format nie jest obsługiwany — wybierz JPEG, PNG lub WebP.",
           "rate_limited": "Zbyt wiele prób. Odczekaj chwilę i spróbuj ponownie.",
-          "generic": "Coś poszło nie tak. Spróbuj ponownie."
+          "generic": "Coś poszło nie tak. Spróbuj ponownie.",
+          "archive_type": "To nie jest archiwum zip.",
+          "archive_size": "Archiwum musi mieć od 1 bajta do 5 GB.",
+          "not_found": "Plik nie dotarł do magazynu. Spróbuj ponownie."
         }
       },
       "cover": {
@@ -495,7 +498,20 @@
         "invalidImage": "Jedno ze zdjęć nie jest już dostępne. Wgraj je ponownie.",
         "rateLimited": "Zbyt wiele zapisów. Odczekaj chwilę i spróbuj ponownie.",
         "generic": "Zapis nie powiódł się. Spróbuj ponownie.",
-        "duplicatePhoto": "To zdjęcie jest już na liście."
+        "duplicatePhoto": "To zdjęcie jest już na liście.",
+        "invalidArchive": "Archiwum R360 nie jest już dostępne. Wgraj je ponownie."
+      },
+      "r360": {
+        "label": "Render 360",
+        "rule": "archiwum zip z klatkami orbity, bez limitu rozmiaru",
+        "hint": "Widoczny tylko dla Ciebie. Przeglądarka 360 dla gości powstanie w osobnym kroku.",
+        "add": "Dodaj zip R360",
+        "uploading": "Wysyłanie…",
+        "uploaded": "Wgrany",
+        "attached": "Archiwum R360",
+        "remove": "Usuń",
+        "uploadingPercent": "Wysyłanie… {percent}%",
+        "cancel": "Przerwij"
       }
     },
     "lightbox": {

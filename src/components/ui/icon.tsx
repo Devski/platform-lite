@@ -19,7 +19,8 @@ type IconName =
   | "x"
   | "plus"
   | "chevron-left"
-  | "chevron-right";
+  | "chevron-right"
+  | "upload";
 
 const PATHS: Record<IconName, ReactNode> = {
   "map-pin-off": (
@@ -110,6 +111,14 @@ const PATHS: Record<IconName, ReactNode> = {
   // #72: step through a work's photos in the overlay.
   "chevron-left": <polyline points="15 5 8 12 15 19" />,
   "chevron-right": <polyline points="9 5 16 12 9 19" />,
+  // #72: the R360 archive slot.
+  upload: (
+    <>
+      <path d="M12 16V4" />
+      <path d="m7 9 5-5 5 5" />
+      <path d="M4 20h16" />
+    </>
+  ),
 };
 
 export function Icon({

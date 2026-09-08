@@ -39,5 +39,7 @@ export const workInputSchema = z.object({
     .refine((ids) => new Set(ids).size === ids.length, {
       message: "duplicate photo",
     }),
+  /** The confirmed r360-zip file id, or none. */
+  r360FileId: z.uuid().nullable().default(null),
 });
 export type WorkInput = z.input<typeof workInputSchema>;

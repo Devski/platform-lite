@@ -1,6 +1,6 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useFormatter, useTranslations } from "next-intl";
 import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -8,7 +8,11 @@ import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { postJson } from "@/lib/api-client";
 import { IMAGE_CONTENT_TYPES } from "@/lib/image-upload-shared";
-import { uploadImage, type UploadFailure } from "@/lib/upload-client";
+import {
+  uploadArchive,
+  uploadImage,
+  type UploadFailure,
+} from "@/lib/upload-client";
 import {
   WORK_NAME_MAX,
   WORK_PARTY_MAX,
@@ -35,9 +39,26 @@ interface Slot {
 }
 
 // Best-effort: an orphan set is the quota's problem, not the owner's, and
-// the route answers a photo a work names with a no-op.
+// the route answers a file a work names with a no-op.
 function discardFile(fileId: string): Promise<unknown> {
   return postJson("/api/uploads/discard", { fileId }).catch(() => undefined);
+}
+
+// "412 MB", "3,2 GB": enough precision for a badge, the decimal separator
+// the page's locale uses.
+function formatBytes(
+  bytes: number,
+  format: ReturnType<typeof useFormatter>,
+): string {
+  const units = ["B", "kB", "MB", "GB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  const digits = value < 10 && unit > 0 ? 1 : 0;
+  return `${format.number(value, { maximumFractionDigits: digits })} ${units[unit]}`;
 }
 
 type FormErrorKey =
@@ -49,6 +70,7 @@ type FormErrorKey =
   | "uploading"
   | "limit"
   | "invalidImage"
+  | "invalidArchive"
   | "rateLimited"
   | "generic";
 
@@ -78,6 +100,27 @@ export function WorkForm({
         uploading: false,
       })),
   );
+  // #72 step 5: the R360 archive — one per work, upload only.
+  const [archive, setArchive] = useState<{
+    fileId: string;
+    sizeBytes: number;
+    name: string;
+    uploading: boolean;
+    /** 0..1 while uploading. */
+    progress?: number;
+  } | null>(
+    work?.r360
+      ? {
+          fileId: work.r360.fileId,
+          sizeBytes: work.r360.sizeBytes,
+          name: "",
+          uploading: false,
+        }
+      : null,
+  );
+  // The archive transfer in flight, to stop it on remove or unmount.
+  const archiveAbort = useRef<AbortController | null>(null);
+  const format = useFormatter();
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   // Photos this form uploaded and has not saved onto the work: discarded if
@@ -100,6 +143,7 @@ export function WorkForm({
     const orphans = unsaved.current;
     return () => {
       closed.current = true;
+      archiveAbort.current?.abort();
       for (const url of urls) URL.revokeObjectURL(url);
       // Whatever this form uploaded and did not save goes back off the
       // quota — however the form went away: cancel, another work's edit,
@@ -170,6 +214,58 @@ export function WorkForm({
     await discardFile(fileId);
   }
 
+  async function pickArchive(file: File, input: HTMLInputElement) {
+    input.value = "";
+    setError(null);
+    const pendingId = `pending:${file.name}:${file.size}`;
+    setArchive({
+      fileId: pendingId,
+      sizeBytes: file.size,
+      name: file.name,
+      uploading: true,
+      progress: 0,
+    });
+    const controller = new AbortController();
+    archiveAbort.current = controller;
+    const result = await uploadArchive(file, {
+      signal: controller.signal,
+      onProgress: (fraction) =>
+        setArchive((current) =>
+          current?.fileId === pendingId
+            ? { ...current, progress: fraction }
+            : current,
+        ),
+    });
+    archiveAbort.current = null;
+    if (result.ok && closed.current) {
+      void discardFile(result.fileId);
+      return;
+    }
+    if (!result.ok) {
+      setArchive((current) => (current?.fileId === pendingId ? null : current));
+      if (result.failure !== "aborted") uploadFail(result.failure);
+      return;
+    }
+    unsaved.current.add(result.fileId);
+    setArchive({
+      fileId: result.fileId,
+      sizeBytes: result.sizeBytes,
+      name: file.name,
+      uploading: false,
+    });
+  }
+
+  function removeArchive() {
+    if (archive?.uploading) {
+      // Stops the transfer; the abort path abandons the staged bytes.
+      archiveAbort.current?.abort();
+      setArchive(null);
+      return;
+    }
+    if (archive) void discard(archive.fileId);
+    setArchive(null);
+  }
+
   function removePhoto(fileId: string) {
     setSlots((current) => current.filter((slot) => slot.fileId !== fileId));
     void discard(fileId);
@@ -185,7 +281,9 @@ export function WorkForm({
 
   async function save() {
     setError(null);
-    if (slots.some((slot) => slot.uploading)) return fail("uploading");
+    if (slots.some((slot) => slot.uploading) || archive?.uploading) {
+      return fail("uploading");
+    }
     const trimmedName = name.trim();
     if (!trimmedName) return fail("nameRequired");
     if (slots.length === 0) return fail("photoRequired");
@@ -194,6 +292,7 @@ export function WorkForm({
       investor,
       developer,
       imageFileIds: slots.map((slot) => slot.fileId),
+      r360FileId: archive?.fileId ?? null,
     });
     if (!parsed.success) {
       const path = parsed.error.issues[0]?.path[0];
@@ -223,6 +322,9 @@ export function WorkForm({
         if (response.data.error === "limit") return fail("limit");
         if (response.data.error === "invalid_image")
           return fail("invalidImage");
+        if (response.data.error === "invalid_archive") {
+          return fail("invalidArchive");
+        }
         return fail("generic");
       }
       // Saved: the photos belong to the work now.
@@ -240,7 +342,8 @@ export function WorkForm({
     onCancel();
   }
 
-  const busy = saving || slots.some((slot) => slot.uploading);
+  const busy =
+    saving || slots.some((slot) => slot.uploading) || !!archive?.uploading;
 
   return (
     <Card
@@ -382,6 +485,58 @@ export function WorkForm({
           })}
         </div>
         <p className="type-sm text-(--text-muted)">{t("photos.hint")}</p>
+      </div>
+
+      <div className="flex flex-col gap-(--sp-2)">
+        <p className="type-label text-(--text-body)">
+          {t("r360.label")}{" "}
+          <span className="font-normal text-(--text-muted)">
+            {"· "}
+            {t("r360.rule")}
+          </span>
+        </p>
+        {archive ? (
+          <div className="flex flex-wrap items-center gap-(--sp-4) rounded-sm border border-(--border-hairline) bg-(--surface-card) px-(--sp-5) py-(--sp-4)">
+            <span
+              className={`inline-flex items-center rounded-full px-(--sp-3) py-(--sp-1) type-eyebrow ${
+                archive.uploading
+                  ? "bg-(--state-warning-bg) text-(--state-warning)"
+                  : "bg-(--state-success-bg) text-(--state-success)"
+              }`}
+              role="status"
+            >
+              {archive.uploading
+                ? t("r360.uploadingPercent", {
+                    percent: Math.round((archive.progress ?? 0) * 100),
+                  })
+                : t("r360.uploaded")}
+            </span>
+            <span className="min-w-0 flex-1 truncate font-mono type-sm text-(--text-body)">
+              {archive.name || t("r360.attached")}
+              {" · "}
+              {formatBytes(archive.sizeBytes, format)}
+            </span>
+            <Button variant="quiet" onClick={removeArchive} disabled={saving}>
+              {archive.uploading ? t("r360.cancel") : t("r360.remove")}
+            </Button>
+          </div>
+        ) : (
+          <label className="relative flex cursor-pointer items-center gap-(--sp-4) rounded-sm border border-dashed border-(--border-strong) bg-(--surface-sunken) px-(--sp-5) py-(--sp-4) type-sm text-(--text-muted) hover:border-(--action-solid) focus-within:shadow-[var(--ring-focus)]">
+            <Icon name="upload" size={20} className="text-(--text-muted)" />
+            {t("r360.add")}
+            <input
+              type="file"
+              accept=".zip,application/zip,application/x-zip-compressed"
+              className="sr-only"
+              data-testid="work-r360"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void pickArchive(file, event.target);
+              }}
+            />
+          </label>
+        )}
+        <p className="type-sm text-(--text-muted)">{t("r360.hint")}</p>
       </div>
 
       <div className="flex flex-wrap items-center gap-(--sp-3)">

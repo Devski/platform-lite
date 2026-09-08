@@ -36,6 +36,7 @@ test.describe.configure({ mode: "serial" });
 const UPLOAD_URL = "/__stub-storage/staged-work";
 const STAGING_KEY = "staging/someone/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const FILE_ID = "22222222-2222-4222-8222-222222222222";
+const ARCHIVE_ID = "44444444-4444-4444-8444-444444444444";
 
 const json = (status: number, body: unknown) => (route: Route) =>
   route.fulfill({
@@ -130,6 +131,32 @@ test("a new work: the photo goes through the upload chain as a work, then the fo
   // The first photo is the main one, and says so.
   await expect(page.getByText("Główne", { exact: true })).toBeVisible();
 
+  // The R360 archive: its own presign and confirm, never a read by the
+  // server; the form then names the confirmed file on the work.
+  const archivePresigns: Request[] = [];
+  const archiveConfirms: Request[] = [];
+  await page.route("**/api/uploads/presign-archive", (route) => {
+    archivePresigns.push(route.request());
+    return json(200, { stagingKey: STAGING_KEY, uploadUrl: UPLOAD_URL })(route);
+  });
+  await page.route("**/api/uploads/confirm-archive", (route) => {
+    archiveConfirms.push(route.request());
+    return json(200, { fileId: ARCHIVE_ID, sizeBytes: 3 })(route);
+  });
+  await page.getByTestId("work-r360").setInputFiles({
+    name: "orbit.zip",
+    mimeType: "application/zip",
+    buffer: Buffer.from("PK\u0003"),
+  });
+  await expect(page.getByText("Wgrany", { exact: true })).toBeVisible();
+  expect(archivePresigns[0].postDataJSON()).toEqual({
+    sizeBytes: 3,
+    contentType: "application/zip",
+  });
+  expect(archiveConfirms[0].postDataJSON()).toEqual({
+    stagingKey: STAGING_KEY,
+  });
+
   await page.getByLabel("Inwestor").fill("Archicom S.A.");
   await page.getByRole("button", { name: "Zapisz realizację" }).click();
   await expect.poll(() => created.length).toBe(1);
@@ -138,6 +165,7 @@ test("a new work: the photo goes through the upload chain as a work, then the fo
     investor: "Archicom S.A.",
     developer: "",
     imageFileIds: [FILE_ID],
+    r360FileId: ARCHIVE_ID,
   });
   // Saved: the form folds away.
   await expect(

@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import sharp from "sharp";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { files, workImages, works } from "@/db/schema";
@@ -8,11 +8,13 @@ import { confirmImageUpload, presignImageUpload } from "./image-upload";
 import { updateDisplayName } from "./profile";
 import { createMemoryStorage } from "./storage";
 import { WORKS_MAX } from "./work-schemas";
+import { confirmArchiveUpload, presignArchiveUpload } from "./archive-upload";
 import {
   createWork,
   deleteWork,
-  discardWorkImage,
+  discardWorkFile,
   listWorks,
+  sweepOrphanArchives,
   updateWork,
 } from "./works";
 
@@ -83,6 +85,140 @@ async function uploadPhoto(
   return confirmImageUpload(d.deps, { stagingKey, purpose });
 }
 
+async function uploadArchive(d: ReturnType<typeof makeDeps>, seed: string) {
+  const body = Buffer.from(`PK archive ${seed}`);
+  const { stagingKey } = await presignArchiveUpload(d.deps, {
+    sizeBytes: body.length,
+    contentType: "application/zip",
+  });
+  await d.deps.storage.putObject(stagingKey, body, "application/zip");
+  return confirmArchiveUpload(d.deps, { stagingKey });
+}
+
+describe("the R360 archive on a work (step 5)", () => {
+  it("attaches the caller's own archive, replaces it, and frees the one nothing names", async () => {
+    const d = makeDeps();
+    const photo = await uploadPhoto(d, 20);
+    const first = await uploadArchive(d, "one");
+    const { id } = await createWork(d.deps, {
+      name: "Z orbitą",
+      imageFileIds: [photo.original.fileId],
+      r360FileId: first.fileId,
+    });
+    expect((await listWorks(d.deps))[0].r360).toEqual({
+      fileId: first.fileId,
+      sizeBytes: first.sizeBytes,
+    });
+
+    const second = await uploadArchive(d, "two");
+    await updateWork(d.deps, id, {
+      name: "Z orbitą",
+      imageFileIds: [photo.original.fileId],
+      r360FileId: second.fileId,
+    });
+    expect((await listWorks(d.deps))[0].r360?.fileId).toBe(second.fileId);
+    expect(d.objects.has(first.key)).toBe(false);
+    expect(d.objects.has(second.key)).toBe(true);
+
+    await updateWork(d.deps, id, {
+      name: "Bez orbity",
+      imageFileIds: [photo.original.fileId],
+      r360FileId: null,
+    });
+    expect((await listWorks(d.deps))[0].r360).toBeNull();
+    expect(d.objects.has(second.key)).toBe(false);
+    expect(
+      (await testDb.db.select().from(files)).filter(
+        (row) => row.kind === "r360-zip",
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("refuses another user's archive and a photo as an archive; deleting the work frees its archive", async () => {
+    const d = makeDeps();
+    const photo = await uploadPhoto(d, 21);
+    const theirs = await uploadArchive(makeDeps(otherUserId), "theirs");
+    await expect(
+      createWork(d.deps, {
+        name: "Cudza orbita",
+        imageFileIds: [photo.original.fileId],
+        r360FileId: theirs.fileId,
+      }),
+    ).rejects.toMatchObject({ code: "invalid_archive" });
+    await expect(
+      createWork(d.deps, {
+        name: "Zdjęcie jako orbita",
+        imageFileIds: [photo.original.fileId],
+        r360FileId: photo.original.fileId,
+      }),
+    ).rejects.toMatchObject({ code: "invalid_archive" });
+
+    const mine = await uploadArchive(d, "mine");
+    const { id } = await createWork(d.deps, {
+      name: "Do usunięcia",
+      imageFileIds: [photo.original.fileId],
+      r360FileId: mine.fileId,
+    });
+    await deleteWork(d.deps, id);
+    expect(d.objects.has(mine.key)).toBe(false);
+    // An unattached archive is discarded like a photo; a photo of a cover
+    // kind is not the form's to discard.
+    const loose = await uploadArchive(d, "loose");
+    await discardWorkFile(d.deps, loose.fileId);
+    expect(d.objects.has(loose.key)).toBe(false);
+  });
+
+  it("sweeps archives nothing was built on after a day, and keeps the attached and the fresh ones", async () => {
+    const d = makeDeps();
+    const photo = await uploadPhoto(d, 23);
+    const stale = await uploadArchive(d, "stale");
+    const fresh = await uploadArchive(d, "fresh");
+    const attached = await uploadArchive(d, "attached");
+    await createWork(d.deps, {
+      name: "Z orbitą",
+      imageFileIds: [photo.original.fileId],
+      r360FileId: attached.fileId,
+    });
+    // Backdate the two the form abandoned; only one is old enough.
+    await testDb.db
+      .update(files)
+      .set({ createdAt: sql`now() - interval '25 hours'` })
+      .where(inArray(files.id, [stale.fileId, attached.fileId]));
+
+    await sweepOrphanArchives(d.deps);
+    expect(d.objects.has(stale.key)).toBe(false);
+    expect(d.objects.has(fresh.key)).toBe(true);
+    expect(d.objects.has(attached.key)).toBe(true);
+    expect(
+      (await testDb.db.select().from(files))
+        .filter((row) => row.kind === "r360-zip")
+        .map((row) => row.id)
+        .sort(),
+    ).toEqual([fresh.fileId, attached.fileId].sort());
+  });
+
+  it("two works may name one archive: it goes only with the last of them, and discard leaves it alone", async () => {
+    const d = makeDeps();
+    const photo = await uploadPhoto(d, 22);
+    const shared = await uploadArchive(d, "shared");
+    const a = await createWork(d.deps, {
+      name: "A",
+      imageFileIds: [photo.original.fileId],
+      r360FileId: shared.fileId,
+    });
+    await createWork(d.deps, {
+      name: "B",
+      imageFileIds: [photo.original.fileId],
+      r360FileId: shared.fileId,
+    });
+    await discardWorkFile(d.deps, shared.fileId);
+    expect(d.objects.has(shared.key)).toBe(true);
+    await deleteWork(d.deps, a.id);
+    expect(d.objects.has(shared.key)).toBe(true);
+    expect((await listWorks(d.deps))[0].r360?.fileId).toBe(shared.fileId);
+  });
+});
+
 describe("createWork + listWorks", () => {
   it("stores the fields, keeps the photos in the given order with the first as main, and lists in adding order", async () => {
     const d = makeDeps();
@@ -111,7 +247,7 @@ describe("createWork + listWorks", () => {
       id: first.id,
       investor: "Archicom",
       developer: null,
-      hasR360: false,
+      r360: null,
     });
     expect(list[0].images.map((image) => image.fileId)).toEqual([
       b.original.fileId,
@@ -259,7 +395,7 @@ describe("updateWork", () => {
   });
 });
 
-describe("deleteWork + discardWorkImage", () => {
+describe("deleteWork + discardWorkFile", () => {
   it("deleting a work frees its photos' rows and objects, except the ones another work names", async () => {
     const d = makeDeps();
     const [a, shared] = await Promise.all([
@@ -300,19 +436,19 @@ describe("deleteWork + discardWorkImage", () => {
       imageFileIds: [used.original.fileId],
     });
 
-    await discardWorkImage(d.deps, loose.original.fileId);
+    await discardWorkFile(d.deps, loose.original.fileId);
     expect(d.objects.has(loose.original.key)).toBe(false);
     // A used photo is left alone — silently, since the form may call this
     // for any photo it uploaded.
-    await discardWorkImage(d.deps, used.original.fileId);
+    await discardWorkFile(d.deps, used.original.fileId);
     expect(d.objects.has(used.variants[0].key)).toBe(true);
     // Another user's, or a cover: refused.
     await expect(
-      discardWorkImage(makeDeps(otherUserId).deps, used.original.fileId),
+      discardWorkFile(makeDeps(otherUserId).deps, used.original.fileId),
     ).rejects.toMatchObject({ code: "invalid_image" });
     const cover = await uploadPhoto(d, 16, "cover");
     await expect(
-      discardWorkImage(d.deps, cover.original.fileId),
+      discardWorkFile(d.deps, cover.original.fileId),
     ).rejects.toMatchObject({ code: "invalid_image" });
     expect(d.objects.has(cover.variants[0].key)).toBe(true);
   });

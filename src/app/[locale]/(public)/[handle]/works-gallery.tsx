@@ -29,7 +29,7 @@ export interface GalleryWork {
   developer: string | null;
   images: GalleryImage[];
   /** Owner-facing; a visitor never gets it. */
-  hasR360?: boolean;
+  r360?: { fileId: string; sizeBytes: number } | null;
 }
 
 interface Lightbox {
@@ -184,8 +184,8 @@ function WorkCard({
           <div className="mt-auto flex flex-wrap items-center justify-between gap-(--sp-3) pt-(--sp-2)">
             {/* The archive is the owner's business alone; a visitor never
                 learns one exists (decision of 08.09.2026). */}
-            <Badge uppercase tone={work.hasR360 ? "success" : "neutral"}>
-              {work.hasR360 ? t("card.r360Uploaded") : t("card.r360None")}
+            <Badge uppercase tone={work.r360 ? "success" : "neutral"}>
+              {work.r360 ? t("card.r360Uploaded") : t("card.r360None")}
             </Badge>
             {owner.editing && onEdit && onDelete && (
               <div className="flex flex-wrap items-center gap-(--sp-3)">
