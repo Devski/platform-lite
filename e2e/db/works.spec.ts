@@ -386,7 +386,9 @@ test("Zapisz keeps editing when the open form cannot be saved, and closes an unt
   await expect(page.getByLabel("Nazwa", { exact: true })).toBeFocused();
   expect(created).toBe(false);
 
-  // Emptied again (the photo removed): Zapisz closes it and ends editing.
+  // Emptied again (the photo removed, its discard answered here): Zapisz
+  // closes it and ends editing.
+  await page.route("**/api/uploads/discard", json(200, { ok: true }));
   await page.getByRole("button", { name: "Usuń zdjęcie" }).click();
   await page.getByRole("button", { name: "Zapisz", exact: true }).click();
   await expect(

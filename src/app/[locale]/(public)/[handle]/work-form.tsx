@@ -38,6 +38,15 @@ import type { GalleryWork } from "./works-gallery";
 // saved; a photo uploaded and then abandoned (cancel, or removed before
 // saving) is discarded so it does not sit on the quota.
 
+interface Archive {
+  fileId: string;
+  sizeBytes: number;
+  name: string;
+  uploading: boolean;
+  /** 0..1 while uploading. */
+  progress?: number;
+}
+
 interface Slot {
   fileId: string;
   /** What the tile shows: the 480 px variant for a photo the work has or
@@ -143,14 +152,7 @@ export function WorkForm({
     setSlots(slotsRef.current);
   }
   // #72 step 5: the R360 archive — one per work, upload only.
-  const [archive, setArchive] = useState<{
-    fileId: string;
-    sizeBytes: number;
-    name: string;
-    uploading: boolean;
-    /** 0..1 while uploading. */
-    progress?: number;
-  } | null>(
+  const [archive, setArchive] = useState<Archive | null>(
     work?.r360
       ? {
           fileId: work.r360.fileId,
@@ -160,6 +162,16 @@ export function WorkForm({
         }
       : null,
   );
+  // The archive as it is right now, readable between renders, like the
+  // tiles: settle() decides after awaits (#85 review).
+  const archiveRef = useRef(archive);
+  function commitArchive(
+    next: Archive | null | ((current: Archive | null) => Archive | null),
+  ) {
+    archiveRef.current =
+      typeof next === "function" ? next(archiveRef.current) : next;
+    setArchive(archiveRef.current);
+  }
   // The archive transfer in flight, to stop it on remove or unmount.
   const archiveAbort = useRef<AbortController | null>(null);
   const format = useFormatter();
@@ -342,7 +354,7 @@ export function WorkForm({
     input.value = "";
     setError(null);
     const pendingId = `pending:${file.name}:${file.size}`;
-    setArchive({
+    commitArchive({
       fileId: pendingId,
       sizeBytes: file.size,
       name: file.name,
@@ -354,7 +366,7 @@ export function WorkForm({
     const result = await uploadArchive(file, {
       signal: controller.signal,
       onProgress: (fraction) =>
-        setArchive((current) =>
+        commitArchive((current) =>
           current?.fileId === pendingId
             ? { ...current, progress: fraction }
             : current,
@@ -366,12 +378,14 @@ export function WorkForm({
       return;
     }
     if (!result.ok) {
-      setArchive((current) => (current?.fileId === pendingId ? null : current));
+      commitArchive((current) =>
+        current?.fileId === pendingId ? null : current,
+      );
       if (result.failure !== "aborted") uploadFail(result.failure);
       return;
     }
     unsaved.current.add(result.fileId);
-    setArchive({
+    commitArchive({
       fileId: result.fileId,
       sizeBytes: result.sizeBytes,
       name: file.name,
@@ -383,11 +397,11 @@ export function WorkForm({
     if (archive?.uploading) {
       // Stops the transfer; the abort path abandons the staged bytes.
       archiveAbort.current?.abort();
-      setArchive(null);
+      commitArchive(null);
       return;
     }
     if (archive) void discard(archive.fileId);
-    setArchive(null);
+    commitArchive(null);
   }
 
   function removePhoto(fileId: string) {
@@ -404,20 +418,37 @@ export function WorkForm({
     });
   }
 
-  async function save(): Promise<boolean> {
+  // One save at a time: a second caller — the page's "Zapisz" pressed
+  // while the form's own is in flight (#85 review) — joins the request
+  // already running instead of posting the work again.
+  const saveInFlight = useRef<Promise<boolean> | null>(null);
+  function save(): Promise<boolean> {
+    if (saveInFlight.current) return saveInFlight.current;
+    const run = performSave().finally(() => {
+      saveInFlight.current = null;
+    });
+    saveInFlight.current = run;
+    return run;
+  }
+
+  async function performSave(): Promise<boolean> {
     setError(null);
-    if (slots.some((slot) => slot.uploading) || archive?.uploading) {
+    // The tiles and the archive as they are now (settle() calls this
+    // after awaits); the text fields are committed by the typing itself.
+    const tiles = slotsRef.current;
+    const zip = archiveRef.current;
+    if (tiles.some((slot) => slot.uploading) || zip?.uploading) {
       return fail("uploading");
     }
     const trimmedName = name.trim();
     if (!trimmedName) return fail("nameRequired");
-    if (slots.length === 0) return fail("photoRequired");
+    if (tiles.length === 0) return fail("photoRequired");
     const parsed = workInputSchema.safeParse({
       name: trimmedName,
       investor,
       developer,
-      imageFileIds: slots.map((slot) => slot.fileId),
-      r360FileId: archive?.fileId ?? null,
+      imageFileIds: tiles.map((slot) => slot.fileId),
+      r360FileId: zip?.fileId ?? null,
     });
     if (!parsed.success) {
       const path = parsed.error.issues[0]?.path[0];
@@ -467,7 +498,7 @@ export function WorkForm({
   // every field and file as the work has them.
   function untouched(): boolean {
     const ids = slotsRef.current.map((slot) => slot.fileId).join(",");
-    const archiveId = archive?.fileId ?? null;
+    const archiveId = archiveRef.current?.fileId ?? null;
     if (!work) {
       return (
         name.trim() === "" &&
@@ -481,7 +512,11 @@ export function WorkForm({
       name.trim() === work.name &&
       investor.trim() === (work.investor ?? "") &&
       developer.trim() === (work.developer ?? "") &&
-      ids === work.images.map((image) => image.fileId).join(",") &&
+      ids ===
+        work.images
+          .filter((image) => image.fileId)
+          .map((image) => image.fileId)
+          .join(",") &&
       archiveId === (work.r360?.fileId ?? null)
     );
   }
@@ -492,22 +527,28 @@ export function WorkForm({
   useLayoutEffect(() => {
     latest.current = { save, untouched };
   });
-  useImperativeHandle(ref, () => ({
-    async settle() {
-      while (inFlight.current.size > 0) {
-        await Promise.allSettled([...inFlight.current]);
-      }
-      // One turn for React to commit what the uploads set.
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      if (latest.current.untouched()) return "closed";
-      if (await latest.current.save()) return "saved";
-      nameRef.current
-        ?.closest("form")
-        ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-      nameRef.current?.focus();
-      return "kept";
-    },
-  }));
+  useImperativeHandle(
+    ref,
+    () => ({
+      async settle() {
+        while (inFlight.current.size > 0) {
+          await Promise.allSettled([...inFlight.current]);
+        }
+        // The form went away while this waited ("Anuluj", another work's
+        // "Edytuj"): its unmount discarded its files; nothing to save.
+        if (closed.current) return "closed";
+        if (latest.current.untouched()) return "closed";
+        const saved = await latest.current.save();
+        if (saved || closed.current) return saved ? "saved" : "closed";
+        nameRef.current
+          ?.closest("form")
+          ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        nameRef.current?.focus();
+        return "kept";
+      },
+    }),
+    [],
+  );
 
   // The unmount cleanup discards what was uploaded and not saved.
   function cancel() {
