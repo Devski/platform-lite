@@ -216,6 +216,12 @@
         "current": "Your address: <link>{address}</link>",
         "empty": "You have no profile address yet."
       },
+      "leave": {
+        "title": "Leave the page while editing?",
+        "body": "What is saved stays. An open work form and the files it is uploading will be lost.",
+        "stay": "Stay",
+        "leave": "Leave"
+      },
       "sections": {
         "headline": {
           "label": "Headline",

@@ -30,6 +30,8 @@ import {
 import type { Place, searchPlaces } from "@/lib/teryt";
 import { uploadImage, type UploadFailure } from "@/lib/upload-client";
 import { WORKS_MAX } from "@/lib/work-schemas";
+import { LeaveDialog } from "./leave-dialog";
+import { useLeaveGuard } from "./use-leave-guard";
 import { WorkForm } from "./work-form";
 import { WorksGallery, type GalleryWork } from "./works-gallery";
 import {
@@ -120,6 +122,10 @@ export function OwnerProfileView({
 
   const [editing, setEditing] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  // #83: leaving the page mid-edit asks first. Confirmed leaving ends the
+  // editing without the save-on-exit pass: what was saved stays, an open
+  // work form and its uploads are let go (the form's unmount discards them).
+  const leaveGuard = useLeaveGuard(editing, () => setEditing(false));
   const [savedNotice, setSavedNotice] = useState(false);
   useEffect(() => {
     if (!savedNotice) return;
@@ -767,6 +773,11 @@ export function OwnerProfileView({
       <div className="mx-auto flex max-w-(--measure-page) justify-center px-(--sp-5) py-(--sp-7) sm:px-(--sp-7) sm:py-(--sp-8)">
         <Plaque name={fields.name} width={150} tilt={0} shadow={false} />
       </div>
+      <LeaveDialog
+        open={leaveGuard.pending !== null}
+        onStay={leaveGuard.stay}
+        onLeave={() => leaveGuard.pending?.()}
+      />
     </>
   );
 }

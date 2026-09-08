@@ -216,6 +216,12 @@
         "current": "Twój adres: <link>{address}</link>",
         "empty": "Nie masz jeszcze adresu profilu."
       },
+      "leave": {
+        "title": "Opuścić stronę w trakcie edycji?",
+        "body": "To, co już zapisane, zostaje. Otwarty formularz realizacji i wgrywane pliki przepadną.",
+        "stay": "Zostań",
+        "leave": "Wyjdź"
+      },
       "sections": {
         "headline": {
           "label": "Nagłówek",
