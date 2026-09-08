@@ -1,7 +1,15 @@
 "use client";
 
 import { useFormatter, useTranslations } from "next-intl";
-import { useEffect, useId, useRef, useState } from "react";
+import {
+  useEffect,
+  useId,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type Ref,
+} from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
@@ -86,15 +94,28 @@ type FormErrorKey =
   | "rateLimited"
   | "generic";
 
+/**
+ * #85: what the page's own "Zapisz" asks of an open form. It waits for
+ * the uploads in flight, then: a form nobody touched closes quietly, one
+ * that saves is saved (onSaved fires as after its own button), and one
+ * that cannot be saved is kept on screen with its reason — the page then
+ * stays in editing rather than throwing the form away.
+ */
+export interface WorkFormHandle {
+  settle(): Promise<"saved" | "closed" | "kept">;
+}
+
 export function WorkForm({
   work,
   onSaved,
   onCancel,
+  ref,
 }: {
   /** Absent for a new work. */
   work?: GalleryWork;
   onSaved: () => void;
   onCancel: () => void;
+  ref?: Ref<WorkFormHandle>;
 }) {
   const t = useTranslations("Works.form");
   const tUpload = useTranslations("Settings.profile.upload");
@@ -176,12 +197,22 @@ export function WorkForm({
     };
   }, []);
 
-  function fail(key: FormErrorKey) {
+  function fail(key: FormErrorKey): false {
     setError(
       key === "limit"
         ? t(`errors.${key}`, { max: WORKS_MAX })
         : t(`errors.${key}`),
     );
+    return false;
+  }
+
+  // Uploads in flight (photos, the archive), so the page's "Zapisz" can
+  // wait for them instead of closing the form over them (#85).
+  const inFlight = useRef(new Set<Promise<unknown>>());
+  function track<T>(upload: Promise<T>): Promise<T> {
+    inFlight.current.add(upload);
+    void upload.finally(() => inFlight.current.delete(upload));
+    return upload;
   }
   function uploadFail(failure: UploadFailure) {
     setError(tUpload(`errors.${failure}`));
@@ -373,7 +404,7 @@ export function WorkForm({
     });
   }
 
-  async function save() {
+  async function save(): Promise<boolean> {
     setError(null);
     if (slots.some((slot) => slot.uploading) || archive?.uploading) {
       return fail("uploading");
@@ -424,12 +455,59 @@ export function WorkForm({
       // Saved: the photos belong to the work now.
       unsaved.current.clear();
       onSaved();
+      return true;
     } catch {
-      fail("generic");
+      return fail("generic");
     } finally {
       setSaving(false);
     }
   }
+
+  // Nothing to keep: a new form with nothing in it, or an edit form with
+  // every field and file as the work has them.
+  function untouched(): boolean {
+    const ids = slotsRef.current.map((slot) => slot.fileId).join(",");
+    const archiveId = archive?.fileId ?? null;
+    if (!work) {
+      return (
+        name.trim() === "" &&
+        investor.trim() === "" &&
+        developer.trim() === "" &&
+        ids === "" &&
+        archiveId === null
+      );
+    }
+    return (
+      name.trim() === work.name &&
+      investor.trim() === (work.investor ?? "") &&
+      developer.trim() === (work.developer ?? "") &&
+      ids === work.images.map((image) => image.fileId).join(",") &&
+      archiveId === (work.r360?.fileId ?? null)
+    );
+  }
+
+  // The latest render's save and untouched: settle() runs across awaits,
+  // after which the tiles and the archive have moved on from its closure.
+  const latest = useRef({ save, untouched });
+  useLayoutEffect(() => {
+    latest.current = { save, untouched };
+  });
+  useImperativeHandle(ref, () => ({
+    async settle() {
+      while (inFlight.current.size > 0) {
+        await Promise.allSettled([...inFlight.current]);
+      }
+      // One turn for React to commit what the uploads set.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      if (latest.current.untouched()) return "closed";
+      if (await latest.current.save()) return "saved";
+      nameRef.current
+        ?.closest("form")
+        ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      nameRef.current?.focus();
+      return "kept";
+    },
+  }));
 
   // The unmount cleanup discards what was uploaded and not saved.
   function cancel() {
@@ -559,7 +637,9 @@ export function WorkForm({
                       data-testid={`work-photo-replace-${index}`}
                       onChange={(event) => {
                         const file = event.target.files?.[0];
-                        if (file) void replacePhoto(slot, file, event.target);
+                        if (file) {
+                          void track(replacePhoto(slot, file, event.target));
+                        }
                       }}
                     />
                   </label>
@@ -596,7 +676,9 @@ export function WorkForm({
                 data-testid="work-photos"
                 onChange={(event) => {
                   const files = Array.from(event.target.files ?? []);
-                  if (files.length > 0) void pickPhotos(files, event.target);
+                  if (files.length > 0) {
+                    void track(pickPhotos(files, event.target));
+                  }
                 }}
               />
             </label>
@@ -658,7 +740,7 @@ export function WorkForm({
               data-testid="work-r360"
               onChange={(event) => {
                 const file = event.target.files?.[0];
-                if (file) void pickArchive(file, event.target);
+                if (file) void track(pickArchive(file, event.target));
               }}
             />
           </label>
