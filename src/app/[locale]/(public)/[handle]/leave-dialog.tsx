@@ -20,9 +20,13 @@ export function LeaveDialog({
   const bodyId = useId();
   const stayRef = useRef<HTMLButtonElement>(null);
 
+  // Focus once, on opening — not again on a parent's render (an upload
+  // landing while the dialog is up must not pull focus off "Wyjdź").
+  useEffect(() => {
+    if (open) stayRef.current?.focus();
+  }, [open]);
   useEffect(() => {
     if (!open) return;
-    stayRef.current?.focus();
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") onStay();
     }

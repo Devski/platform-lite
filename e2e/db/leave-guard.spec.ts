@@ -92,6 +92,87 @@ test("a link in the app while editing asks; leaving follows the link", async () 
   await expect(page).toHaveURL(/\/settings\/account$/);
 });
 
+test("a refresh mid-edit (a work saved) keeps the guard: one Zostań, and Zapisz still clears it", async () => {
+  await page.goto("/settings/account");
+  await page.goto(`/${identity.handle}`);
+  await page.getByRole("button", { name: "Edytuj profil" }).click();
+  // Saving a work refreshes the page's data (router.refresh), which makes
+  // Next rewrite the history entry's state — the guard must survive that.
+  // The upload chain and the save are stubbed: the refresh is the point.
+  const json = (body: unknown) => (route: import("@playwright/test").Route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(body),
+    });
+  await page.route(
+    "**/api/uploads/presign",
+    json({
+      stagingKey: "staging/x/" + "a".repeat(32),
+      uploadUrl: "/__stub-put",
+    }),
+  );
+  await page.route("**/__stub-put", (route) =>
+    route.fulfill({ status: 200, body: "" }),
+  );
+  await page.route(
+    "**/api/uploads/confirm",
+    json({ original: { fileId: "22222222-2222-4222-8222-222222222222" } }),
+  );
+  await page.route(
+    "**/api/works",
+    json({ id: "33333333-3333-4333-8333-333333333333" }),
+  );
+  try {
+    await page.getByRole("button", { name: "Dodaj realizację" }).click();
+    await page.getByLabel("Nazwa", { exact: true }).fill("Po odświeżeniu");
+    const sharp = (await import("sharp")).default;
+    await page.getByTestId("work-photos").setInputFiles({
+      name: "r.png",
+      mimeType: "image/png",
+      buffer: await sharp({
+        create: {
+          width: 8,
+          height: 8,
+          channels: 3,
+          background: { r: 1, g: 2, b: 3 },
+        },
+      })
+        .png()
+        .toBuffer(),
+    });
+    await expect(
+      page.getByRole("button", { name: "Usuń zdjęcie" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Zapisz realizację" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Nowa realizacja" }),
+    ).toHaveCount(0);
+  } finally {
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+  }
+
+  await page.goBack();
+  await expect(dialog()).toBeVisible();
+  await page.getByRole("button", { name: "Zostań" }).click();
+  await expect(dialog()).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Zapisz", exact: true }),
+  ).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/${identity.handle}$`));
+  // Once was enough: no second dialog lurking.
+  await page.waitForTimeout(300);
+  await expect(dialog()).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Zapisz", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Edytuj profil" }),
+  ).toBeVisible();
+  await page.goBack();
+  await expect(dialog()).toHaveCount(0);
+  await expect(page).toHaveURL(/\/settings\/account$/);
+});
+
 test("ending editing with Zapisz leaves no guard: no dialog on reload, and back goes where it went", async () => {
   await page.goto("/settings/account");
   await page.goto(`/${identity.handle}`);

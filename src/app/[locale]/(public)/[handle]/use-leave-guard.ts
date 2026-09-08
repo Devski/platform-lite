@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 // #83: while the owner is editing, leaving the page asks first. Three ways
 // out, three guards:
@@ -23,6 +23,8 @@ const GUARD = "__leaveGuard";
 
 type Guard = {
   active: boolean;
+  /** The page is on our entry (not left by back, no entry above). */
+  onEntry: boolean;
   /** Leaving was confirmed: the next pop off our entry is not questioned. */
   leaving: boolean;
   /** Runs on the next popstate — the pop we caused ourselves. */
@@ -39,6 +41,7 @@ export function useLeaveGuard(active: boolean, onRelease: () => void) {
   const [pending, setPending] = useState<(() => void) | null>(null);
   const guard = useRef<Guard>({
     active: false,
+    onEntry: false,
     leaving: false,
     afterPop: null,
   });
@@ -53,6 +56,7 @@ export function useLeaveGuard(active: boolean, onRelease: () => void) {
   useEffect(() => {
     function onPop(event: PopStateEvent) {
       const g = guard.current;
+      g.onEntry = isGuardState(event.state);
       if (g.afterPop) {
         const run = g.afterPop;
         g.afterPop = null;
@@ -82,11 +86,12 @@ export function useLeaveGuard(active: boolean, onRelease: () => void) {
       { ...(window.history.state as object | null), [GUARD]: true },
       "",
     );
+    g.onEntry = true;
 
     function onBeforeUnload(event: BeforeUnloadEvent) {
       event.preventDefault();
-      // Older browsers still read this.
-      event.returnValue = "";
+      // The legacy protocol: any value but the empty string asks.
+      event.returnValue = true;
     }
     function onClick(event: MouseEvent) {
       if (
@@ -109,18 +114,33 @@ export function useLeaveGuard(active: boolean, onRelease: () => void) {
       ) {
         return;
       }
-      const url = new URL(anchor.href, window.location.href);
-      // Another site: beforeunload has it. This page: nothing to leave.
-      if (url.origin !== window.location.origin) return;
+      let url: URL;
+      try {
+        url = new URL(anchor.href, window.location.href);
+      } catch {
+        return;
+      }
+      // Another site, or another scheme on this one (blob:): beforeunload
+      // has it. This page: nothing to leave.
+      if (
+        url.origin !== window.location.origin ||
+        url.protocol !== window.location.protocol
+      ) {
+        return;
+      }
       if (
         url.pathname === window.location.pathname &&
         url.search === window.location.search
       ) {
         return;
       }
+      // Only the default is stopped: React's own handlers on the link (a
+      // menu closing itself) still run, and Next's Link yields to a
+      // prevented click.
       event.preventDefault();
-      event.stopPropagation();
-      const target = url.pathname + url.search + url.hash;
+      // The absolute URL, as validated — never a path reassembled from it,
+      // which for a "//host/x" path would read as another host.
+      const target = url.href;
       setPending(() => () => {
         g.leaving = true;
         // Editing ends, the cleanup below pops our entry, and the page
@@ -151,12 +171,24 @@ export function useLeaveGuard(active: boolean, onRelease: () => void) {
     };
   }, [active, router]);
 
-  function stay() {
+  // Next rewrites history.state on its own navigations and may on other
+  // router actions (a refresh keeps it today); while we are on our entry,
+  // every render makes sure the marker is still there.
+  useEffect(() => {
+    const g = guard.current;
+    if (!g.active || !g.onEntry || isGuardState(window.history.state)) return;
+    window.history.replaceState(
+      { ...(window.history.state as object | null), [GUARD]: true },
+      "",
+    );
+  });
+
+  const stay = useCallback(() => {
     setPending(null);
     // Left by back: step onto our entry again. Its state carries the
     // marker, so the pop it causes asks nothing.
     if (!isGuardState(window.history.state)) window.history.forward();
-  }
+  }, []);
 
   return { pending, stay };
 }
