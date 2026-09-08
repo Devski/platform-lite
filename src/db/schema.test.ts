@@ -3,6 +3,12 @@ import { join } from "node:path";
 import { is } from "drizzle-orm";
 import { PgTable, getTableConfig } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
+import {
+  BIO_MAX,
+  HEADLINE_MAX,
+  LOCATION_MAX,
+  LOCATIONS_MAX,
+} from "@/lib/profile-schemas";
 import * as schema from "./schema";
 
 // Type-filtered, not try/catch-filtered: a genuine getTableConfig failure
@@ -19,9 +25,10 @@ function tableByName(name: string) {
 
 describe("schema tables (SPEC §9)", () => {
   it("defines exactly the §9 tables plus accounts, two_factors and pending_uploads", () => {
-    // §9 lists the six; `accounts` and `two_factors` come from Better Auth
-    // (#7, #29) and `pending_uploads` from #30 — a staged upload has no
-    // `files` row yet, so without it the A9 quota cannot see those bytes.
+    // §9 lists the eight (works and work_images since #72); `accounts` and
+    // `two_factors` come from Better Auth (#7, #29) and `pending_uploads`
+    // from #30 — a staged upload has no `files` row yet, so without it the
+    // A9 quota cannot see those bytes.
     expect(pgTables.map((t) => t.name).sort()).toEqual([
       "accounts",
       "files",
@@ -32,7 +39,47 @@ describe("schema tables (SPEC §9)", () => {
       "two_factors",
       "users",
       "verifications",
+      "work_images",
+      "works",
     ]);
+  });
+
+  it("works belong to a user and cascade away with them; their image rows go with the work, the file rows never do (#72)", () => {
+    const works = tableByName("works");
+    expect(works.columns.map((c) => c.name).sort()).toEqual(
+      [
+        "created_at",
+        "developer",
+        "id",
+        "investor",
+        "name",
+        "r360_file_id",
+        "updated_at",
+        "user_id",
+      ].sort(),
+    );
+    const userRef = works.foreignKeys.find((fk) =>
+      fk.reference().columns.some((c) => c.name === "user_id"),
+    );
+    expect(userRef?.onDelete).toBe("cascade");
+
+    const images = tableByName("work_images");
+    expect(images.columns.map((c) => c.name).sort()).toEqual([
+      "file_id",
+      "position",
+      "work_id",
+    ]);
+    const byColumn = (name: string) =>
+      images.foreignKeys.find((fk) =>
+        fk.reference().columns.some((c) => c.name === name),
+      );
+    expect(byColumn("work_id")?.onDelete).toBe("cascade");
+    // A photo's bytes are an S3 object: removing it goes through code (G2).
+    expect(byColumn("file_id")?.onDelete).toBe("restrict");
+    // Position 0 is the main photo; the pair is the identity of a slot.
+    expect(
+      images.primaryKeys.flatMap((pk) => pk.columns.map((c) => c.name)),
+    ).toEqual(["work_id", "position"]);
   });
 
   it("pending_uploads reserves declared bytes against the quota (#30)", () => {
@@ -77,9 +124,13 @@ describe("schema tables (SPEC §9)", () => {
     expect(profiles.columns.map((c) => c.name).sort()).toEqual(
       [
         "avatar_file_id",
+        "bio",
+        "cover_file_id",
         "display_name",
         "handle",
         "handle_changed_at",
+        "headline",
+        "locations",
         "user_id",
       ].sort(),
     );
@@ -155,9 +206,20 @@ describe("schema tables (SPEC §9)", () => {
     );
   });
 
-  it("file kind is restricted to the three avatar variants", () => {
+  it("file kind names every stored representation: avatar, cover and work sets plus the R360 zip (#72)", () => {
     expect(schema.fileKind.enumValues.sort()).toEqual(
-      ["avatar-128", "avatar-512", "avatar-original"].sort(),
+      [
+        "avatar-original",
+        "avatar-512",
+        "avatar-128",
+        "cover-original",
+        "cover-1600",
+        "cover-480",
+        "work-original",
+        "work-1600",
+        "work-480",
+        "r360-zip",
+      ].sort(),
     );
   });
 });
@@ -209,12 +271,46 @@ describe("generated migration SQL (G6 — migrations are the source of truth)", 
       'CREATE INDEX "sessions_user_id_idx" ON "sessions" USING btree ("user_id")',
       'CREATE INDEX "verifications_identifier_idx" ON "verifications" USING btree ("identifier")',
       'CREATE UNIQUE INDEX "two_factors_user_id_unique" ON "two_factors" USING btree ("user_id")',
-      'CREATE UNIQUE INDEX "files_original_user_sha256_unique" ON "files" USING btree ("user_id","sha256","kind") WHERE "files"."kind" = \'avatar-original\'',
-      'CREATE UNIQUE INDEX "files_variant_user_parent_kind_unique" ON "files" USING btree ("user_id","parent_file_id","kind") WHERE "files"."kind" <> \'avatar-original\'',
+      // #72: the role read from parentage, so covers, work photos and zips
+      // dedupe as originals rather than masquerading as variants.
+      'CREATE UNIQUE INDEX "files_original_user_sha256_unique" ON "files" USING btree ("user_id","sha256","kind") WHERE "files"."parent_file_id" IS NULL',
+      'CREATE UNIQUE INDEX "files_variant_user_parent_kind_unique" ON "files" USING btree ("user_id","parent_file_id","kind") WHERE "files"."parent_file_id" IS NOT NULL',
       'CREATE INDEX "files_parent_file_id_idx" ON "files" USING btree ("parent_file_id")',
+      'CREATE INDEX "profiles_cover_file_id_idx" ON "profiles" USING btree ("cover_file_id")',
+      'CREATE INDEX "works_user_id_created_at_idx" ON "works" USING btree ("user_id","created_at")',
+      'CREATE INDEX "works_r360_file_id_idx" ON "works" USING btree ("r360_file_id")',
+      'CREATE UNIQUE INDEX "work_images_work_id_file_id_unique" ON "work_images" USING btree ("work_id","file_id")',
+      'CREATE INDEX "work_images_file_id_idx" ON "work_images" USING btree ("file_id")',
     ]) {
       expect(sql).toContain(ddl);
     }
+  });
+
+  it("the A12 lengths in the database are the ones the forms enforce (#39)", () => {
+    // The CHECKs carry literals (a parameter cannot live in DDL); this pins
+    // them to the Zod constants so the two can only move together.
+    expect(sql).toContain(
+      `"profiles"."headline" IS NULL OR length("profiles"."headline") <= ${HEADLINE_MAX}`,
+    );
+    expect(sql).toContain(
+      `"profiles"."bio" IS NULL OR length("profiles"."bio") <= ${BIO_MAX}`,
+    );
+    expect(sql).toContain(
+      `cardinality("profiles"."locations") <= ${LOCATIONS_MAX}`,
+    );
+    // A CHECK cannot measure each element: no NULL, and a total no longer
+    // than every place at its Zod maximum.
+    expect(sql).toContain(
+      'array_position("profiles"."locations", NULL) IS NULL',
+    );
+    expect(sql).toContain(
+      `length(array_to_string("profiles"."locations", '')) <= ${LOCATIONS_MAX * LOCATION_MAX}`,
+    );
+    expect(sql).toContain('length(btrim("works"."name")) > 0');
+    expect(sql).toContain('length("works"."name") <= 120');
+    expect(sql).toContain(
+      '"work_images"."position" >= 0 AND "work_images"."position" <= 2',
+    );
   });
 
   it("deleting a user cascades away its 2FA record (#29)", () => {
@@ -223,10 +319,15 @@ describe("generated migration SQL (G6 — migrations are the source of truth)", 
     );
   });
 
-  it("file_kind in SQL matches the three variants exactly", () => {
+  it("file_kind in SQL starts as the three avatar values and grows by ADD VALUE only (#72)", () => {
     expect(sql).toContain(
       "CREATE TYPE \"public\".\"file_kind\" AS ENUM('avatar-original', 'avatar-512', 'avatar-128')",
     );
+    for (const value of schema.fileKind.enumValues.slice(3)) {
+      expect(sql).toContain(
+        `ALTER TYPE "public"."file_kind" ADD VALUE '${value}'`,
+      );
+    }
   });
 
   it("deleting a user cannot silently cascade away file rows (S3 cleanup is app-mediated)", () => {
@@ -254,10 +355,20 @@ describe("generated migration SQL (G6 — migrations are the source of truth)", 
       // 0004 (#14 review): the one-size dedup index split into per-role
       // partial indexes; the replacement is guarded above.
       'DROP INDEX "files_user_sha256_kind_unique"',
+      // 0010 (#72): the same two indexes re-created under the same names
+      // with the role read from parentage; guarded above. And the enum
+      // grown by seven values — ADD VALUE is additive, but it is also
+      // irreversible, which is why it passes through this list.
+      'DROP INDEX "files_original_user_sha256_unique"',
+      'DROP INDEX "files_variant_user_parent_kind_unique"',
+      ...schema.fileKind.enumValues
+        .slice(3)
+        .map((value) => `ALTER TYPE "public"."file_kind" ADD VALUE '${value}'`),
     ];
     const drops =
-      sql.match(/(?:DROP INDEX|DROP CONSTRAINT|DROP DEFAULT|DROP TABLE|ALTER TYPE)[^;]*/gi) ??
-      [];
+      sql.match(
+        /(?:DROP INDEX|DROP CONSTRAINT|DROP DEFAULT|DROP TABLE|ALTER TYPE)[^;]*/gi,
+      ) ?? [];
     expect(drops.map((statement) => statement.trim()).sort()).toEqual(
       accepted.sort(),
     );

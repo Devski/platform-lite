@@ -7,6 +7,7 @@ import {
   integer,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -192,6 +193,24 @@ export const profiles = pgTable(
       (): AnyPgColumn => files.id,
       { onDelete: "set null" },
     ),
+    // #72 (decision of 08.09.2026): the profile sections beyond name, photo
+    // and address. All optional — a profile is complete without them.
+    //   headline   one line under the name, A12: up to 220 characters
+    //   locations  where the studio sits and works: a short list of places,
+    //              each a TERYT name or free text (A12) — text[] rather than
+    //              a table, because a place is a label, never a key
+    //   bio        A12: up to 1500 characters, line breaks kept
+    //   cover      the photo across the top of the card; the ORIGINAL's row,
+    //              as avatar_file_id is — variants hang off it by parent
+    headline: text("headline"),
+    locations: text("locations")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    bio: text("bio"),
+    coverFileId: uuid("cover_file_id").references((): AnyPgColumn => files.id, {
+      onDelete: "set null",
+    }),
   },
   (table) => [
     uniqueIndex("profiles_handle_unique").on(table.handle),
@@ -206,6 +225,115 @@ export const profiles = pgTable(
       sql`length(btrim(${table.displayName})) > 0`,
     ),
     index("profiles_avatar_file_id_idx").on(table.avatarFileId),
+    index("profiles_cover_file_id_idx").on(table.coverFileId),
+    // The A12 lengths, repeated from lib/profile-schemas.ts on purpose (#39:
+    // what the database refuses, the form must refuse first). The literals
+    // are pinned to the Zod constants by src/db/schema.test.ts.
+    check(
+      "profiles_headline_length",
+      sql`${table.headline} IS NULL OR length(${table.headline}) <= 220`,
+    ),
+    check(
+      "profiles_bio_length",
+      sql`${table.bio} IS NULL OR length(${table.bio}) <= 1500`,
+    ),
+    check(
+      "profiles_locations_count",
+      sql`cardinality(${table.locations}) <= 8`,
+    ),
+    // A CHECK cannot look at each element (no subqueries in DDL), so the
+    // per-place 80 is held from two sides: no NULL element — one would come
+    // back as null inside a string[] — and a total no longer than 8 × 80.
+    check(
+      "profiles_locations_no_null",
+      sql`array_position(${table.locations}, NULL) IS NULL`,
+    ),
+    check(
+      "profiles_locations_total_length",
+      sql`length(array_to_string(${table.locations}, '')) <= 640`,
+    ),
+  ],
+);
+
+// #72: a work (realizacja) on a profile. At most 10 per profile — counted
+// by the application under the same per-user advisory lock the quota uses,
+// because a CHECK cannot count rows. Order on the page is the order of
+// adding (created_at); a position column arrives with reordering, if ever.
+// Cascade from users on purpose: a work is nothing but profile content, and
+// the files it points at are what actually blocks a user's deletion (their
+// rows restrict), which forces the object cleanup through code (G2).
+export const works = pgTable(
+  "works",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    investor: text("investor"),
+    developer: text("developer"),
+    // The uploaded R360 archive (kind r360-zip), upload only in #72; what
+    // happens to it afterwards is #68's. The file row outlives a detached
+    // pointer so its bytes stay accounted until code removes them.
+    r360FileId: uuid("r360_file_id").references((): AnyPgColumn => files.id, {
+      onDelete: "set null",
+    }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    // The profile page lists a user's works in adding order.
+    index("works_user_id_created_at_idx").on(table.userId, table.createdAt),
+    index("works_r360_file_id_idx").on(table.r360FileId),
+    // Same guard as the display name (#36): NOT NULL does not stop "".
+    check("works_name_not_blank", sql`length(btrim(${table.name})) > 0`),
+    check("works_name_length", sql`length(${table.name}) <= 120`),
+    check(
+      "works_investor_length",
+      sql`${table.investor} IS NULL OR length(${table.investor}) <= 120`,
+    ),
+    check(
+      "works_developer_length",
+      sql`${table.developer} IS NULL OR length(${table.developer}) <= 120`,
+    ),
+  ],
+);
+
+// #72: the one to three photos of a work. Position 0 is the MAIN photo —
+// the one that dominates the card and stands for the work wherever a single
+// image is needed; choosing another main reorders the positions rather than
+// flipping a flag that could disagree with them (decision of 08.09.2026).
+// Reordering is a delete-and-reinsert of the work's rows in one transaction:
+// the primary key is not deferrable, so no sequence of UPDATEs can swap two
+// positions without passing through a duplicate. The image rows go with
+// their work (cascade); the file rows do not go with the image rows
+// (restrict) — removing a photo has to reach the object.
+export const workImages = pgTable(
+  "work_images",
+  {
+    workId: uuid("work_id")
+      .notNull()
+      .references(() => works.id, { onDelete: "cascade" }),
+    fileId: uuid("file_id")
+      .notNull()
+      .references(() => files.id, { onDelete: "restrict" }),
+    position: integer("position").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.workId, table.position] }),
+    // The same photo twice in one work is a mistake, not a layout.
+    uniqueIndex("work_images_work_id_file_id_unique").on(
+      table.workId,
+      table.fileId,
+    ),
+    // Postgres does not index FK source columns; the "is this file still
+    // used" question before an object delete scans by file.
+    index("work_images_file_id_idx").on(table.fileId),
+    // A12: at most three photos, so positions are exactly 0, 1, 2.
+    check(
+      "work_images_position_range",
+      sql`${table.position} >= 0 AND ${table.position} <= 2`,
+    ),
   ],
 );
 
@@ -224,10 +352,24 @@ export const handleRedirects = pgTable(
   ],
 );
 
+// One value per stored representation. An `-original` (and the zip) has no
+// parent; every other value is a variant hanging off its original by
+// parent_file_id. Appended in place (ALTER TYPE ... ADD VALUE): an enum
+// value can be added but never removed, so the list only grows.
 export const fileKind = pgEnum("file_kind", [
   "avatar-original",
   "avatar-512",
   "avatar-128",
+  // #72: the cover across the top of the profile card, and a work's photos —
+  // two WebP widths each (A12), aspect ratio kept, the original private.
+  "cover-original",
+  "cover-1600",
+  "cover-480",
+  "work-original",
+  "work-1600",
+  "work-480",
+  // #72: a work's R360 archive, stored as uploaded; #68 processes it.
+  "r360-zip",
 ]);
 
 // #30: a staged upload is bytes that already exist in the bucket but have no
@@ -330,12 +472,18 @@ export const files = pgTable(
     // parent's hash, so two different originals with byte-identical variant
     // pixels still store two objects — sha-based dedup would skip the second
     // row, mis-parenting it and undercounting the A9 quota (#14 review).
+    // #72: the role is told by parentage, not by naming the kinds — the
+    // predicates used to say `kind = 'avatar-original'`, which would have
+    // read every cover, work photo and zip as a variant. (Not naming the
+    // new values also lets the migration that adds them redefine these
+    // indexes in the same transaction: Postgres refuses to USE an enum
+    // value added in the transaction that added it.)
     uniqueIndex("files_original_user_sha256_unique")
       .on(table.userId, table.sha256, table.kind)
-      .where(sql`${table.kind} = 'avatar-original'`),
+      .where(sql`${table.parentFileId} IS NULL`),
     uniqueIndex("files_variant_user_parent_kind_unique")
       .on(table.userId, table.parentFileId, table.kind)
-      .where(sql`${table.kind} <> 'avatar-original'`),
+      .where(sql`${table.parentFileId} IS NOT NULL`),
     // Postgres does not index FK source columns; the replacement cascade
     // scans by parent.
     index("files_parent_file_id_idx").on(table.parentFileId),

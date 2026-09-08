@@ -22,7 +22,10 @@ into a single application and a single spec — that is the essence of "lite".
 An architecture studio or a 3D artist enters the platform and within a few minutes has a
 public profile page at `/handle` — look inspired by a LinkedIn company page (the visual
 style only: blue accent, denser typography, cards with thin borders; without the
-company-page structure — no cover photo, tabs or "About us" section).
+company-page structure — no tabs). Since 08.09.2026 the profile carries its own
+sections — a cover photo, a headline, where the studio works, an "About" text and a
+list of works (A12) — because a page with only a name and a photo is a business card,
+not a portfolio.
 
 **One persona:** the provider — a studio or a solo creator. Market: Poland, then Europe.
 
@@ -39,19 +42,20 @@ it (Dawid, 06.09.2026).
 
 ### Acceptance criteria
 
-| #   | Criterion                                                                                                                                                                                                                                                        |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A1  | Registration with e-mail + password (8–128 characters, no composition rules, attempt rate limiting). Account inactive until the verification link is clicked (valid 24 h, resend max 3/h).                                                                       |
-| A2  | Login and logout. Session: `httpOnly` + `secure` + `sameSite=lax` cookie, 30 days, renewable. Password hashes exclusively in our Postgres.                                                                                                                       |
-| A3  | Password reset: single-use link valid 60 min; after a successful change, a notification to the account address.                                                                                                                                                  |
-| A4  | Profile: display name (1–80 characters) and photo (JPEG/PNG/WebP ≤ 10 MB), from which WebP variants at 512 px and 128 px are produced.                                                                                                                           |
-| A5  | Handle: 3–30 characters, `^[a-z0-9](?:[a-z0-9-]{1,28}[a-z0-9])$`, case-insensitive uniqueness, reserved-word list (incl. `pl`, `en`, `api`, `admin`, `login`, `settings`, `assets`).                                                                             |
-| A6  | Handle change: no more than once per 30 days. The old address responds 301 to the new one, **until someone claims the old name — old handles return to circulation immediately** (decision of 30.08.2026; impersonation risk accepted consciously, see §10).     |
-| A7  | Profile page `/handle`: server-rendered, correct `<title>`, description, Open Graph (image = avatar), canonical. Indexed **only in production** — dev and PR previews send `X-Robots-Tag: noindex`.                                                              |
-| A8  | Interface in Polish and English, architecture open to further languages: all texts via dictionaries, no strings in components. Polish unprefixed (`/handle`), English prefixed (`/en/...`); selection: `Accept-Language` header + a switcher stored in a cookie. |
-| A9  | 1 GB limit per user, free of charge (the MVP has no payments). Usage computed in the database from file sizes; an upload over the limit is rejected with a clear message.                                                                                        |
-| A10 | Seven transactional e-mails (verification, re-verification, reset, password-change confirmation, address change ×2, handle change) via Scaleway TEM. SPF, DKIM and DMARC configured before the first real message goes out. Zero marketing e-mail.               |
-| A11 | Homepage for signed-out visitors: full-screen photo + entry to sign-up/sign-in. Visual design — open (§12); the MVP ships a style-consistent placeholder.                                                                                                        |
+| #   | Criterion                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A1  | Registration with e-mail + password (8–128 characters, no composition rules, attempt rate limiting). Account inactive until the verification link is clicked (valid 24 h, resend max 3/h).                                                                                                                                                                                                                                                                                                                                                                      |
+| A2  | Login and logout. Session: `httpOnly` + `secure` + `sameSite=lax` cookie, 30 days, renewable. Password hashes exclusively in our Postgres.                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| A3  | Password reset: single-use link valid 60 min; after a successful change, a notification to the account address.                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| A4  | Profile: display name (1–80 characters) and photo (JPEG/PNG/WebP ≤ 10 MB), from which WebP variants at 512 px and 128 px are produced.                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| A5  | Handle: 3–30 characters, `^[a-z0-9](?:[a-z0-9-]{1,28}[a-z0-9])$`, case-insensitive uniqueness, reserved-word list (incl. `pl`, `en`, `api`, `admin`, `login`, `settings`, `assets`).                                                                                                                                                                                                                                                                                                                                                                            |
+| A6  | Handle change: no more than once per 30 days. The old address responds 301 to the new one, **until someone claims the old name — old handles return to circulation immediately** (decision of 30.08.2026; impersonation risk accepted consciously, see §10).                                                                                                                                                                                                                                                                                                    |
+| A7  | Profile page `/handle`: server-rendered, correct `<title>`, description, Open Graph (image = avatar), canonical. Indexed **only in production** — dev and PR previews send `X-Robots-Tag: noindex`.                                                                                                                                                                                                                                                                                                                                                             |
+| A8  | Interface in Polish and English, architecture open to further languages: all texts via dictionaries, no strings in components. Polish unprefixed (`/handle`), English prefixed (`/en/...`); selection: `Accept-Language` header + a switcher stored in a cookie.                                                                                                                                                                                                                                                                                                |
+| A9  | 1 GB limit per user, free of charge (the MVP has no payments). Usage computed in the database from file sizes; an upload over the limit is rejected with a clear message.                                                                                                                                                                                                                                                                                                                                                                                       |
+| A10 | Seven transactional e-mails (verification, re-verification, reset, password-change confirmation, address change ×2, handle change) via Scaleway TEM. SPF, DKIM and DMARC configured before the first real message goes out. Zero marketing e-mail.                                                                                                                                                                                                                                                                                                              |
+| A11 | Homepage for signed-out visitors: full-screen photo + entry to sign-up/sign-in. Visual design — open (§12); the MVP ships a style-consistent placeholder.                                                                                                                                                                                                                                                                                                                                                                                                       |
+| A12 | Profile sections (decision of 08.09.2026, #72), all optional: cover photo (as A4, WebP variants 1600/480 px wide, aspect kept); headline (≤ 220 characters); places — up to 8, each a TERYT name (voivodeship or city, list bundled) or free text (≤ 80); bio (≤ 1500, line breaks kept). Works: up to 10 per profile; name required (≤ 120), investor and developer (≤ 120), 1–3 photos (as A4, one of them the main photo), an R360 zip (any size, stored as uploaded; #68 processes it). Edited in place on the owner's page; public the moment it is saved. |
 
 ---
 
@@ -187,14 +191,23 @@ export interface FileStorage {
   ): Promise<string>;
   putObject(key: string, body: Buffer, contentType: string): Promise<void>;
   getObject(key: string): Promise<Buffer>;
+  // Size and type without the body — how an archive of any size is
+  // confirmed (A12): the app never reads it into memory. Declared here
+  // with #72; the implementation lands with its first caller (step 5).
+  headObject(key: string): Promise<{ sizeBytes: number; contentType: string }>;
   deleteObject(key: string): Promise<void>;
   publicUrl(key: string): string; // stable, unsigned (G3)
 }
 
+// G2: content-addressed name → served with max-age=31536000, immutable.
+// Today's body (until #72 step 3):
 export function contentKey(hash: string, ext: string, prefix = ""): string {
-  // G2: content-addressed name → served with max-age=31536000, immutable
   return `${prefix}a/${hash}.${ext}`;
 }
+// From #72 step 3 the name sits under its owner — one object belongs to
+// exactly one account (§9); rows written before keep the `a/` key they
+// record (#49):
+//   contentKey(userId, hash, ext, prefix) → `${prefix}u/${userId}/${hash}.${ext}`
 ```
 
 ---
@@ -327,10 +340,25 @@ export function contentKey(hash: string, ext: string, prefix = ""): string {
   library is configured not to generate ids on the application side (verify the exact option
   at start).
 - `profiles`: `user_id PK/FK`, `display_name`, `handle` (unique on `lower()`),
-  `handle_changed_at`, `avatar_file_id`.
+  `handle_changed_at`, `avatar_file_id`; since #72 (A12) `headline`, `locations`
+  (`text[]` — a place is a label, never a key), `bio`, `cover_file_id`. The A12 lengths
+  are `CHECK`s as well as Zod rules, pinned to each other by a test (#39) — with one
+  exception: a `CHECK` cannot measure each element of an array, so the 80 per place is
+  Zod's alone and the database holds only the count (≤ 8), no NULL element, and the
+  total (≤ 640).
   **A handle is an attribute, not an identifier**: despite its uniqueness it is never the
   target of a foreign key — all relations point at `users.id`, so a handle change touches
   no relation.
+- `works` (#72): `id`, `user_id` (cascade — a work is profile content), `name`,
+  `investor`, `developer`, `r360_file_id`, timestamps. At most 10 per user, counted by the
+  application under the per-user advisory lock the quota uses; a `CHECK` cannot count
+  rows. Order on the page = `created_at`.
+- `work_images` (#72): `work_id` (cascade), `file_id` (restrict — the bytes are an object,
+  removed by code), `position` 0–2, `PK (work_id, position)`. **Position 0 is the main
+  photo**; choosing another main reorders the positions rather than flipping a flag that
+  could disagree with them. Reordering is a delete-and-reinsert of the work's rows in one
+  transaction: the key is not deferrable, so no sequence of `UPDATE`s can swap two
+  positions without passing through a duplicate.
 - `handle_redirects`: `old_handle PK`, `target_user_id`, `created_at`.
   Resolving `/X`: profile → redirect (301 to the target's current handle, answered by
   `src/proxy.ts` with `Cache-Control: no-store`, so a released address is never served
@@ -339,8 +367,18 @@ export function contentKey(hash: string, ext: string, prefix = ""): string {
   such as `/Studio-Praga` settles on the canonical lowercase address, and an old address
   redirects from here when the proxy's lookup failed open or timed out. Both keep the query.
   Registration of handle `X` by anyone **deletes** the redirect row (A6).
-- `files`: `id`, `user_id`, `sha256`, `size_bytes`, `kind` (`avatar-original|avatar-512|avatar-128`),
-  `created_at`. The per-user sum of `size_bytes` = quota usage (A9).
+- `files`: `id`, `user_id`, `sha256`, `size_bytes`, `kind`, `parent_file_id`, `ext`,
+  `object_key`, `created_at`. `kind` names every stored representation: the avatar set
+  (`avatar-original|avatar-512|avatar-128`), and since #72 the cover set
+  (`cover-original|cover-1600|cover-480`), the work-photo set
+  (`work-original|work-1600|work-480`) and `r360-zip`. An original (and the zip) has no
+  parent; a variant hangs off its original by `parent_file_id`, which is how the dedup
+  indexes tell the roles apart. The per-user sum of `size_bytes` = quota usage (A9; #69
+  narrows it to originals).
+  **An object has one owner** (decision of 08.09.2026): keys written since #72 are
+  `u/<user id>/<sha256>.<ext>`, so identical bytes from two accounts are two objects and a
+  work — or an account (#34) — is deleted by prefix. A bucket per user was ruled out:
+  OVHcloud allows 100 per project (1,000 on request), names unique across OVHcloud.
 
 ---
 
@@ -360,8 +398,9 @@ export function contentKey(hash: string, ext: string, prefix = ""): string {
 ## 11. Consciously out of scope
 
 Payments and plans · provider catalog/search · the developer persona (the other side of the
-market) · the 3D-mockup engine and marketplace · profile cover photo, tabs, "About us"
-section, news, team · draft/published toggle · messages and a contact form · following ·
+market) · the 3D-mockup engine and marketplace · profile tabs, news, team (the cover photo
+and the "About" section left this list on 08.09.2026 — A12) · draft/published toggle ·
+messages and a contact form · following ·
 team accounts · user custom domains · an admin panel · product analytics · compliance beyond
 the minimum (personal data kept separate so more can be added without a rebuild) ·
 HA/multicloud/Terraform · Docker and MinIO locally.

@@ -186,6 +186,9 @@ describe("loadPublicProfile (§9 for the public page)", () => {
     vi.mocked(getProfile).mockResolvedValueOnce({
       displayName: null,
       avatar: null,
+      headline: null,
+      locations: [],
+      bio: null,
     });
     expect(await loadPublicProfile(deps, "studio-x")).toEqual({
       kind: "notFound",

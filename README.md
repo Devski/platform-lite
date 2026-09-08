@@ -34,8 +34,9 @@ All commands: SPEC.md §3. The gate before every commit: `pnpm check`.
 ## Sample data
 
 `pnpm db:seed` creates 14 sample profiles — Polish studios and 3D creators with display
-names, handles and generated avatar photos (initials on a colored square, rasterized by
-sharp; nothing downloaded) — so a fresh environment has real-looking pages within a minute
+names, handles, headlines, places, bios and generated avatar photos (initials on a colored
+square, rasterized by sharp; nothing downloaded) — so a fresh environment has real-looking
+pages within a minute
 (SPEC.md G7). It targets `DATABASE_URL` from `.env` — the tunnelled dev database, the same
 one `pnpm db:migrate` uses (SPEC.md §3). To point it elsewhere, set the variable inline:
 
@@ -56,7 +57,7 @@ one run: `try { $env:DATABASE_URL = "…"; pnpm db:seed } finally { Remove-Item 
 - Every seed account is `<handle>@seed.example` (verified; the domain can never receive
   mail) with the password `architekt-seed-2026`, printed at the end.
 - Safe to re-run: a profile whose e-mail already exists (or whose handle another account
-  holds) is skipped and reported; nothing is deleted. Photos are resumable: after a run
+  holds) is skipped and reported; nothing is deleted. Photos and profile sections are resumable: after a run
   without `S3_*`, a later run with `S3_*` adds the missing photos. For a fresh set, start
   from a fresh database (`pnpm db:migrate` first).
 - Two guards: it refuses a non-loopback database unless `--allow-remote`

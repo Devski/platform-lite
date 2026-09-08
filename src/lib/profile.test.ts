@@ -5,7 +5,13 @@ import { files, profiles, users } from "@/db/schema";
 import { insertTestAccount } from "@/db/test-account";
 import { createTestDb, type TestDb } from "@/db/test-db";
 import { confirmAvatarUpload, presignAvatarUpload } from "./avatar";
-import { getProfile, setAvatar, updateDisplayName } from "./profile";
+import {
+  getProfile,
+  ProfileError,
+  setAvatar,
+  updateDisplayName,
+  updateProfileSections,
+} from "./profile";
 import { createMemoryStorage } from "./storage";
 
 // Integration suite for #14 on the memory fake + PGlite, driving the real #12
@@ -13,6 +19,13 @@ import { createMemoryStorage } from "./storage";
 // set name + avatar -> profiles row updated, avatar (512) resolvable.
 
 const PREFIX = "devski/";
+
+// Drizzle reports a refused statement as "Failed query: ..." with the Postgres
+// error underneath; the constraint name lives in that cause.
+const violates = (constraint: string) => (error: unknown) =>
+  new RegExp(constraint).test(
+    String((error as { cause?: { message?: string } }).cause?.message ?? error),
+  );
 
 let testDb: TestDb;
 let userId: string;
@@ -70,6 +83,85 @@ async function uploadAvatar(
   await d.deps.storage.putObject(stagingKey, image, "image/png");
   return confirmAvatarUpload(common, { stagingKey });
 }
+
+describe("updateProfileSections (A12)", () => {
+  it("stores the headline, the places and the bio, and reads them back", async () => {
+    const d = makeDeps();
+    await updateDisplayName(d.deps, "Studio Praga");
+    await updateProfileSections(d.deps, {
+      headline: "  Wizualizacje dla deweloperów  ",
+      locations: ["Warszawa", "mazowieckie"],
+      bio: "Pierwszy akapit.\r\n\r\nDrugi akapit.",
+    });
+    const view = await getProfile(d.deps);
+    expect(view.headline).toBe("Wizualizacje dla deweloperów");
+    expect(view.locations).toEqual(["Warszawa", "mazowieckie"]);
+    expect(view.bio).toBe("Pierwszy akapit.\n\nDrugi akapit.");
+  });
+
+  it("touches only the keys it is given, and stores an emptied field as NULL", async () => {
+    const d = makeDeps();
+    await updateDisplayName(d.deps, "Studio Praga");
+    await updateProfileSections(d.deps, {
+      headline: "Nagłówek",
+      locations: ["Kraków"],
+      bio: "Bio",
+    });
+    // The owner's page saves one field per blur.
+    await updateProfileSections(d.deps, { headline: "" });
+    const view = await getProfile(d.deps);
+    expect(view.headline).toBeNull();
+    expect(view.locations).toEqual(["Kraków"]);
+    expect(view.bio).toBe("Bio");
+    // An empty call is a no-op, not an empty UPDATE.
+    await expect(updateProfileSections(d.deps, {})).resolves.toBeUndefined();
+  });
+
+  it("refuses what the database would refuse, before reaching it", async () => {
+    const d = makeDeps();
+    await updateDisplayName(d.deps, "Studio Praga");
+    await expect(
+      updateProfileSections(d.deps, { headline: "x".repeat(221) }),
+    ).rejects.toThrow();
+    await expect(
+      updateProfileSections(d.deps, {
+        locations: Array.from({ length: 9 }, (_, i) => `Miasto ${i}`),
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("cannot create the profile row: a section before onboarding is noProfile", async () => {
+    const d = makeDeps();
+    await expect(
+      updateProfileSections(d.deps, { headline: "Nagłówek" }),
+    ).rejects.toMatchObject({ code: "noProfile" });
+    expect(await getProfile(d.deps)).toEqual({
+      displayName: null,
+      avatar: null,
+      headline: null,
+      locations: [],
+      bio: null,
+    });
+  });
+
+  it("is per user: another account's sections stay untouched", async () => {
+    const d = makeDeps();
+    const other = makeDeps(otherUserId);
+    await updateDisplayName(d.deps, "Studio Praga");
+    await updateDisplayName(other.deps, "Atelier Wola");
+    await updateProfileSections(d.deps, { headline: "Moje" });
+    expect((await getProfile(other.deps)).headline).toBeNull();
+    // The error class is the one the route layer maps (#14).
+    await expect(
+      updateProfileSections(
+        { ...d.deps, userId: crypto.randomUUID() },
+        {
+          headline: "x",
+        },
+      ),
+    ).rejects.toBeInstanceOf(ProfileError);
+  });
+});
 
 describe("updateDisplayName (A4)", () => {
   it("creates the profile row, trims, and updates in place", async () => {
@@ -282,6 +374,80 @@ describe("setAvatar + getProfile (A4, G2)", () => {
     );
   });
 
+  it("keeps the object when this user's cover has the same bytes under the same key (#72)", async () => {
+    const d = makeDeps();
+    const mine = await uploadAvatar(d, 6);
+    await setAvatar(d.deps, mine.original.fileId);
+    // What step 3's cover pipeline will record for identical bytes: another
+    // parentless row of a different kind, written under the same key.
+    const [original] = await testDb.db
+      .select()
+      .from(files)
+      .where(eq(files.id, mine.original.fileId));
+    await testDb.db.insert(files).values({
+      userId,
+      sha256: original.sha256,
+      sizeBytes: original.sizeBytes,
+      kind: "cover-original",
+      ext: original.ext,
+      objectKey: original.objectKey,
+    });
+
+    const replacement = await uploadAvatar(d, 7);
+    await setAvatar(d.deps, replacement.original.fileId);
+
+    // The original's object still serves the cover; only the avatar-suffixed
+    // variants, which nothing else names, are gone.
+    expect(d.objects.has(mine.original.key)).toBe(true);
+    expect(d.objects.has(`${PREFIX}a/${mine.original.sha256}-512.webp`)).toBe(
+      false,
+    );
+    const remaining = await testDb.db.select().from(files);
+    expect(remaining.map((row) => row.kind).sort()).toEqual([
+      "avatar-128",
+      "avatar-512",
+      "avatar-original",
+      "cover-original",
+    ]);
+  });
+
+  it("dedupes originals by (user, hash, kind): a cover may share an avatar's bytes, two covers may not (#72)", async () => {
+    const d = makeDeps();
+    const mine = await uploadAvatar(d, 6);
+    const [original] = await testDb.db
+      .select()
+      .from(files)
+      .where(eq(files.id, mine.original.fileId));
+    const cover = {
+      userId,
+      sha256: original.sha256,
+      sizeBytes: original.sizeBytes,
+      kind: "cover-original" as const,
+      ext: original.ext,
+      objectKey: original.objectKey,
+    };
+    await expect(testDb.db.insert(files).values(cover)).resolves.toBeDefined();
+    await expect(testDb.db.insert(files).values(cover)).rejects.toSatisfy(
+      violates("files_original_user_sha256_unique"),
+    );
+  });
+
+  it("the database refuses what the schemas refuse: a 221-character headline past Zod (#39)", async () => {
+    // Written with drizzle directly, bypassing updateProfileSections.
+    await expect(
+      testDb.db
+        .update(profiles)
+        .set({ headline: "x".repeat(221) })
+        .where(eq(profiles.userId, userId)),
+    ).rejects.toSatisfy(violates("profiles_headline_length"));
+    await expect(
+      testDb.db
+        .update(profiles)
+        .set({ locations: ["Warszawa", "x".repeat(700)] })
+        .where(eq(profiles.userId, userId)),
+    ).rejects.toSatisfy(violates("profiles_locations_total_length"));
+  });
+
   it("setting the same avatar again is a no-op", async () => {
     const d = makeDeps();
     const uploaded = await uploadAvatar(d, 8);
@@ -346,6 +512,9 @@ describe("setAvatar + getProfile (A4, G2)", () => {
     expect(await getProfile(d.deps)).toEqual({
       displayName: "Pracownia Testowa",
       avatar: null,
+      headline: null,
+      locations: [],
+      bio: null,
     });
   });
 });

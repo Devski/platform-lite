@@ -79,6 +79,26 @@ describe("SEED_PROFILES (the data)", () => {
     expect(new Set(HANDLES).size).toBe(SEED_PROFILES.length);
   });
 
+  it("gives every profile the A12 sections within their limits, and varies them (#72)", () => {
+    for (const profile of SEED_PROFILES) {
+      expect(profile.headline.length).toBeGreaterThan(0);
+      expect(profile.headline.length).toBeLessThanOrEqual(220);
+      expect(profile.bio.length).toBeGreaterThan(0);
+      expect(profile.bio.length).toBeLessThanOrEqual(1500);
+      expect(profile.locations.length).toBeGreaterThanOrEqual(1);
+      expect(profile.locations.length).toBeLessThanOrEqual(8);
+    }
+    // Lived-in, not stamped: single- and multi-place profiles, one- and
+    // two-paragraph bios, and at least one place off the TERYT list.
+    const placeCounts = new Set(SEED_PROFILES.map((p) => p.locations.length));
+    expect(placeCounts.size).toBeGreaterThanOrEqual(3);
+    expect(SEED_PROFILES.some((p) => p.bio.includes("\n\n"))).toBe(true);
+    expect(SEED_PROFILES.some((p) => !p.bio.includes("\n"))).toBe(true);
+    expect(SEED_PROFILES.some((p) => p.locations.includes("cała Polska"))).toBe(
+      true,
+    );
+  });
+
   it("exercises the diacritic folding of handleBaseFrom", () => {
     // At least a few names carry Polish letters, so a slug regression in
     // handle.ts shows up here as well as in handle.test.ts.
@@ -134,6 +154,11 @@ describe("seedProfiles", () => {
       expect(profile?.handle).toBe(seed.handle);
       // An initial assignment, not a change: the A6 cooldown stays unarmed.
       expect(profile?.handleChangedAt).toBeNull();
+      // #72: the sections, written through updateProfileSections.
+      expect(profile?.headline).toBe(seed.headline);
+      expect(profile?.locations).toEqual(seed.locations);
+      expect(profile?.bio).toBe(seed.bio);
+      expect(profile?.coverFileId).toBeNull();
 
       const own = fileRows.filter((row) => row.userId === user!.id);
       expect(own.map((row) => row.kind).sort()).toEqual([
@@ -238,7 +263,9 @@ describe("seedProfiles", () => {
 
     const { summary: second, lines } = await run(memory.storage);
     expect(second).toEqual({ created: [], skipped: [], photos: HANDLES });
-    expect(lines).toEqual(HANDLES.map((handle) => `photo    ${handle}  added`));
+    expect(lines).toEqual(
+      HANDLES.map((handle) => `resumed  ${handle}  photo added`),
+    );
     expect(await rowCounts()).toEqual({
       users: 14,
       accounts: 14,
@@ -253,6 +280,49 @@ describe("seedProfiles", () => {
     const { summary: third } = await run(memory.storage);
     expect(third).toEqual({ created: [], skipped: HANDLES, photos: [] });
     expect(memory.objects.size).toBe(14 * 3);
+  }, 90_000);
+
+  it("resumes sections: accounts seeded before #72 get headline, places and bio on the next run", async () => {
+    await run(null);
+    // What dev holds today: the fourteen accounts from 05.09, no sections.
+    await testDb.db
+      .update(profiles)
+      .set({ headline: null, locations: [], bio: null });
+
+    const { summary, lines } = await run(null);
+    expect(summary).toEqual({ created: [], skipped: [], photos: [] });
+    expect(lines).toEqual(
+      HANDLES.map((handle) => `resumed  ${handle}  sections added`),
+    );
+    const profileRows = await testDb.db.select().from(profiles);
+    for (const seed of SEED_PROFILES) {
+      const row = profileRows.find((r) => r.handle === seed.handle);
+      expect(row?.headline).toBe(seed.headline);
+      expect(row?.locations).toEqual(seed.locations);
+      expect(row?.bio).toBe(seed.bio);
+    }
+    expect(await rowCounts()).toEqual({
+      users: 14,
+      accounts: 14,
+      profiles: 14,
+      files: 0,
+    });
+
+    // Both missing at once — the pre-#72 dev state seen with a storage —
+    // are added in one visit.
+    await testDb.db.update(profiles).set({ headline: null });
+    const memory = createMemoryStorage();
+    const { summary: third, lines: thirdLines } = await run(memory.storage);
+    expect(third).toEqual({ created: [], skipped: [], photos: HANDLES });
+    expect(thirdLines).toEqual(
+      HANDLES.map((handle) => `resumed  ${handle}  sections, photo added`),
+    );
+    // Nothing left: the next run skips everything.
+    expect((await run(memory.storage)).summary).toEqual({
+      created: [],
+      skipped: HANDLES,
+      photos: [],
+    });
   }, 90_000);
 
   it("leaves a real user's account on a seed address alone: skipped, no photo", async () => {
