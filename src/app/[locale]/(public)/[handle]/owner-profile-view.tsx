@@ -731,10 +731,9 @@ export function OwnerProfileView({
               </Button>
             )}
           </div>
-          {editing && workForm && (
+          {editing && workForm?.kind === "new" && (
             <WorkForm
-              key={workForm.kind === "edit" ? workForm.work.id : "new"}
-              work={workForm.kind === "edit" ? workForm.work : undefined}
+              key="new"
               onSaved={() => {
                 setWorkForm(null);
                 router.refresh();
@@ -746,6 +745,25 @@ export function OwnerProfileView({
             <WorksGallery
               works={works}
               owner={{ editing }}
+              // #86: the edited work's form stands where its card was.
+              inPlace={
+                editing && workForm?.kind === "edit"
+                  ? {
+                      workId: workForm.work.id,
+                      form: (
+                        <WorkForm
+                          key={workForm.work.id}
+                          work={workForm.work}
+                          onSaved={() => {
+                            setWorkForm(null);
+                            router.refresh();
+                          }}
+                          onCancel={() => setWorkForm(null)}
+                        />
+                      ),
+                    }
+                  : undefined
+              }
               onEdit={(work) => setWorkForm({ kind: "edit", work })}
               onDelete={async (work) => {
                 const response = await fetch(`/api/works/${work.id}`, {

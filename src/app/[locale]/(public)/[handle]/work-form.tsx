@@ -443,7 +443,7 @@ export function WorkForm({
     <Card
       as="form"
       padding="default"
-      className="flex flex-col gap-(--sp-6)"
+      className="flex w-full flex-col gap-(--sp-6)"
       onSubmit={(event: React.FormEvent) => {
         event.preventDefault();
         if (!busy) void save();

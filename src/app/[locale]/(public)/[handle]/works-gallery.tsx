@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -42,12 +42,16 @@ interface Lightbox {
 export function WorksGallery({
   works,
   owner,
+  inPlace,
   onEdit,
   onDelete,
 }: {
   works: GalleryWork[];
   /** The owner's view: R360 badges and the edit/delete row (when editing). */
   owner?: { editing: boolean };
+  /** #86: the work being edited shows its form where its card was, the
+   * others stay put — three cards for two works was the wrong picture. */
+  inPlace?: { workId: string; form: ReactNode };
   onEdit?: (work: GalleryWork) => void;
   onDelete?: (work: GalleryWork) => Promise<boolean>;
 }) {
@@ -57,19 +61,25 @@ export function WorksGallery({
   return (
     <>
       <ul className="grid grid-cols-1 gap-(--sp-5) sm:grid-cols-2">
-        {works.map((work) => (
-          <li key={work.id} className="flex">
-            <WorkCard
-              work={work}
-              owner={owner}
-              onOpen={(index, returnTo) =>
-                setLightbox({ work, index, returnTo })
-              }
-              onEdit={onEdit}
-              onDelete={onDelete}
-            />
-          </li>
-        ))}
+        {works.map((work) =>
+          inPlace?.workId === work.id ? (
+            <li key={work.id} className="flex sm:col-span-2">
+              {inPlace.form}
+            </li>
+          ) : (
+            <li key={work.id} className="flex">
+              <WorkCard
+                work={work}
+                owner={owner}
+                onOpen={(index, returnTo) =>
+                  setLightbox({ work, index, returnTo })
+                }
+                onEdit={onEdit}
+                onDelete={onDelete}
+              />
+            </li>
+          ),
+        )}
       </ul>
       {lightbox && (
         <LightboxOverlay

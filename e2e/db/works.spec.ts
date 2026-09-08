@@ -12,6 +12,7 @@ import {
   registerAndVerify,
   type Identity,
 } from "./account";
+import { seedWorks } from "./seed-works";
 
 // #72 / A12, step 4: the work form's wiring from the browser's side, every
 // server answer stubbed — which calls it makes, with what, and which it does
@@ -320,4 +321,68 @@ test("cancelling after an upload discards the orphan photo, and posts no work", 
   ).toHaveCount(0);
   // With no works, the owner sees how to start.
   await expect(page.getByText("Jeszcze bez realizacji")).toBeVisible();
+});
+
+// Last: the works it seeds stay, and the empty state above must have been seen first.
+test("editing a work puts its form where its card was (#86); cancel and save put the card back there", async () => {
+  // Two works that exist: the list is the point, so they go straight into
+  // the database (a browser-driven add needs a bucket).
+  const [first, second] = await seedWorks(identity.handle, [
+    "Pierwsza realizacja",
+    "Druga realizacja",
+  ]);
+  await page.reload();
+  await page.getByRole("button", { name: "Edytuj profil" }).click();
+  const items = page
+    .locator("section", {
+      has: page.getByRole("heading", { name: "Realizacje" }),
+    })
+    .locator("ul > li");
+  await expect(items).toHaveCount(2);
+
+  await page.getByRole("button", { name: `Edytuj: ${second.name}` }).click();
+  // Still two list items: the first card, and the form in the second's
+  // place — no third card, no form above the list.
+  await expect(items).toHaveCount(2);
+  await expect(
+    items.nth(1).getByRole("heading", { name: "Edytuj realizację" }),
+  ).toBeVisible();
+  await expect(items.nth(1).getByLabel("Nazwa", { exact: true })).toHaveValue(
+    second.name,
+  );
+  await expect(
+    items.nth(0).getByRole("heading", { level: 3, name: first.name }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 3, name: second.name }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Nowa realizacja" }),
+  ).toHaveCount(0);
+
+  // Switching to the first: one form at a time, again in place.
+  await page.getByRole("button", { name: `Edytuj: ${first.name}` }).click();
+  await expect(items.nth(0).getByLabel("Nazwa", { exact: true })).toHaveValue(
+    first.name,
+  );
+  await expect(
+    items.nth(1).getByRole("heading", { level: 3, name: second.name }),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Anuluj" }).click();
+  await expect(
+    items.nth(0).getByRole("heading", { level: 3, name: first.name }),
+  ).toBeVisible();
+
+  // A real save: the renamed work comes back in the same place.
+  await page.getByRole("button", { name: `Edytuj: ${second.name}` }).click();
+  await items
+    .nth(1)
+    .getByLabel("Nazwa", { exact: true })
+    .fill("Druga, po zmianie");
+  await page.getByRole("button", { name: "Zapisz zmiany" }).click();
+  await expect(
+    items.nth(1).getByRole("heading", { level: 3, name: "Druga, po zmianie" }),
+  ).toBeVisible({ timeout: 15_000 });
+  await expect(items).toHaveCount(2);
 });
