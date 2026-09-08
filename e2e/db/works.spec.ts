@@ -331,9 +331,11 @@ test("editing a work puts its form where its card was (#86); cancel and save put
     "Pierwsza realizacja",
     "Druga realizacja",
   ]);
-  // Editing is on (beforeEach), so the #83 guard arms beforeunload; the
-  // reload goes through because Playwright accepts that dialog when no
-  // listener is registered.
+  // Editing is on (beforeEach), so the #83 guard arms beforeunload and the
+  // reload asks first. Answered here, explicitly: left to Playwright's
+  // default the dialog was dismissed on the CI runner and the reload hung
+  // until the test's timeout.
+  page.once("dialog", (dialog) => void dialog.accept());
   await page.reload();
   await page.getByRole("button", { name: "Edytuj profil" }).click();
   const items = page
