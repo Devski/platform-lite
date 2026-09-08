@@ -289,6 +289,117 @@ test("several at once (#79): the picker takes what fits and says so, replace kee
   ).toHaveCount(0);
 });
 
+test("the page's Zapisz waits for the archive, then saves the open form (#85)", async () => {
+  const created: Request[] = [];
+  await page.route(
+    "**/api/uploads/confirm",
+    json(200, { original: { fileId: FILE_ID } }),
+  );
+  await page.route("**/api/works", (route) => {
+    created.push(route.request());
+    return json(200, { id: "33333333-3333-4333-8333-333333333333" })(route);
+  });
+  // The archive's PUT is held open until the test lets it through: what
+  // "Zapisz" does in the meantime is the point.
+  const archiveUrl = "/__stub-storage/staged-archive";
+  let release: () => void = () => undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(`**${archiveUrl}`, async (route) => {
+    await held;
+    await route.fulfill({ status: 200, body: "" });
+  });
+  await page.route(
+    "**/api/uploads/presign-archive",
+    json(200, { stagingKey: STAGING_KEY, uploadUrl: archiveUrl }),
+  );
+  await page.route(
+    "**/api/uploads/confirm-archive",
+    json(200, { fileId: ARCHIVE_ID, sizeBytes: 3 }),
+  );
+
+  await page.getByLabel("Nazwa", { exact: true }).fill("Z orbitą");
+  await page
+    .getByTestId("work-photos")
+    .setInputFiles(await pngFile("a.png", 1));
+  await expect(
+    page.getByRole("button", { name: "Usuń zdjęcie" }),
+  ).toBeVisible();
+  await page.getByTestId("work-r360").setInputFiles({
+    name: "orbit.zip",
+    mimeType: "application/zip",
+    buffer: Buffer.from("PK\u0003"),
+  });
+
+  // Zapisz in the top bar: waits, says so, posts nothing yet.
+  const save = page.getByRole("button", { name: "Zapisywanie…" });
+  await page.getByRole("button", { name: "Zapisz", exact: true }).click();
+  await expect(save).toBeVisible();
+  await expect(save).toBeDisabled();
+  await page.waitForTimeout(300);
+  expect(created).toHaveLength(0);
+  await expect(
+    page.getByRole("heading", { name: "Nowa realizacja" }),
+  ).toBeVisible();
+
+  release();
+  await expect.poll(() => created.length).toBe(1);
+  expect(created[0].postDataJSON()).toEqual({
+    name: "Z orbitą",
+    investor: "",
+    developer: "",
+    imageFileIds: [FILE_ID],
+    r360FileId: ARCHIVE_ID,
+  });
+  // The form is saved and gone, and editing has ended.
+  await expect(
+    page.getByRole("heading", { name: "Nowa realizacja" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Edytuj profil" }),
+  ).toBeVisible();
+});
+
+test("Zapisz keeps editing when the open form cannot be saved, and closes an untouched one (#85)", async () => {
+  let created = false;
+  await page.route(
+    "**/api/uploads/confirm",
+    json(200, { original: { fileId: FILE_ID } }),
+  );
+  await page.route("**/api/works", (route) => {
+    created = true;
+    return json(200, {})(route);
+  });
+  // A photo but no name: not savable, not empty.
+  await page
+    .getByTestId("work-photos")
+    .setInputFiles(await pngFile("a.png", 1));
+  await expect(
+    page.getByRole("button", { name: "Usuń zdjęcie" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Zapisz", exact: true }).click();
+  await expect(page.getByText("Podaj nazwę realizacji.")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Zapisz", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Nazwa", { exact: true })).toBeFocused();
+  expect(created).toBe(false);
+
+  // Emptied again (the photo removed, its discard answered here): Zapisz
+  // closes it and ends editing.
+  await page.route("**/api/uploads/discard", json(200, { ok: true }));
+  await page.getByRole("button", { name: "Usuń zdjęcie" }).click();
+  await page.getByRole("button", { name: "Zapisz", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Nowa realizacja" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Edytuj profil" }),
+  ).toBeVisible();
+  expect(created).toBe(false);
+});
+
 test("cancelling after an upload discards the orphan photo, and posts no work", async () => {
   const discarded: Request[] = [];
   let created = false;
