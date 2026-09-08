@@ -331,11 +331,13 @@ test("editing a work puts its form where its card was (#86); cancel and save put
     "Pierwsza realizacja",
     "Druga realizacja",
   ]);
-  // Editing is on (beforeEach), so the #83 guard arms beforeunload and the
-  // reload asks first. Answered here, explicitly: left to Playwright's
-  // default the dialog was dismissed on the CI runner and the reload hung
-  // until the test's timeout.
-  page.once("dialog", (dialog) => void dialog.accept());
+  // Editing is on (beforeEach), so the #83 guard arms beforeunload and a
+  // reload would ask first — on the CI runner that reload never came back.
+  // Leave editing first (the untouched form just closes), then reload.
+  await page.getByRole("button", { name: "Zapisz", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Edytuj profil" }),
+  ).toBeVisible();
   await page.reload();
   await page.getByRole("button", { name: "Edytuj profil" }).click();
   const items = page
