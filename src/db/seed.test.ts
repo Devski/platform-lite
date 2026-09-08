@@ -394,8 +394,8 @@ describe("seedProfiles", () => {
   it("resumes works alone: a profile with its photo and sections but no works gets them", async () => {
     const memory = createMemoryStorage();
     await run(memory.storage);
-    // Dev after the first #72 seed: the works of the profiles without a
-    // cover were skipped, because the works step hid behind the images'.
+    // Photo and cover in place, works missing — the state the works step
+    // once skipped, because it hid behind the images' condition.
     const gone = await testDb.db
       .select({ id: files.id, key: files.objectKey })
       .from(files)
@@ -443,6 +443,10 @@ describe("seedProfiles", () => {
       (row) => row.userId === stranger.id,
     );
     expect(strangerFiles).toHaveLength(0);
+    // Nor works (#72): the seed's works are for the seed's own accounts.
+    expect(
+      await testDb.db.select().from(works).where(eq(works.userId, stranger.id)),
+    ).toHaveLength(0);
   }, 60_000);
 
   it("without storage it seeds accounts, names and handles but no photos", async () => {

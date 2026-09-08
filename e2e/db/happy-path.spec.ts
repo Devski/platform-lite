@@ -143,8 +143,6 @@ test("a new user goes from the landing page to a live public profile", async ({
   // the whole journey, which would throw away every assertion after it.
   if (photoConfigured) {
     await test.step("A4: upload the profile photo", async () => {
-      // A real decodable image, generated here rather than committed: the
-      // server verifies the uploaded bytes by decoding them (#12).
       const photo = await solidPng({ r: 29, g: 78, b: 216 });
       // The camera badge is a <label> over a visually hidden file input, and
       // both exist only while the pencil is on.
@@ -175,9 +173,13 @@ test("a new user goes from the landing page to a live public profile", async ({
         mimeType: "image/png",
         buffer: await solidPng({ r: 180, g: 83, b: 9 }),
       });
-      await expect(page.getByText("Główne", { exact: true })).toBeVisible({
-        timeout: 60_000,
-      });
+      // The "Główne" badge is on the slot from the moment it is picked; the
+      // remove button appears only once the upload is confirmed — that is
+      // the wait, so a failed upload fails here and not on a photo-less save.
+      await expect(
+        page.getByRole("button", { name: "Usuń zdjęcie" }),
+      ).toBeVisible({ timeout: 60_000 });
+      await expect(page.getByText("Główne", { exact: true })).toBeVisible();
       await page.getByRole("button", { name: "Zapisz realizację" }).click();
       await expect(
         page.getByRole("heading", { level: 3, name: WORK_NAME }),
@@ -198,6 +200,8 @@ test("a new user goes from the landing page to a live public profile", async ({
     // A7's <head>: the profile's own title, not the not-found one.
     await expect(page).toHaveTitle(`${identity.displayName} · Architektów 3d`);
 
+    // The profile card is the page's first article; every work card is one
+    // too, with its own image, so this must not match across them.
     const photoOnPage = page.locator("article img").first();
     if (photoConfigured) {
       await expect(photoOnPage).toHaveAttribute(
@@ -212,6 +216,9 @@ test("a new user goes from the landing page to a live public profile", async ({
       const workPhoto = page.getByRole("img", {
         name: `${WORK_NAME}, zdjęcie 1`,
       });
+      // The card's image loads lazily: bring it into view before asking
+      // whether it decoded.
+      await workPhoto.scrollIntoViewIfNeeded();
       await expect
         .poll(() =>
           workPhoto.evaluate((el) => (el as HTMLImageElement).naturalWidth),
