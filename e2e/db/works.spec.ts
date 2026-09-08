@@ -331,6 +331,9 @@ test("editing a work puts its form where its card was (#86); cancel and save put
     "Pierwsza realizacja",
     "Druga realizacja",
   ]);
+  // Editing is on (beforeEach), so the #83 guard arms beforeunload; the
+  // reload goes through because Playwright accepts that dialog when no
+  // listener is registered.
   await page.reload();
   await page.getByRole("button", { name: "Edytuj profil" }).click();
   const items = page
@@ -373,6 +376,10 @@ test("editing a work puts its form where its card was (#86); cancel and save put
   await expect(
     items.nth(0).getByRole("heading", { level: 3, name: first.name }),
   ).toBeVisible();
+  // Focus is back on the button that opened the form.
+  await expect(
+    page.getByRole("button", { name: `Edytuj: ${first.name}` }),
+  ).toBeFocused();
 
   // A real save: the renamed work comes back in the same place.
   await page.getByRole("button", { name: `Edytuj: ${second.name}` }).click();

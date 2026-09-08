@@ -235,6 +235,7 @@ function WorkCard({
                     <Button
                       variant="quiet"
                       onClick={() => onEdit(work)}
+                      data-work-edit={work.id}
                       aria-label={`${t("card.edit")}: ${work.name}`}
                     >
                       {t("card.edit")}

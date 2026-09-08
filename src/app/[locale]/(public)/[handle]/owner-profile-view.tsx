@@ -367,6 +367,17 @@ export function OwnerProfileView({
     }
   }
 
+  // The card comes back where the form was; so does the focus, onto the
+  // "Edytuj" that opened it (#86 review) — once the card has rendered.
+  function closeInPlaceForm(workId: string) {
+    setWorkForm(null);
+    requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLElement>(`[data-work-edit="${CSS.escape(workId)}"]`)
+        ?.focus();
+    });
+  }
+
   async function toggleEditing() {
     if (!editing) {
       setEditing(true);
@@ -755,10 +766,10 @@ export function OwnerProfileView({
                           key={workForm.work.id}
                           work={workForm.work}
                           onSaved={() => {
-                            setWorkForm(null);
+                            closeInPlaceForm(workForm.work.id);
                             router.refresh();
                           }}
-                          onCancel={() => setWorkForm(null)}
+                          onCancel={() => closeInPlaceForm(workForm.work.id)}
                         />
                       ),
                     }
