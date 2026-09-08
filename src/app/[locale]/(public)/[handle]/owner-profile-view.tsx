@@ -32,7 +32,7 @@ import { uploadImage, type UploadFailure } from "@/lib/upload-client";
 import { WORKS_MAX } from "@/lib/work-schemas";
 import { LeaveDialog } from "./leave-dialog";
 import { useLeaveGuard } from "./use-leave-guard";
-import { WorkForm } from "./work-form";
+import { WorkForm, type WorkFormHandle } from "./work-form";
 import { WorksGallery, type GalleryWork } from "./works-gallery";
 import {
   BioView,
@@ -109,6 +109,9 @@ export function OwnerProfileView({
 }) {
   const t = useTranslations("PublicProfile");
   const tWorks = useTranslations("Works");
+  // #85: the open work form, so "Zapisz" can settle it instead of
+  // closing it over an upload. One form at a time, so one ref.
+  const workFormRef = useRef<WorkFormHandle>(null);
   const [workForm, setWorkForm] = useState<
     { kind: "new" } | { kind: "edit"; work: GalleryWork } | null
   >(null);
@@ -393,6 +396,14 @@ export function OwnerProfileView({
     try {
       const active = document.activeElement;
       if (active instanceof HTMLElement) active.blur();
+      // An open work form is saved too (#85): its uploads are waited for,
+      // an untouched one closes, one that cannot be saved keeps the page
+      // in editing with its reason on screen.
+      if (workFormRef.current) {
+        const outcome = await workFormRef.current.settle();
+        if (outcome === "kept") return;
+        if (outcome === "closed") setWorkForm(null);
+      }
       const outcomes = await Promise.all([...pending.current]);
       if (outcomes.some((ok) => !ok)) return;
       setEditing(false);
@@ -433,7 +444,11 @@ export function OwnerProfileView({
               aria-busy={leaving || undefined}
             >
               <Icon name={editing ? "check" : "pencil"} size={16} />
-              {editing ? t("saveProfile") : t("editProfile")}
+              {leaving
+                ? t("savingProfile")
+                : editing
+                  ? t("saveProfile")
+                  : t("editProfile")}
             </Button>
             <AccountMenu
               handle={profile.handle}
@@ -745,6 +760,7 @@ export function OwnerProfileView({
           {editing && workForm?.kind === "new" && (
             <WorkForm
               key="new"
+              ref={workFormRef}
               onSaved={() => {
                 setWorkForm(null);
                 router.refresh();
@@ -764,6 +780,7 @@ export function OwnerProfileView({
                       form: (
                         <WorkForm
                           key={workForm.work.id}
+                          ref={workFormRef}
                           work={workForm.work}
                           onSaved={() => {
                             closeInPlaceForm(workForm.work.id);
