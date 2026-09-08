@@ -1,10 +1,13 @@
 import {
+  CopyObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   NoSuchKey,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
+import { createHash } from "node:crypto";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { requireEnv } from "@/lib/env";
 
@@ -56,6 +59,21 @@ export interface FileStorage {
   ): Promise<void>;
   /** Rejects with ObjectNotFoundError when the key does not exist. */
   getObject(key: string): Promise<Buffer>;
+  /**
+   * Size, type and checksum without the body — how an archive of any size
+   * is confirmed (#72 / A12): the app never reads it. `etag` is the value
+   * storage computed on receipt, without quotes; for a single PUT that is
+   * the MD5 of the body. Rejects with ObjectNotFoundError.
+   */
+  headObject(
+    key: string,
+  ): Promise<{ sizeBytes: number; contentType: string; etag: string }>;
+  /**
+   * A copy inside the bucket, never through this process — how a staged
+   * archive reaches its final key. The copy is PRIVATE, like every
+   * original. Rejects with ObjectNotFoundError when the source is missing.
+   */
+  copyObject(from: string, to: string, contentType: string): Promise<void>;
   deleteObject(key: string): Promise<void>;
   /** Stable, unsigned address of a public object (G3). */
   publicUrl(key: string): string;
@@ -71,7 +89,22 @@ export function contentKey(hash: string, ext: string, prefix = ""): string {
   // G2: the name IS the content hash, so a changed file is a new URL and the
   // old one can be cached for a year. Keys use only URL-safe characters
   // (hex hash, known extensions, the per-developer/PR prefix from SPEC §4).
+  // The layout of every object written before #72; kept so rows without an
+  // object_key (#49) can still be addressed, and never used for new ones.
   return `${prefix}a/${hash}.${ext}`;
+}
+
+// #72 (SPEC §9): the same content-addressed name under its owner, so one
+// object belongs to exactly one account — identical bytes from two accounts
+// are two objects, and everything an account owns is one prefix to list or
+// delete (#34). The user id is a UUID: URL-safe like the rest.
+export function ownerKey(
+  userId: string,
+  hash: string,
+  ext: string,
+  prefix = "",
+): string {
+  return `${prefix}u/${userId}/${hash}.${ext}`;
 }
 
 // SPEC §4: dev and PR environments scope their keys (`devski/`, `pr-7/`);
@@ -207,6 +240,46 @@ export function createS3Storage(config: {
       return Buffer.from(await response.Body.transformToByteArray());
     },
 
+    async headObject(key) {
+      try {
+        const response = await client.send(
+          new HeadObjectCommand({ Bucket: bucket, Key: key }),
+        );
+        if (response.ContentLength === undefined) {
+          throw new Error(`no Content-Length in the HEAD answer for ${key}`);
+        }
+        return {
+          sizeBytes: response.ContentLength,
+          contentType: response.ContentType ?? "application/octet-stream",
+          etag: (response.ETag ?? "").replace(/"/g, ""),
+        };
+      } catch (error) {
+        if (isNotFound(error)) throw new ObjectNotFoundError(key);
+        throw error;
+      }
+    },
+
+    async copyObject(from, to, contentType) {
+      try {
+        await client.send(
+          new CopyObjectCommand({
+            Bucket: bucket,
+            // The source is "bucket/key", each segment encoded as the SDK
+            // encodes a signed path.
+            CopySource: `${bucket}/${from.split("/").map(encodeURIComponent).join("/")}`,
+            Key: to,
+            ContentType: contentType,
+            CacheControl: IMMUTABLE_CACHE_CONTROL,
+            // REPLACE, or the copy would keep the staging object's headers.
+            MetadataDirective: "REPLACE",
+          }),
+        );
+      } catch (error) {
+        if (isNotFound(error)) throw new ObjectNotFoundError(from);
+        throw error;
+      }
+    },
+
     async deleteObject(key) {
       await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
     },
@@ -254,6 +327,20 @@ export function createMemoryStorage(): {
         const stored = objects.get(key);
         if (!stored) throw new ObjectNotFoundError(key);
         return stored.body;
+      },
+      async headObject(key) {
+        const stored = objects.get(key);
+        if (!stored) throw new ObjectNotFoundError(key);
+        return {
+          sizeBytes: stored.body.length,
+          contentType: stored.contentType,
+          etag: createHash("md5").update(stored.body).digest("hex"),
+        };
+      },
+      async copyObject(from, to, contentType) {
+        const stored = objects.get(from);
+        if (!stored) throw new ObjectNotFoundError(from);
+        objects.set(to, { body: stored.body, contentType, publicRead: false });
       },
       async deleteObject(key) {
         objects.delete(key);

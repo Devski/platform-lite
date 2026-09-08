@@ -5,7 +5,6 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "@/i18n/navigation";
 import { AccountMenu } from "@/components/ui/account-menu";
 import { Avatar } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -16,7 +15,7 @@ import { Plaque } from "@/components/ui/plaque";
 import { Textarea } from "@/components/ui/textarea";
 import { TopBar } from "@/components/ui/top-bar";
 import { postJson } from "@/lib/api-client";
-import { AVATAR_CONTENT_TYPES, AVATAR_MAX_BYTES } from "@/lib/avatar-shared";
+import { IMAGE_CONTENT_TYPES } from "@/lib/image-upload-shared";
 import {
   BIO_MAX,
   bioSchema,
@@ -28,29 +27,26 @@ import {
   LOCATIONS_MAX,
   locationsSchema,
 } from "@/lib/profile-schemas";
-import { IMMUTABLE_CACHE_CONTROL } from "@/lib/storage-shared";
 import type { Place, searchPlaces } from "@/lib/teryt";
+import { uploadImage, type UploadFailure } from "@/lib/upload-client";
+import { WORKS_MAX } from "@/lib/work-schemas";
+import { WorkForm } from "./work-form";
+import { WorksGallery, type GalleryWork } from "./works-gallery";
 import {
   BioView,
+  CARD_BODY_CLASS,
+  CoverView,
   HeadlineView,
   LocationsView,
   PlaceChip,
   SectionHeading,
 } from "./profile-sections";
 
-const AVATAR_ERROR_KEYS = new Set([
-  "quota_exceeded",
-  "too_large",
-  "not_an_image",
-  "unsupported_format",
-  "invalid_avatar",
-  "rate_limited",
-]);
-
 interface OwnerProfile {
   handle: string;
   displayName: string;
   avatar: { url128: string } | null;
+  cover: { url1600: string; url480: string } | null;
   headline: string | null;
   locations: string[];
   bio: string | null;
@@ -101,9 +97,22 @@ async function postSections(
 // after an optimistic change wiped it (#72 step 2 review). Out of editing
 // the server's copy is the truth, re-seeded from the prop during render (the
 // pattern React's docs recommend for derived state), and only then.
-export function OwnerProfileView({ profile }: { profile: OwnerProfile }) {
+export function OwnerProfileView({
+  profile,
+  works,
+}: {
+  profile: OwnerProfile;
+  /** The owner's works with their file ids, for the form. */
+  works: GalleryWork[];
+}) {
   const t = useTranslations("PublicProfile");
+  const tWorks = useTranslations("Works");
+  const [workForm, setWorkForm] = useState<
+    { kind: "new" } | { kind: "edit"; work: GalleryWork } | null
+  >(null);
   const tAvatar = useTranslations("Settings.profile.avatar");
+  const tCover = useTranslations("Settings.profile.cover");
+  const tUpload = useTranslations("Settings.profile.upload");
   const tName = useTranslations("Settings.profile.name");
   const tSections = useTranslations("Settings.profile.sections");
   const router = useRouter();
@@ -142,6 +151,9 @@ export function OwnerProfileView({ profile }: { profile: OwnerProfile }) {
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [coverBusy, setCoverBusy] = useState(false);
+  const [coverError, setCoverError] = useState<string | null>(null);
+  const coverInputRef = useRef<HTMLInputElement>(null);
 
   const headlineId = useId();
   const bioId = useId();
@@ -265,82 +277,87 @@ export function OwnerProfileView({ profile }: { profile: OwnerProfile }) {
   }
 
   function removePlace(place: string) {
-    void saveLocations(fields.locations.filter((existing) => existing !== place));
+    void saveLocations(
+      fields.locations.filter((existing) => existing !== place),
+    );
   }
 
-  function avatarErrorCopy(code: unknown, status: number): string {
-    if (status === 429) return tAvatar("errors.rate_limited");
-    if (typeof code === "string" && AVATAR_ERROR_KEYS.has(code)) {
-      return tAvatar(`errors.${code}`);
+  // The words for a failed upload are shared by the avatar and the cover
+  // (Settings.profile.upload); only the final "point the profile at it"
+  // step has a code of its own per slot.
+  function uploadErrorCopy(failure: UploadFailure): string {
+    return tUpload(`errors.${failure}`);
+  }
+  function assignErrorCopy(
+    slot: "avatar" | "cover",
+    code: unknown,
+    status: number,
+  ): string {
+    if (status === 429) return tUpload("errors.rate_limited");
+    if (slot === "avatar" && code === "invalid_avatar") {
+      return tAvatar("errors.invalid_avatar");
     }
-    return tAvatar("errors.generic");
+    if (slot === "cover" && code === "invalid_cover") {
+      return tCover("errors.invalid_cover");
+    }
+    return tUpload("errors.generic");
   }
 
-  // The #12 upload contract from the browser's side, and since #58 the only
-  // copy of it: presign a staging slot, PUT the file straight to storage with
-  // the signed headers (G4 — the bytes never touch the app server), confirm
-  // so the server verifies and publishes, then point the profile at the
-  // returned original. The photo is the one change that refreshes at once:
-  // its URL comes from the server and nothing on this page holds it.
-  async function handleAvatarFile(file: File) {
-    setAvatarError(null);
-    if (fileInputRef.current) fileInputRef.current.value = "";
-    if (!(AVATAR_CONTENT_TYPES as readonly string[]).includes(file.type)) {
-      setAvatarError(tAvatar("errors.file_type"));
-      return;
-    }
-    if (file.size === 0 || file.size > AVATAR_MAX_BYTES) {
-      setAvatarError(tAvatar("errors.file_size"));
-      return;
-    }
-    setAvatarBusy(true);
+  // A photo (avatar or cover) is the one change that refreshes at once: its
+  // URLs come from the server and nothing on this page holds them. The
+  // upload chain itself lives in lib/upload-client (#12, shared since #72).
+  async function handleImageFile(
+    slot: "avatar" | "cover",
+    file: File,
+    input: HTMLInputElement | null,
+    setBusy: (busy: boolean) => void,
+    setError: (message: string | null) => void,
+  ) {
+    setError(null);
+    if (input) input.value = "";
+    setBusy(true);
     try {
-      const presign = await postJson<{
-        error?: string;
-        stagingKey?: string;
-        uploadUrl?: string;
-      }>("/api/avatar/presign", {
-        sizeBytes: file.size,
-        contentType: file.type,
-      });
-      if (!presign.ok || !presign.data.stagingKey || !presign.data.uploadUrl) {
-        setAvatarError(avatarErrorCopy(presign.data.error, presign.status));
-        return;
-      }
-      const upload = await fetch(presign.data.uploadUrl, {
-        method: "PUT",
-        headers: {
-          "content-type": file.type,
-          "cache-control": IMMUTABLE_CACHE_CONTROL,
-        },
-        body: file,
-      });
-      if (!upload.ok) {
-        setAvatarError(tAvatar("errors.upload_failed"));
-        return;
-      }
-      const confirm = await postJson<{
-        error?: string;
-        original?: { fileId: string };
-      }>("/api/avatar/confirm", { stagingKey: presign.data.stagingKey });
-      if (!confirm.ok || !confirm.data.original) {
-        setAvatarError(avatarErrorCopy(confirm.data.error, confirm.status));
+      const result = await uploadImage(file, slot);
+      if (!result.ok) {
+        setError(uploadErrorCopy(result.failure));
         return;
       }
       const assign = await postJson<{ error?: string }>(
-        "/api/profile/avatar",
-        { fileId: confirm.data.original.fileId },
+        `/api/profile/${slot}`,
+        { fileId: result.fileId },
       );
       if (!assign.ok) {
-        setAvatarError(avatarErrorCopy(assign.data.error, assign.status));
+        setError(assignErrorCopy(slot, assign.data.error, assign.status));
         return;
       }
       router.refresh();
     } catch {
-      setAvatarError(tAvatar("errors.generic"));
+      setError(tUpload("errors.generic"));
     } finally {
-      setAvatarBusy(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      setBusy(false);
+      if (input) input.value = "";
+    }
+  }
+
+  async function removeCover() {
+    setCoverError(null);
+    setCoverBusy(true);
+    try {
+      const response = await postJson<{ error?: string }>(
+        "/api/profile/cover",
+        { fileId: null },
+      );
+      if (!response.ok) {
+        setCoverError(
+          assignErrorCopy("cover", response.data.error, response.status),
+        );
+        return;
+      }
+      router.refresh();
+    } catch {
+      setCoverError(tUpload("errors.generic"));
+    } finally {
+      setCoverBusy(false);
     }
   }
 
@@ -374,6 +391,7 @@ export function OwnerProfileView({ profile }: { profile: OwnerProfile }) {
   function clearErrors() {
     setNameError(null);
     setAvatarError(null);
+    setCoverError(null);
     setHeadlineError(null);
     setBioError(null);
     setLocationsError(null);
@@ -409,175 +427,342 @@ export function OwnerProfileView({ profile }: { profile: OwnerProfile }) {
         }
       />
       <main className="mx-auto flex max-w-(--measure-page) flex-col gap-(--sp-5) px-(--sp-5) pt-(--sp-7) pb-(--sp-10) sm:gap-(--sp-6) sm:px-(--sp-7) sm:pt-(--sp-10) sm:pb-(--sp-14)">
-        <Card as="article" padding="lg" className="flex flex-col gap-(--sp-7)">
-          {/* Stacked below sm, exactly as the visitor's copy of this card is
+        <Card as="article" padding="none">
+          {/* The cover band: the photo when there is one, a dashed slot
+              while editing without one, nothing otherwise. The camera sits
+              in the band's corner, as it does on the avatar. */}
+          {(profile.cover || editing) && (
+            <div className="relative overflow-hidden rounded-t-md">
+              {profile.cover ? (
+                <CoverView cover={profile.cover} name={profile.displayName} />
+              ) : (
+                <div className="flex aspect-[3/1] w-full items-center justify-center bg-(--surface-sunken) type-sm text-(--text-muted)">
+                  {tCover("add")}
+                </div>
+              )}
+              {editing && (
+                <div className="absolute right-(--sp-5) bottom-(--sp-5) flex items-center gap-(--sp-3)">
+                  {profile.cover && (
+                    <Button
+                      variant="onPhoto"
+                      onClick={() => void removeCover()}
+                      disabled={coverBusy}
+                    >
+                      {coverBusy ? tCover("removing") : tCover("remove")}
+                    </Button>
+                  )}
+                  <label
+                    title={profile.cover ? tCover("change") : tCover("add")}
+                    className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border-2 border-(--surface-card) bg-(--action-solid) text-(--action-solid-text) shadow-md hover:bg-(--action-solid-hover) focus-within:shadow-[var(--ring-focus)]"
+                  >
+                    <Icon name="camera" size={16} />
+                    <span className="sr-only">
+                      {profile.cover ? tCover("change") : tCover("add")}
+                    </span>
+                    <input
+                      ref={coverInputRef}
+                      id="owner-cover-file"
+                      type="file"
+                      accept={IMAGE_CONTENT_TYPES.join(",")}
+                      disabled={coverBusy}
+                      aria-invalid={coverError ? true : undefined}
+                      aria-describedby={
+                        coverError ? "profile-cover-error" : undefined
+                      }
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (file) {
+                          void handleImageFile(
+                            "cover",
+                            file,
+                            coverInputRef.current,
+                            setCoverBusy,
+                            setCoverError,
+                          );
+                        }
+                      }}
+                      className="sr-only"
+                    />
+                  </label>
+                </div>
+              )}
+            </div>
+          )}
+          <div className={CARD_BODY_CLASS}>
+            {/* Stacked below sm, exactly as the visitor's copy of this card is
               (screen 2): a 128px avatar plus a display-size name cannot
               share the 248px a 360px phone leaves inside the card, and the
               name was the half that ran off the right edge. The type needs
               no breakpoint — --fs-display is a clamp() that has already
               stepped 48px down to 32px by the time a phone reads it. */}
-          <div className="flex flex-col gap-(--sp-5) sm:flex-row sm:flex-wrap sm:items-center sm:gap-(--sp-8)">
-            {/* One variable sizes the avatar and the box the camera button
-                is pinned inside, so the two can never drift apart. */}
-            <div className="relative h-(--avatar-size) w-(--avatar-size) shrink-0 [--avatar-size:96px] sm:[--avatar-size:128px]">
-              <Avatar
-                src={profile.avatar?.url128 ?? null}
-                name={profile.displayName}
-                size={128}
-                alt={t("avatarAlt", { name: profile.displayName })}
-              />
-              {editing && (
-                <>
-                  <label
-                    htmlFor="owner-avatar-file"
-                    className="absolute right-0 bottom-0 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border-2 border-(--surface-card) bg-(--action-solid) text-(--action-solid-text) shadow-md hover:bg-(--action-solid-hover)"
-                  >
-                    <Icon name="camera" size={16} />
-                  </label>
+            <div
+              className={`flex flex-col gap-(--sp-5) sm:flex-row sm:flex-wrap sm:gap-(--sp-8) ${
+                profile.cover || editing ? "sm:items-start" : "sm:items-center"
+              }`}
+            >
+              {/* One variable sizes the avatar and the box the camera button
+                is pinned inside, so the two can never drift apart. With a
+                cover band above, the box straddles its lower edge. */}
+              <div
+                className={`relative h-(--avatar-size) w-(--avatar-size) shrink-0 [--avatar-size:96px] sm:[--avatar-size:128px] ${
+                  profile.cover || editing
+                    ? "-mt-(--sp-14) sm:-mt-(--sp-16)"
+                    : ""
+                }`}
+              >
+                <Avatar
+                  src={profile.avatar?.url128 ?? null}
+                  name={profile.displayName}
+                  size={128}
+                  alt={t("avatarAlt", { name: profile.displayName })}
+                  className={
+                    profile.cover || editing
+                      ? "ring-4 ring-(--surface-card)"
+                      : ""
+                  }
+                />
+                {editing && (
+                  <>
+                    <label
+                      title={tAvatar("change")}
+                      className="absolute right-0 bottom-0 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border-2 border-(--surface-card) bg-(--action-solid) text-(--action-solid-text) shadow-md hover:bg-(--action-solid-hover) focus-within:shadow-[var(--ring-focus)]"
+                    >
+                      <Icon name="camera" size={16} />
+                      <span className="sr-only">{tAvatar("change")}</span>
+                      <input
+                        ref={fileInputRef}
+                        id="owner-avatar-file"
+                        type="file"
+                        accept={IMAGE_CONTENT_TYPES.join(",")}
+                        disabled={avatarBusy}
+                        aria-invalid={avatarError ? true : undefined}
+                        aria-describedby={
+                          avatarError ? "profile-edit-error" : undefined
+                        }
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          if (file) {
+                            void handleImageFile(
+                              "avatar",
+                              file,
+                              fileInputRef.current,
+                              setAvatarBusy,
+                              setAvatarError,
+                            );
+                          }
+                        }}
+                        className="sr-only"
+                      />
+                    </label>
+                  </>
+                )}
+              </div>
+              <div className="flex w-full min-w-0 flex-col gap-(--sp-4) sm:flex-1">
+                {editing ? (
                   <input
-                    ref={fileInputRef}
-                    id="owner-avatar-file"
-                    type="file"
-                    accept={AVATAR_CONTENT_TYPES.join(",")}
-                    disabled={avatarBusy}
-                    aria-invalid={avatarError ? true : undefined}
-                    aria-describedby={avatarError ? "profile-edit-error" : undefined}
-                    onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      if (file) void handleAvatarFile(file);
+                    type="text"
+                    value={fields.name}
+                    onChange={(event) => setField("name", event.target.value)}
+                    onBlur={() => void saveName()}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        event.currentTarget.blur();
+                      }
                     }}
-                    className="sr-only"
-                  />
-                </>
-              )}
-            </div>
-            <div className="flex w-full min-w-0 flex-col gap-(--sp-4) sm:flex-1">
-              {editing ? (
-                <input
-                  type="text"
-                  value={fields.name}
-                  onChange={(event) => setField("name", event.target.value)}
-                  onBlur={() => void saveName()}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      event.currentTarget.blur();
+                    maxLength={DISPLAY_NAME_MAX}
+                    aria-label={tName("label")}
+                    aria-invalid={nameError ? true : undefined}
+                    aria-describedby={
+                      nameError ? "profile-edit-error" : undefined
                     }
-                  }}
-                  maxLength={DISPLAY_NAME_MAX}
-                  aria-label={tName("label")}
-                  aria-invalid={nameError ? true : undefined}
-                  aria-describedby={nameError ? "profile-edit-error" : undefined}
-                  disabled={nameSaving}
-                  className="type-display w-full border-b-2 border-(--border-default) bg-transparent text-(--text-strong) focus:border-(--action-solid) focus:outline-none"
-                />
-              ) : (
-                // break-words is the guarantee, not the layout: a display
-                // name is one 80-character field and may hold a single word
-                // longer than any column we can give it.
-                <h1 className="type-display break-words text-(--text-strong)">
-                  {fields.name}
-                </h1>
-              )}
-              {editing ? (
-                <TextSectionField
-                  id={headlineId}
-                  field="headline"
-                  rows={2}
-                  max={HEADLINE_MAX}
-                  value={fields.headline}
-                  error={headlineError}
-                  onChange={(value) => setField("headline", value)}
-                  onBlur={() => void saveText("headline", setHeadlineError)}
-                />
-              ) : (
-                <HeadlineView headline={fields.headline || null} />
-              )}
-              {avatarBusy && (
-                <p className="type-sm text-(--text-muted)" role="status">
-                  {tAvatar("uploading")}
-                </p>
-              )}
-              {savedNotice && (
-                <p className="type-sm text-(--state-success)" role="status">
-                  {t("savedProfile")}
-                </p>
-              )}
-              {/* One shared slot for the name's and the avatar's errors. If a
+                    disabled={nameSaving}
+                    className="type-display w-full border-b-2 border-(--border-default) bg-transparent text-(--text-strong) focus:border-(--action-solid) focus:outline-none"
+                  />
+                ) : (
+                  // break-words is the guarantee, not the layout: a display
+                  // name is one 80-character field and may hold a single word
+                  // longer than any column we can give it.
+                  <h1 className="type-display break-words text-(--text-strong)">
+                    {fields.name}
+                  </h1>
+                )}
+                {editing ? (
+                  <TextSectionField
+                    id={headlineId}
+                    field="headline"
+                    rows={2}
+                    max={HEADLINE_MAX}
+                    value={fields.headline}
+                    error={headlineError}
+                    onChange={(value) => setField("headline", value)}
+                    onBlur={() => void saveText("headline", setHeadlineError)}
+                  />
+                ) : (
+                  <HeadlineView headline={fields.headline || null} />
+                )}
+                {(avatarBusy || coverBusy) && (
+                  <p className="type-sm text-(--text-muted)" role="status">
+                    {tUpload("uploading")}
+                  </p>
+                )}
+                {savedNotice && (
+                  <p className="type-sm text-(--state-success)" role="status">
+                    {t("savedProfile")}
+                  </p>
+                )}
+                {/* One shared slot for the name's and the avatar's errors. If a
                   stale name error and a fresh avatar error were both pending
                   it would show only the name one — rare enough in one
                   editing pass not to warrant two separate slots. */}
-              {(nameError || avatarError) && (
-                <p
-                  id="profile-edit-error"
-                  className="type-sm text-(--state-danger)"
-                  role="alert"
-                >
-                  {nameError ?? avatarError}
-                </p>
+                {coverError && (
+                  <p
+                    id="profile-cover-error"
+                    className="type-sm text-(--state-danger)"
+                    role="alert"
+                  >
+                    {coverError}
+                  </p>
+                )}
+                {(nameError || avatarError) && (
+                  <p
+                    id="profile-edit-error"
+                    className="type-sm text-(--state-danger)"
+                    role="alert"
+                  >
+                    {nameError ?? avatarError}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {editing ? (
+              <section className="flex flex-col gap-(--sp-3)">
+                <SectionHeading>{t("locationsHeading")}</SectionHeading>
+                <ul className="flex flex-wrap items-center gap-(--sp-3)">
+                  {fields.locations.length === 0 && (
+                    <li className="type-sm text-(--text-muted)">
+                      {tSections("locations.empty")}
+                    </li>
+                  )}
+                  {fields.locations.map((place) => (
+                    <li key={place} className="flex">
+                      <PlaceChip
+                        place={place}
+                        onRemove={() => removePlace(place)}
+                        removeLabel={tSections("locations.remove", { place })}
+                      />
+                    </li>
+                  ))}
+                </ul>
+                <PlaceCombobox
+                  id={locationsId}
+                  exclude={fields.locations}
+                  disabled={fields.locations.length >= LOCATIONS_MAX}
+                  onAdd={addPlace}
+                  error={locationsError}
+                />
+              </section>
+            ) : (
+              <LocationsView locations={fields.locations} />
+            )}
+
+            {editing ? (
+              <TextSectionField
+                id={bioId}
+                field="bio"
+                rows={6}
+                max={BIO_MAX}
+                value={fields.bio}
+                error={bioError}
+                onChange={(value) => setField("bio", value)}
+                onBlur={() => void saveText("bio", setBioError)}
+              />
+            ) : (
+              <BioView bio={fields.bio || null} />
+            )}
+          </div>
+        </Card>
+        {editing && (
+          <Card padding="sm" tone="sunken">
+            <p className="type-sm text-(--text-muted)">{t("ownerScopeNote")}</p>
+          </Card>
+        )}
+
+        {/* #72 / A12: the works. The plus unfolds the form card above the
+            list (the approved sketch); edit and delete sit on each card
+            while editing. */}
+        <section className="flex flex-col gap-(--sp-5)">
+          <div className="flex items-center justify-between gap-(--sp-4)">
+            <div className="flex items-baseline gap-(--sp-4)">
+              <h2 className="type-h2 text-(--text-strong)">
+                {tWorks("heading")}
+              </h2>
+              <span className="type-sm text-(--text-muted)">
+                {tWorks("count", { count: works.length, max: WORKS_MAX })}
+              </span>
+              {editing && works.length >= WORKS_MAX && (
+                <span className="type-sm text-(--text-muted)" id="works-limit">
+                  {tWorks("limitReached", { max: WORKS_MAX })}
+                </span>
               )}
             </div>
+            {editing && (
+              <Button
+                variant="quiet"
+                onClick={() =>
+                  setWorkForm(workForm?.kind === "new" ? null : { kind: "new" })
+                }
+                disabled={works.length >= WORKS_MAX}
+                aria-describedby={
+                  works.length >= WORKS_MAX ? "works-limit" : undefined
+                }
+                title={tWorks("add")}
+                aria-label={tWorks("add")}
+                aria-expanded={workForm?.kind === "new"}
+              >
+                <Icon name="plus" size={18} />
+              </Button>
+            )}
           </div>
-
-          {editing ? (
-            <section className="flex flex-col gap-(--sp-3)">
-              <SectionHeading>{t("locationsHeading")}</SectionHeading>
-              <ul className="flex flex-wrap items-center gap-(--sp-3)">
-                {fields.locations.length === 0 && (
-                  <li className="type-sm text-(--text-subtle)">
-                    {tSections("locations.empty")}
-                  </li>
-                )}
-                {fields.locations.map((place) => (
-                  <li key={place} className="flex">
-                    <PlaceChip
-                      place={place}
-                      onRemove={() => removePlace(place)}
-                      removeLabel={tSections("locations.remove", { place })}
-                    />
-                  </li>
-                ))}
-              </ul>
-              <PlaceCombobox
-                id={locationsId}
-                exclude={fields.locations}
-                disabled={fields.locations.length >= LOCATIONS_MAX}
-                onAdd={addPlace}
-                error={locationsError}
-              />
-            </section>
-          ) : (
-            <LocationsView locations={fields.locations} />
+          {editing && workForm && (
+            <WorkForm
+              key={workForm.kind === "edit" ? workForm.work.id : "new"}
+              work={workForm.kind === "edit" ? workForm.work : undefined}
+              onSaved={() => {
+                setWorkForm(null);
+                router.refresh();
+              }}
+              onCancel={() => setWorkForm(null)}
+            />
           )}
-
-          {editing ? (
-            <TextSectionField
-              id={bioId}
-              field="bio"
-              rows={6}
-              max={BIO_MAX}
-              value={fields.bio}
-              error={bioError}
-              onChange={(value) => setField("bio", value)}
-              onBlur={() => void saveText("bio", setBioError)}
+          {works.length > 0 ? (
+            <WorksGallery
+              works={works}
+              owner={{ editing }}
+              onEdit={(work) => setWorkForm({ kind: "edit", work })}
+              onDelete={async (work) => {
+                const response = await fetch(`/api/works/${work.id}`, {
+                  method: "DELETE",
+                }).catch(() => null);
+                if (!response?.ok) return false;
+                if (workForm?.kind === "edit" && workForm.work.id === work.id) {
+                  setWorkForm(null);
+                }
+                router.refresh();
+                return true;
+              }}
             />
           ) : (
-            <BioView bio={fields.bio || null} />
+            !workForm && (
+              <EmptyState
+                icon="folder-open"
+                title={tWorks("emptyTitle")}
+                body={tWorks("emptyBody")}
+              />
+            )
           )}
-        </Card>
-        <Card padding="sm" tone="sunken">
-          <div className="flex flex-wrap items-center gap-(--sp-4)">
-            <Badge uppercase>{t("scopeBadge")}</Badge>
-            <span className="type-sm text-(--text-muted)">
-              {t("ownerScopeNote")}
-            </span>
-          </div>
-        </Card>
-        <EmptyState
-          icon="folder-open"
-          title={t("emptyStateTitle")}
-          body={t("emptyStateBody")}
-        />
+        </section>
       </main>
       <div className="mx-auto flex max-w-(--measure-page) justify-center px-(--sp-5) py-(--sp-7) sm:px-(--sp-7) sm:py-(--sp-8)">
         <Plaque name={fields.name} width={150} tilt={0} shadow={false} />
@@ -637,7 +822,7 @@ function TextSectionField({
           {tSections(`${field}.hint`)}
         </span>
         <span
-          className={`type-sm tabular-nums ${near ? "text-(--state-warning)" : "text-(--text-subtle)"}`}
+          className={`type-sm tabular-nums ${near ? "text-(--state-warning)" : "text-(--text-muted)"}`}
           aria-live={near ? "polite" : "off"}
         >
           {tSections("counter", { count: value.length, max })}
@@ -781,7 +966,7 @@ function PlaceCombobox({
                 }`}
               >
                 <span>{place.name}</span>
-                <span className="type-eyebrow text-(--text-subtle)">
+                <span className="type-eyebrow text-(--text-muted)">
                   {place.kind === "voivodeship"
                     ? tSections("locations.kindVoivodeship")
                     : (place.voivodeship ?? tSections("locations.kindCity"))}

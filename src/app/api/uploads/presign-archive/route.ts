@@ -1,20 +1,20 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import {
   checkRateLimit,
   parseJsonBody,
   rejectCrossSite,
   sessionUserId,
 } from "@/lib/api-route";
-import { confirmAvatarUpload } from "@/lib/avatar";
+import {
+  presignArchiveSchema,
+  presignArchiveUpload,
+} from "@/lib/archive-upload";
 import { getDb } from "@/db/client";
 import { getStorage, keyPrefix } from "@/lib/storage";
-import { respondWithAvatarResult } from "../respond";
+import { respondWithUploadResult } from "../respond";
 
-// Step two of the #12 avatar flow: verify the staged bytes server-side and
-// publish original + WebP variants under content-addressed keys.
-
-const confirmSchema = z.object({ stagingKey: z.string().min(1) });
+// #72 / A12: step one for an R360 archive — reserve the declared bytes and
+// hand back a staging upload URL. No size limit beyond S3's single PUT.
 
 export async function POST(request: Request) {
   const userId = await sessionUserId();
@@ -23,20 +23,20 @@ export async function POST(request: Request) {
   }
   const crossSite = rejectCrossSite(request);
   if (crossSite) return crossSite;
-  // Tighter than presign: each confirm decodes and re-encodes up to 10 MB.
+  // Archives are big and rare: a handful a minute is plenty.
   if (
-    !checkRateLimit(`avatar-confirm:${userId}`, { windowSeconds: 60, max: 5 })
+    !checkRateLimit(`archive-presign:${userId}`, { windowSeconds: 60, max: 5 })
   ) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
 
-  const input = await parseJsonBody(request, confirmSchema);
+  const input = await parseJsonBody(request, presignArchiveSchema);
   if (!input) {
     return NextResponse.json({ error: "invalid_request" }, { status: 400 });
   }
 
-  return respondWithAvatarResult(() =>
-    confirmAvatarUpload(
+  return respondWithUploadResult(() =>
+    presignArchiveUpload(
       { storage: getStorage(), db: getDb(), prefix: keyPrefix(), userId },
       input,
     ),

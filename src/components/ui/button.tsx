@@ -1,4 +1,4 @@
-import type { ComponentPropsWithoutRef } from "react";
+import type { ComponentProps, ComponentPropsWithoutRef } from "react";
 import { Link } from "@/i18n/navigation";
 
 export type ButtonVariant = "solid" | "quiet" | "onPhoto" | "onPhotoQuiet";
@@ -36,7 +36,10 @@ export function buttonClassName(
   return `${BASE} ${SIZE[size]} ${VARIANT[variant]} ${className}`;
 }
 
-type ButtonProps = ComponentPropsWithoutRef<"button"> & {
+// ComponentProps, not ComponentPropsWithoutRef: React 19 passes `ref` as a
+// plain prop, and a caller that wants to move focus to a button (the
+// confirm-delete row, #72) needs it to reach the element.
+type ButtonProps = ComponentProps<"button"> & {
   variant?: ButtonVariant;
   size?: ButtonSize;
 };
@@ -68,5 +71,7 @@ export function ButtonLink({
   className,
   ...rest
 }: ButtonLinkProps) {
-  return <Link className={buttonClassName(variant, size, className)} {...rest} />;
+  return (
+    <Link className={buttonClassName(variant, size, className)} {...rest} />
+  );
 }

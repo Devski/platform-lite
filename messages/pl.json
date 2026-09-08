@@ -206,18 +206,9 @@
         }
       },
       "avatar": {
-        "uploading": "Wysyłanie i przetwarzanie…",
+        "change": "Zmień zdjęcie profilowe",
         "errors": {
-          "file_type": "Ten format nie jest obsługiwany — wybierz JPEG, PNG lub WebP.",
-          "file_size": "Plik musi mieć od 1 bajta do 10 MB.",
-          "upload_failed": "Wysyłka pliku nie powiodła się. Spróbuj ponownie.",
-          "quota_exceeded": "Brak miejsca: to zdjęcie przekroczyłoby Twój limit 1 GB.",
-          "too_large": "Zdjęcie jest za duże (limit 10 MB i 64 megapiksele).",
-          "not_an_image": "Ten plik nie wygląda na poprawny obraz.",
-          "unsupported_format": "Ten format nie jest obsługiwany — wybierz JPEG, PNG lub WebP.",
-          "invalid_avatar": "Nie udało się ustawić tego zdjęcia. Wgraj je ponownie.",
-          "rate_limited": "Zbyt wiele prób. Odczekaj chwilę i spróbuj ponownie.",
-          "generic": "Coś poszło nie tak. Spróbuj ponownie."
+          "invalid_avatar": "Nie udało się ustawić tego zdjęcia. Wgraj je ponownie."
         }
       },
       "handle": {
@@ -253,6 +244,32 @@
           "invalid": "Tekst jest za długi albo zawiera niedozwolone znaki.",
           "rateLimited": "Zbyt wiele zapisów. Odczekaj chwilę i spróbuj ponownie.",
           "generic": "Zapis nie powiódł się. Spróbuj ponownie."
+        }
+      },
+      "upload": {
+        "uploading": "Wysyłanie i przetwarzanie…",
+        "errors": {
+          "file_type": "Ten format nie jest obsługiwany — wybierz JPEG, PNG lub WebP.",
+          "file_size": "Plik musi mieć od 1 bajta do 10 MB.",
+          "upload_failed": "Wysyłka pliku nie powiodła się. Spróbuj ponownie.",
+          "quota_exceeded": "Brak miejsca: to zdjęcie przekroczyłoby Twój limit 1 GB.",
+          "too_large": "Zdjęcie jest za duże (limit 10 MB i 64 megapiksele).",
+          "not_an_image": "Ten plik nie wygląda na poprawny obraz.",
+          "unsupported_format": "Ten format nie jest obsługiwany — wybierz JPEG, PNG lub WebP.",
+          "rate_limited": "Zbyt wiele prób. Odczekaj chwilę i spróbuj ponownie.",
+          "generic": "Coś poszło nie tak. Spróbuj ponownie.",
+          "archive_type": "To nie jest archiwum zip.",
+          "archive_size": "Archiwum musi mieć od 1 bajta do 5 GB.",
+          "not_found": "Plik nie dotarł do magazynu. Spróbuj ponownie."
+        }
+      },
+      "cover": {
+        "change": "Zmień zdjęcie w tle",
+        "add": "Dodaj zdjęcie w tle",
+        "remove": "Usuń tło",
+        "removing": "Usuwanie tła…",
+        "errors": {
+          "invalid_cover": "Nie udało się ustawić tego tła. Wgraj je ponownie."
         }
       }
     }
@@ -391,16 +408,13 @@
   "PublicProfile": {
     "description": "Profil {name} na {brand}",
     "avatarAlt": "Zdjęcie profilowe {name}",
-    "scopeBadge": "Zakres",
-    "scopeNote": "Profil zawiera zdjęcie, nazwę, adres, nagłówek, siedzibę i sekcję o nas. Galerie realizacji dojdą wkrótce.",
     "editProfile": "Edytuj profil",
     "ownerScopeNote": "Kliknij „Edytuj profil”, aby zmieniać dane bezpośrednio na profilu. Każde pole zapisuje się, gdy je opuścisz.",
-    "emptyStateTitle": "Projekty nie są jeszcze częścią produktu",
-    "emptyStateBody": "Profil to zdjęcie, nazwa i adres. Gdy powstaną galerie, to tutaj się znajdą.",
     "saveProfile": "Zapisz",
     "savedProfile": "Zapisano profil",
     "locationsHeading": "Siedziba i obszar działania",
-    "bioHeading": "O nas"
+    "bioHeading": "O nas",
+    "coverAlt": "Zdjęcie w tle profilu {name}"
   },
   "AccountMenu": {
     "menuLabel": "Menu konta",
@@ -419,5 +433,94 @@
     "label": "Wybór języka",
     "pl": "Polski",
     "en": "English"
+  },
+  "Works": {
+    "heading": "Realizacje",
+    "count": "{count} z {max}",
+    "add": "Dodaj realizację",
+    "limitReached": "Limit {max} realizacji. Usuń jedną, aby dodać nową.",
+    "emptyTitle": "Jeszcze bez realizacji",
+    "emptyBody": "Włącz edycję i dodaj pierwszą plusem. Nazwa i jedno zdjęcie wystarczą na start.",
+    "photoAlt": "{name}, zdjęcie {index}",
+    "card": {
+      "investor": "Inwestor",
+      "developer": "Deweloper",
+      "r360Uploaded": "R360 wgrany",
+      "r360None": "Bez R360",
+      "edit": "Edytuj",
+      "delete": "Usuń",
+      "confirmDelete": "Usunąć razem ze zdjęciami?",
+      "confirmYes": "Tak, usuń",
+      "confirmNo": "Nie",
+      "deleting": "Usuwanie…",
+      "enlarge": "Powiększ zdjęcie {index} z {count}: {name}",
+      "deleteFailed": "Nie udało się usunąć. Spróbuj ponownie."
+    },
+    "form": {
+      "newTitle": "Nowa realizacja",
+      "editTitle": "Edytuj realizację",
+      "optional": "opcjonalnie",
+      "name": {
+        "label": "Nazwa",
+        "placeholder": "np. Osiedle Nowe Żerniki, etap II"
+      },
+      "investor": {
+        "label": "Inwestor",
+        "placeholder": "Kto zamówił projekt"
+      },
+      "developer": {
+        "label": "Deweloper",
+        "placeholder": "Kto buduje i sprzedaje"
+      },
+      "photos": {
+        "label": "Zdjęcia",
+        "rule": "od 1 do 3, JPEG, PNG lub WebP do 10 MB",
+        "hint": "Zdjęcie główne otwiera kartę realizacji i jest w niej największe. Pierwsze dodane staje się głównym, dopóki nie wskażesz innego.",
+        "add": "Dodaj zdjęcie",
+        "addAnother": "Dodaj kolejne",
+        "required": "wymagane",
+        "main": "Główne",
+        "setMain": "Ustaw jako główne",
+        "remove": "Usuń zdjęcie",
+        "uploading": "Wysyłanie…"
+      },
+      "save": "Zapisz realizację",
+      "saveChanges": "Zapisz zmiany",
+      "saving": "Zapisywanie…",
+      "cancel": "Anuluj",
+      "errors": {
+        "nameRequired": "Podaj nazwę realizacji.",
+        "nameInvalid": "Nazwa jest za długa albo zawiera niedozwolone znaki.",
+        "partyInvalid": "Tekst jest za długi albo zawiera niedozwolone znaki.",
+        "photoRequired": "Dodaj przynajmniej jedno zdjęcie.",
+        "uploading": "Poczekaj, aż zdjęcia się wgrają.",
+        "limit": "Limit {max} realizacji. Usuń jedną, aby dodać nową.",
+        "invalidImage": "Jedno ze zdjęć nie jest już dostępne. Wgraj je ponownie.",
+        "rateLimited": "Zbyt wiele zapisów. Odczekaj chwilę i spróbuj ponownie.",
+        "generic": "Zapis nie powiódł się. Spróbuj ponownie.",
+        "duplicatePhoto": "To zdjęcie jest już na liście.",
+        "invalidArchive": "Archiwum R360 nie jest już dostępne. Wgraj je ponownie."
+      },
+      "r360": {
+        "label": "Render 360",
+        "rule": "archiwum zip z klatkami orbity, bez limitu rozmiaru",
+        "hint": "Widoczny tylko dla Ciebie. Przeglądarka 360 dla gości powstanie w osobnym kroku.",
+        "add": "Dodaj zip R360",
+        "uploading": "Wysyłanie…",
+        "uploaded": "Wgrany",
+        "attached": "Archiwum R360",
+        "remove": "Usuń",
+        "uploadingPercent": "Wysyłanie… {percent}%",
+        "cancel": "Przerwij"
+      }
+    },
+    "lightbox": {
+      "label": "Podgląd zdjęcia",
+      "close": "Zamknij podgląd",
+      "prev": "Poprzednie zdjęcie",
+      "next": "Następne zdjęcie",
+      "counter": "{index} / {count}",
+      "hint": "Esc zamyka, strzałki przewijają"
+    }
   }
 }

@@ -4,6 +4,7 @@ import { normalizeHandle } from "@/lib/handle";
 import { getProfile, type ProfileReadDeps } from "@/lib/profile";
 import { MONOGRAM_CARD } from "@/lib/monogram";
 import { resolveHandle } from "@/lib/profile-handle";
+import { listWorks } from "@/lib/works";
 
 // The public face of a profile (#18): what /[handle] renders for an
 // anonymous visitor and what its <head> says. Read-only composition — the
@@ -17,10 +18,22 @@ export interface PublicProfile {
   /** profiles.display_name — a live handle always has a row (setHandle seeds it). */
   displayName: string;
   avatar: { url512: string; url128: string } | null;
-  // #72 / A12: the sections, as stored — null and [] mean "none".
+  // #72 / A12: the cover's two widths, and the sections as stored — null
+  // and [] mean "none".
+  cover: { url1600: string; url480: string } | null;
   headline: string | null;
   locations: string[];
   bio: string | null;
+  /** The works with their photos — no file ids, no R360 state (#72). */
+  works: PublicWork[];
+}
+
+export interface PublicWork {
+  id: string;
+  name: string;
+  investor: string | null;
+  developer: string | null;
+  images: { url1600: string; url480: string }[];
 }
 
 export type PublicProfileLookup =
@@ -57,6 +70,7 @@ export async function loadPublicProfile(
   if (resolution.kind !== "profile") return resolution;
 
   const view = await getProfile({ ...deps, userId: resolution.userId });
+  const works = await listWorks({ ...deps, userId: resolution.userId });
   // display_name is NOT NULL, so a null here means the row is gone: the
   // account was deleted (cascade) between the two reads. A profile that no
   // longer exists is a 404, not an error.
@@ -74,9 +88,22 @@ export async function loadPublicProfile(
       avatar: view.avatar
         ? { url512: view.avatar.url512, url128: view.avatar.url128 }
         : null,
+      cover: view.cover
+        ? { url1600: view.cover.url1600, url480: view.cover.url480 }
+        : null,
       headline: view.headline,
       locations: view.locations,
       bio: view.bio,
+      works: works.map((work) => ({
+        id: work.id,
+        name: work.name,
+        investor: work.investor,
+        developer: work.developer,
+        images: work.images.map(({ url1600, url480 }) => ({
+          url1600,
+          url480,
+        })),
+      })),
     },
   };
 }

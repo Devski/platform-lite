@@ -487,5 +487,7 @@ export const files = pgTable(
     // Postgres does not index FK source columns; the replacement cascade
     // scans by parent.
     index("files_parent_file_id_idx").on(table.parentFileId),
+    // #72: freeing a set asks, per key, whether another row still names it.
+    index("files_object_key_idx").on(table.objectKey),
   ],
 );

@@ -3,19 +3,21 @@ import { hashPassword } from "better-auth/crypto";
 import { eq } from "drizzle-orm";
 import sharp from "sharp";
 import type { Database } from "@/db/client";
-import { accounts, profiles, users } from "@/db/schema";
+import { accounts, profiles, users, works } from "@/db/schema";
 import {
-  confirmAvatarUpload,
-  presignAvatarUpload,
-  type AvatarDeps,
-} from "@/lib/avatar";
+  confirmImageUpload,
+  presignImageUpload,
+  type ImageUploadDeps,
+} from "@/lib/image-upload";
 import { checkHandle, handleBaseFrom } from "@/lib/handle";
 import {
   setAvatar,
+  setCover,
   updateDisplayName,
   updateProfileSections,
 } from "@/lib/profile";
 import { HandleError, setHandle } from "@/lib/profile-handle";
+import { createWork } from "@/lib/works";
 import type { FileStorage } from "@/lib/storage";
 
 // pnpm db:seed (#17): a dozen-plus sample profiles — accounts, display names,
@@ -58,6 +60,20 @@ export interface SeedProfile {
   headline: string;
   locations: string[];
   bio: string;
+  // #72: every second profile gets a generated cover, so the pages show
+  // both shapes of the card.
+  cover: boolean;
+  // #72 / A12: works with generated render photos, for the profiles that
+  // have them; the number of photos per work varies so both card shapes
+  // (one photo, main plus side ones) show up.
+  works: SeedWork[];
+}
+
+export interface SeedWork {
+  name: string;
+  investor?: string;
+  developer?: string;
+  photos: number;
 }
 
 interface SeedEntry {
@@ -65,6 +81,7 @@ interface SeedEntry {
   headline: string;
   locations: string[];
   bio: string;
+  works?: SeedWork[];
 }
 
 // Polish studios and 3D creators, several with diacritics and mixed forms so
@@ -78,6 +95,14 @@ const SEED_ENTRIES: readonly SeedEntry[] = [
     headline:
       "Wizualizacje architektoniczne dla konkursów i pozwoleń. Warszawa, od 2014 roku.",
     locations: ["Warszawa", "mazowieckie"],
+    works: [
+      {
+        name: "Muzeum Sztuki Nowoczesnej, konkurs",
+        investor: "Miasto Stołeczne Warszawa",
+        photos: 3,
+      },
+      { name: "Dom przy Skarpie", photos: 1 },
+    ],
     bio: "Pracownia założona przez dwoje architektów, którzy woleli rysować światło niż liczyć zbrojenie. Robimy widoki zewnętrzne, wnętrza i plansze konkursowe.\n\nPracujemy głównie z biurami architektonicznymi na etapie koncepcji i pozwolenia na budowę. Terminy liczymy w dniach roboczych.",
   },
   {
@@ -85,6 +110,19 @@ const SEED_ENTRIES: readonly SeedEntry[] = [
     headline:
       "Wizualizacje architektoniczne i animacje 3D dla deweloperów. Od koncepcji po materiały sprzedażowe.",
     locations: ["Warszawa", "mazowieckie", "cała Polska"],
+    works: [
+      {
+        name: "Osiedle Nowe Żerniki, etap II",
+        investor: "Archicom S.A.",
+        developer: "Archicom S.A.",
+        photos: 3,
+      },
+      {
+        name: "Kamienica przy Ząbkowskiej 12",
+        investor: "Fundacja Praskiej Kamienicy",
+        photos: 2,
+      },
+    ],
     bio: "Pracownia z warszawskiej Pragi, od 2016 roku. Robimy wizualizacje zewnętrzne i wnętrz, animacje przelotów oraz orbity 360 gotowe do makiet sprzedażowych.\n\nPracujemy z deweloperami i biurami architektonicznymi na etapie koncepcji, pozwolenia i sprzedaży. Trzy osoby, własna farma renderów.",
   },
   {
@@ -99,6 +137,13 @@ const SEED_ENTRIES: readonly SeedEntry[] = [
     headline:
       "Pełna dokumentacja 3D dla inwestycji mieszkaniowych: model, wizualizacje, animacja.",
     locations: ["Warszawa", "Kraków", "Wrocław"],
+    works: [
+      {
+        name: "Apartamenty Wilanowska",
+        developer: "Dom Development S.A.",
+        photos: 2,
+      },
+    ],
     bio: "Biuro projektowe z zespołem wizualizacji w środku, więc model powstaje raz i służy do wszystkiego: rysunków, wizualizacji i animacji sprzedażowej.\n\nObsługujemy inwestycje wielorodzinne w największych miastach. Dla deweloperów przygotowujemy komplet materiałów do biura sprzedaży.",
   },
   {
@@ -113,6 +158,13 @@ const SEED_ENTRIES: readonly SeedEntry[] = [
     headline:
       "Wizualizacje i animacje dla architektury krajobrazu i przestrzeni publicznych.",
     locations: ["Gdańsk", "Gdynia", "Sopot", "pomorskie"],
+    works: [
+      {
+        name: "Park Reagana, nowe nabrzeże",
+        investor: "Miasto Gdańsk",
+        photos: 1,
+      },
+    ],
     bio: "Parki, place, bulwary i podwórka. Roślinność modeluję gatunkami, nie plamami, więc widok z projektu wygląda jak to, co wyrośnie.\n\nWspółpracuję z pracowniami krajobrazu i z urzędami miast przy konsultacjach społecznych.",
   },
   {
@@ -169,7 +221,7 @@ const SEED_ENTRIES: readonly SeedEntry[] = [
   },
 ];
 
-function seedProfile(entry: SeedEntry): SeedProfile {
+function seedProfile(entry: SeedEntry, index: number): SeedProfile {
   const handle = handleBaseFrom(entry.name);
   if (!handle) {
     throw new Error(`seed: "${entry.name}" yields no usable handle`);
@@ -181,6 +233,8 @@ function seedProfile(entry: SeedEntry): SeedProfile {
     headline: entry.headline,
     locations: entry.locations,
     bio: entry.bio,
+    cover: index % 2 === 0,
+    works: entry.works ?? [],
   };
 }
 
@@ -252,6 +306,46 @@ export async function avatarPng(displayName: string): Promise<Buffer> {
   return sharp(Buffer.from(svg)).png().toBuffer();
 }
 
+// #72: a 1600×533 (3:1) PNG — a diagonal two-tone field in the name's hue,
+// distinct enough from the avatar's flat square that a cover reads as one.
+const COVER_WIDTH = 1600;
+const COVER_HEIGHT = 533;
+
+export async function coverPng(displayName: string): Promise<Buffer> {
+  const digest = createHash("sha256").update(displayName).digest();
+  const hue = digest.readUInt16BE(0) % 360;
+  const dark = hslToHex(hue, 0.4, 0.3);
+  const light = hslToHex((hue + 30) % 360, 0.35, 0.55);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${COVER_WIDTH}" height="${COVER_HEIGHT}">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${dark}"/><stop offset="1" stop-color="${light}"/></linearGradient></defs>
+  <rect width="100%" height="100%" fill="url(#g)"/>
+  <polygon points="${COVER_WIDTH * 0.55},0 ${COVER_WIDTH},0 ${COVER_WIDTH},${COVER_HEIGHT} ${COVER_WIDTH * 0.4},${COVER_HEIGHT}" fill="#ffffff" fill-opacity="0.08"/>
+</svg>`;
+  return sharp(Buffer.from(svg)).png().toBuffer();
+}
+
+// #72 / A12: a 1200×800 "render" — a gradient field in the work's hue with
+// a lighter block standing in for a building, numbered so the three photos
+// of one work differ.
+export async function renderPng(
+  workName: string,
+  index: number,
+): Promise<Buffer> {
+  const digest = createHash("sha256").update(workName).digest();
+  const hue = (digest.readUInt16BE(0) + index * 40) % 360;
+  const sky = hslToHex(hue, 0.3, 0.6);
+  const ground = hslToHex(hue, 0.25, 0.35);
+  const block = hslToHex(hue, 0.15, 0.8);
+  const left = 200 + index * 180;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${sky}"/><stop offset="1" stop-color="${ground}"/></linearGradient></defs>
+  <rect width="100%" height="100%" fill="url(#g)"/>
+  <rect x="${left}" y="260" width="520" height="420" fill="${block}" fill-opacity="0.9"/>
+  <rect x="${left + 60}" y="320" width="400" height="20" fill="#ffffff" fill-opacity="0.35"/>
+</svg>`;
+  return sharp(Buffer.from(svg)).png().toBuffer();
+}
+
 // ---- Seeding -------------------------------------------------------------
 
 export interface SeedDeps {
@@ -276,9 +370,18 @@ type CreateOutcome =
   | { kind: "skipped"; reason: "e-mail exists" | "handle taken" }
   // Ours from an earlier run — the seed's handle on the seed's e-mail — and
   // missing something this run can add: the photo (avatar_file_id NULL and
-  // a storage present now) or, since #72, the sections (headline NULL, as
-  // every account seeded before them is).
-  | { kind: "resumed"; userId: string; photo: boolean; sections: boolean };
+  // a storage present now), the cover likewise (#72, for the profiles that
+  // get one), or the sections (headline NULL, as every account seeded
+  // before them is).
+  | {
+      kind: "resumed";
+      userId: string;
+      photo: boolean;
+      cover: boolean;
+      sections: boolean;
+      /** #72: works configured for this profile, none in the database yet. */
+      works: boolean;
+    };
 
 // The account-row contract from the header, in one place: the users row and
 // its credential account exactly as Better Auth 1.7.2 leaves them after
@@ -321,6 +424,7 @@ async function createProfile(
       id: users.id,
       handle: profiles.handle,
       avatarFileId: profiles.avatarFileId,
+      coverFileId: profiles.coverFileId,
       headline: profiles.headline,
     })
     .from(users)
@@ -331,9 +435,29 @@ async function createProfile(
     // different one means someone registered the address, and it stays theirs.
     const ours = existing.handle === profile.handle;
     const photo = ours && existing.avatarFileId === null && canAddPhoto;
+    const cover =
+      ours && profile.cover && existing.coverFileId === null && canAddPhoto;
     const sections = ours && existing.headline === null;
-    if (photo || sections) {
-      return { kind: "resumed", userId: existing.id, photo, sections };
+    const hasWorks =
+      ours &&
+      profile.works.length > 0 &&
+      canAddPhoto &&
+      (
+        await db
+          .select({ id: works.id })
+          .from(works)
+          .where(eq(works.userId, existing.id))
+          .limit(1)
+      ).length === 0;
+    if (photo || cover || sections || hasWorks) {
+      return {
+        kind: "resumed",
+        userId: existing.id,
+        photo,
+        cover,
+        sections,
+        works: hasWorks,
+      };
     }
     return { kind: "skipped", reason: "e-mail exists" };
   }
@@ -374,22 +498,57 @@ function writeSections(
   );
 }
 
+// #72: a work's photos through the pipeline (purpose "work"), then the work
+// itself through createWork — the limit and the ownership checks included.
+async function addWorks(
+  deps: ImageUploadDeps,
+  profile: SeedProfile,
+): Promise<void> {
+  for (const work of profile.works) {
+    const imageFileIds: string[] = [];
+    for (let index = 0; index < work.photos; index++) {
+      const png = await renderPng(work.name, index);
+      const { stagingKey } = await presignImageUpload(deps, {
+        sizeBytes: png.length,
+        contentType: "image/png",
+      });
+      await deps.storage.putObject(stagingKey, png, "image/png");
+      const confirmed = await confirmImageUpload(deps, {
+        stagingKey,
+        purpose: "work",
+      });
+      imageFileIds.push(confirmed.original.fileId);
+    }
+    await createWork(deps, {
+      name: work.name,
+      investor: work.investor ?? "",
+      developer: work.developer ?? "",
+      imageFileIds,
+    });
+  }
+}
+
 // The #12 pipeline end to end, the seed standing in for the browser's PUT:
 // presign → put the bytes on the staging key → confirm (decode-verify,
 // variants, files rows) → point the profile at the original. Never a files
-// row or an object written by hand.
-async function uploadAvatar(
-  deps: AvatarDeps,
+// row or an object written by hand. One routine for both slots (#72).
+async function uploadImage(
+  deps: ImageUploadDeps,
+  purpose: "avatar" | "cover",
   displayName: string,
 ): Promise<void> {
-  const png = await avatarPng(displayName);
-  const { stagingKey } = await presignAvatarUpload(deps, {
+  const png =
+    purpose === "avatar"
+      ? await avatarPng(displayName)
+      : await coverPng(displayName);
+  const { stagingKey } = await presignImageUpload(deps, {
     sizeBytes: png.length,
     contentType: "image/png",
   });
   await deps.storage.putObject(stagingKey, png, "image/png");
-  const confirmed = await confirmAvatarUpload(deps, { stagingKey });
-  await setAvatar(deps, confirmed.original.fileId);
+  const confirmed = await confirmImageUpload(deps, { stagingKey, purpose });
+  if (purpose === "avatar") await setAvatar(deps, confirmed.original.fileId);
+  else await setCover(deps, confirmed.original.fileId);
 }
 
 /**
@@ -417,22 +576,35 @@ export async function seedProfiles(deps: SeedDeps): Promise<SeedSummary> {
         await writeSections(db, outcome.userId, profile);
         added.push("sections");
       }
-      if (outcome.photo && storage) {
-        await uploadAvatar(
-          { db, storage, prefix, userId: outcome.userId },
-          profile.displayName,
-        );
-        summary.photos.push(handle);
-        added.push("photo");
+      // Each on its own: a profile that already has its photo and every
+      // cover it was planned to have, but no works, still gets the works
+      // (step 6 found them skipped together with the images).
+      if (storage) {
+        const imageDeps = { db, storage, prefix, userId: outcome.userId };
+        if (outcome.photo) {
+          await uploadImage(imageDeps, "avatar", profile.displayName);
+          summary.photos.push(handle);
+          added.push("photo");
+        }
+        if (outcome.cover) {
+          await uploadImage(imageDeps, "cover", profile.displayName);
+          added.push("cover");
+        }
+        if (outcome.works) {
+          await addWorks(imageDeps, profile);
+          added.push("works");
+        }
       }
       log(`resumed  ${handle}  ${added.join(", ")} added`);
       continue;
     }
     if (storage) {
-      await uploadAvatar(
-        { db, storage, prefix, userId: outcome.userId },
-        profile.displayName,
-      );
+      const imageDeps = { db, storage, prefix, userId: outcome.userId };
+      await uploadImage(imageDeps, "avatar", profile.displayName);
+      if (profile.cover) {
+        await uploadImage(imageDeps, "cover", profile.displayName);
+      }
+      await addWorks(imageDeps, profile);
       summary.photos.push(handle);
     }
     summary.created.push(handle);

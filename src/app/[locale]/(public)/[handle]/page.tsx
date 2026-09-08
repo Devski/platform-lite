@@ -16,8 +16,8 @@ import {
   type PublicProfileLookup,
 } from "@/lib/public-profile";
 import { getStorage, keyPrefix } from "@/lib/storage";
+import { listWorks } from "@/lib/works";
 import { Avatar } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import { ButtonLink } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Footer } from "@/components/ui/footer";
@@ -27,7 +27,14 @@ import { MobileMenu } from "@/components/ui/mobile-menu";
 import { Plaque } from "@/components/ui/plaque";
 import { TopBar } from "@/components/ui/top-bar";
 import { OwnerProfileView } from "./owner-profile-view";
-import { BioView, HeadlineView, LocationsView } from "./profile-sections";
+import { WorksGallery } from "./works-gallery";
+import {
+  BioView,
+  CARD_BODY_CLASS,
+  CoverView,
+  HeadlineView,
+  LocationsView,
+} from "./profile-sections";
 
 // Whether the CURRENT viewer owns this profile (screen 6 vs screen 2). Fails
 // closed like every other session read here: a session that cannot be
@@ -182,7 +189,15 @@ export default async function PublicProfilePage({
   if (await isOwnerViewing(profile.userId)) {
     return (
       <>
-        <OwnerProfileView profile={profile} />
+        <OwnerProfileView
+          profile={profile}
+          works={await listWorks({
+            db: getDb(),
+            storage: { publicUrl: (key) => getStorage().publicUrl(key) },
+            prefix: keyPrefix(),
+            userId: profile.userId,
+          })}
+        />
         <Footer maxWidth="measure-page" />
       </>
     );
@@ -190,6 +205,7 @@ export default async function PublicProfilePage({
 
   const t = await getTranslations("PublicProfile");
   const tSession = await getTranslations("Session");
+  const tWorks = await getTranslations("Works");
 
   // The bar's actions, rendered twice by TopBar: as the row from sm up, and
   // inside the hamburger's panel below it. A 360px screen leaves the bar
@@ -221,48 +237,67 @@ export default async function PublicProfilePage({
         mobileMenu={<MobileMenu>{actions}</MobileMenu>}
       />
       <main className="mx-auto flex max-w-(--measure-page) flex-col gap-(--sp-5) px-(--sp-5) pt-(--sp-8) pb-(--sp-10) sm:gap-(--sp-6) sm:px-(--sp-7) sm:pt-(--sp-12) sm:pb-(--sp-14)">
-        <Card as="article" padding="lg" className="flex flex-col gap-(--sp-7)">
-          {/* Stacked below sm. A 128px avatar plus a display-size name has
+        <Card as="article" padding="none">
+          {profile.cover && (
+            <div className="overflow-hidden rounded-t-md">
+              <CoverView cover={profile.cover} name={profile.displayName} />
+            </div>
+          )}
+          <div className={CARD_BODY_CLASS}>
+            {/* Stacked below sm. A 128px avatar plus a display-size name has
               no way to share the 248px a 360px phone leaves inside this
               card, and the name was the half that ran off the right edge;
               given the full width instead it wraps like text. The size
               itself needs no breakpoint — --fs-display is a clamp() that has
               already stepped 48px down to 32px by the time a phone reads
               it. From sm up this is the handoff's row again. */}
-          <div className="flex flex-col gap-(--sp-5) sm:flex-row sm:flex-wrap sm:items-center sm:gap-(--sp-9)">
-            {/* Pre-optimized WebP served from storage (G2/G5) — next/image
+            <div
+              className={`flex flex-col gap-(--sp-5) sm:flex-row sm:flex-wrap sm:gap-(--sp-9) ${
+                profile.cover ? "sm:items-start" : "sm:items-center"
+              }`}
+            >
+              {/* Pre-optimized WebP served from storage (G2/G5) — next/image
                 would only re-proxy an already-final asset from a runtime-
                 configured host, as the settings page notes. */}
-            <Avatar
-              src={profile.avatar?.url128 ?? null}
-              name={profile.displayName}
-              size={128}
-              alt={t("avatarAlt", { name: profile.displayName })}
-              className="shrink-0 [--avatar-size:96px] sm:[--avatar-size:128px]"
-            />
-            <div className="flex w-full min-w-0 flex-col gap-(--sp-5) sm:flex-1">
-              {/* break-words is the guarantee, not the layout: a display
+              {/* With a cover the avatar straddles its lower edge, half of it
+                over the photo, ringed by the card so it reads on any photo. */}
+              <Avatar
+                src={profile.avatar?.url128 ?? null}
+                name={profile.displayName}
+                size={128}
+                alt={t("avatarAlt", { name: profile.displayName })}
+                className={`shrink-0 [--avatar-size:96px] sm:[--avatar-size:128px] ${
+                  profile.cover
+                    ? "-mt-(--sp-14) ring-4 ring-(--surface-card) sm:-mt-(--sp-16)"
+                    : ""
+                }`}
+              />
+              <div className="flex w-full min-w-0 flex-col gap-(--sp-5) sm:flex-1">
+                {/* break-words is the guarantee, not the layout: a display
                   name is one 80-character field and may hold a single word
                   longer than any column we can give it. */}
-              <h1 className="type-display break-words text-(--text-strong)">
-                {profile.displayName}
-              </h1>
-              <HeadlineView headline={profile.headline} />
+                <h1 className="type-display break-words text-(--text-strong)">
+                  {profile.displayName}
+                </h1>
+                <HeadlineView headline={profile.headline} />
+              </div>
             </div>
-          </div>
-          {/* #72 / A12: the sections, each absent when the profile has
+            {/* #72 / A12: the sections, each absent when the profile has
               nothing there — the same components the owner sees. */}
-          <LocationsView locations={profile.locations} />
-          <BioView bio={profile.bio} />
-        </Card>
-        <Card padding="sm" tone="sunken">
-          <div className="flex flex-wrap items-center gap-(--sp-4)">
-            <Badge uppercase>{t("scopeBadge")}</Badge>
-            <span className="type-sm text-(--text-muted)">
-              {t("scopeNote")}
-            </span>
+            <LocationsView locations={profile.locations} />
+            <BioView bio={profile.bio} />
           </div>
         </Card>
+        {/* #72 / A12: the works, when there are any — a visitor sees the
+            cards and the photo overlay, never the R360 state. */}
+        {profile.works.length > 0 && (
+          <section className="flex flex-col gap-(--sp-5)">
+            <h2 className="type-h2 text-(--text-strong)">
+              {tWorks("heading")}
+            </h2>
+            <WorksGallery works={profile.works} />
+          </section>
+        )}
       </main>
       <div className="mx-auto flex max-w-(--measure-page) justify-center px-(--sp-5) py-(--sp-7) sm:px-(--sp-7) sm:py-(--sp-8)">
         <Plaque

@@ -39,6 +39,8 @@ import {
 //
 // Since #58 the button lives on the owner's own profile page, behind the
 // pencil in the top bar — there is no profile-settings screen any more.
+// Since #72 the routes are the purpose-agnostic /api/uploads/*; the body
+// names the purpose on confirm.
 
 if (process.env.CI && !process.env.DATABASE_URL_TEST?.trim()) {
   throw new Error(
@@ -132,7 +134,7 @@ test("the button presigns, PUTs the bytes where it was told, then confirms", asy
   const confirmRequests: Request[] = [];
   const assignRequests: Request[] = [];
 
-  await page.route("**/api/avatar/presign", (route) => {
+  await page.route("**/api/uploads/presign", (route) => {
     presignRequests.push(route.request());
     return json(200, { stagingKey: STAGING_KEY, uploadUrl: UPLOAD_URL })(route);
   });
@@ -140,7 +142,7 @@ test("the button presigns, PUTs the bytes where it was told, then confirms", asy
     uploads.push(route.request());
     return route.fulfill({ status: 200, body: "" });
   });
-  await page.route("**/api/avatar/confirm", (route) => {
+  await page.route("**/api/uploads/confirm", (route) => {
     confirmRequests.push(route.request());
     return json(200, { original: { fileId: FILE_ID } })(route);
   });
@@ -181,22 +183,55 @@ test("the button presigns, PUTs the bytes where it was told, then confirms", asy
   expect(confirmRequests).toHaveLength(1);
   expect(confirmRequests[0].postDataJSON()).toEqual({
     stagingKey: STAGING_KEY,
+    purpose: "avatar",
   });
 
   // And the profile is pointed at the file confirm reported back.
   expect(assignRequests[0].postDataJSON()).toEqual({ fileId: FILE_ID });
 });
 
+test("the cover goes through the same chain, confirmed as a cover and assigned to the cover slot (#72)", async () => {
+  const file = await pngBytes();
+  const confirmRequests: Request[] = [];
+  const assignRequests: Request[] = [];
+  await page.route(
+    "**/api/uploads/presign",
+    json(200, { stagingKey: STAGING_KEY, uploadUrl: UPLOAD_URL }),
+  );
+  await page.route(`**${UPLOAD_URL}`, (route) =>
+    route.fulfill({ status: 200, body: "" }),
+  );
+  await page.route("**/api/uploads/confirm", (route) => {
+    confirmRequests.push(route.request());
+    return json(200, { original: { fileId: FILE_ID } })(route);
+  });
+  await page.route("**/api/profile/cover", (route) => {
+    assignRequests.push(route.request());
+    return json(200, {})(route);
+  });
+
+  await page
+    .locator("#owner-cover-file")
+    .setInputFiles({ name: "cover.png", mimeType: "image/png", buffer: file });
+
+  await expect.poll(() => assignRequests.length).toBe(1);
+  expect(confirmRequests[0].postDataJSON()).toEqual({
+    stagingKey: STAGING_KEY,
+    purpose: "cover",
+  });
+  expect(assignRequests[0].postDataJSON()).toEqual({ fileId: FILE_ID });
+});
+
 test("a failed upload is not confirmed", async () => {
   let confirmed = false;
   await page.route(
-    "**/api/avatar/presign",
+    "**/api/uploads/presign",
     json(200, { stagingKey: STAGING_KEY, uploadUrl: UPLOAD_URL }),
   );
   await page.route(`**${UPLOAD_URL}`, (route) =>
     route.fulfill({ status: 500, body: "" }),
   );
-  await page.route("**/api/avatar/confirm", (route) => {
+  await page.route("**/api/uploads/confirm", (route) => {
     confirmed = true;
     return json(200, { original: { fileId: FILE_ID } })(route);
   });
@@ -218,7 +253,7 @@ test("a failed upload is not confirmed", async () => {
 
 test("a refused presign stops before anything is uploaded", async () => {
   let uploaded = false;
-  await page.route("**/api/avatar/presign", json(429, {}));
+  await page.route("**/api/uploads/presign", json(429, {}));
   await page.route(`**${UPLOAD_URL}`, (route) => {
     uploaded = true;
     return route.fulfill({ status: 200, body: "" });
@@ -238,7 +273,7 @@ test("a refused presign stops before anything is uploaded", async () => {
 
 test("a file the browser rejects never reaches the server", async () => {
   let presigned = false;
-  await page.route("**/api/avatar/presign", (route) => {
+  await page.route("**/api/uploads/presign", (route) => {
     presigned = true;
     return json(200, { stagingKey: STAGING_KEY, uploadUrl: UPLOAD_URL })(route);
   });

@@ -7,12 +7,12 @@ import { expect, test } from "@playwright/test";
 test("the avatar routes refuse an unauthenticated caller with 401", async ({
   request,
 }) => {
-  const presign = await request.post("/api/avatar/presign", {
+  const presign = await request.post("/api/uploads/presign", {
     data: { sizeBytes: 1234, contentType: "image/png" },
   });
   expect(presign.status()).toBe(401);
 
-  const confirm = await request.post("/api/avatar/confirm", {
+  const confirm = await request.post("/api/uploads/confirm", {
     data: { stagingKey: "staging/nobody/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
   });
   expect(confirm.status()).toBe(401);

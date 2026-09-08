@@ -28,7 +28,7 @@ const WARMUP_PATHS = [
   "/api/handle/availability?handle=warmup",
   "/api/profile",
   "/api/profile/handle",
-  "/api/avatar/presign",
+  "/api/uploads/presign",
 ];
 
 export default async function globalSetup(config: FullConfig) {

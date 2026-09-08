@@ -206,18 +206,9 @@
         }
       },
       "avatar": {
-        "uploading": "Uploading and processing…",
+        "change": "Change profile photo",
         "errors": {
-          "file_type": "That format is not supported — choose JPEG, PNG or WebP.",
-          "file_size": "The file needs to be between 1 byte and 10 MB.",
-          "upload_failed": "The file upload failed. Try again.",
-          "quota_exceeded": "No space left: this photo would exceed your 1 GB limit.",
-          "too_large": "The photo is too large (10 MB and 64 megapixels are the limits).",
-          "not_an_image": "This file does not look like a valid image.",
-          "unsupported_format": "That format is not supported — choose JPEG, PNG or WebP.",
-          "invalid_avatar": "Setting this photo failed. Upload it again.",
-          "rate_limited": "Too many attempts. Wait a moment and try again.",
-          "generic": "Something went wrong. Try again."
+          "invalid_avatar": "Setting this photo failed. Upload it again."
         }
       },
       "handle": {
@@ -253,6 +244,32 @@
           "invalid": "The text is too long or contains characters that are not allowed.",
           "rateLimited": "Too many saves. Wait a moment and try again.",
           "generic": "Saving failed. Try again."
+        }
+      },
+      "upload": {
+        "uploading": "Uploading and processing…",
+        "errors": {
+          "file_type": "That format is not supported — choose JPEG, PNG or WebP.",
+          "file_size": "The file needs to be between 1 byte and 10 MB.",
+          "upload_failed": "The file upload failed. Try again.",
+          "quota_exceeded": "No space left: this photo would exceed your 1 GB limit.",
+          "too_large": "The photo is too large (10 MB and 64 megapixels are the limits).",
+          "not_an_image": "This file does not look like a valid image.",
+          "unsupported_format": "That format is not supported — choose JPEG, PNG or WebP.",
+          "rate_limited": "Too many attempts. Wait a moment and try again.",
+          "generic": "Something went wrong. Try again.",
+          "archive_type": "That is not a zip archive.",
+          "archive_size": "The archive needs to be between 1 byte and 5 GB.",
+          "not_found": "The file did not reach storage. Try again."
+        }
+      },
+      "cover": {
+        "change": "Change cover photo",
+        "add": "Add a cover photo",
+        "remove": "Remove cover",
+        "removing": "Removing the cover…",
+        "errors": {
+          "invalid_cover": "Setting this cover failed. Upload it again."
         }
       }
     }
@@ -391,16 +408,13 @@
   "PublicProfile": {
     "description": "{name}'s profile on {brand}",
     "avatarAlt": "{name}'s profile photo",
-    "scopeBadge": "Scope",
-    "scopeNote": "The profile has a photo, a name, an address, a headline, a location and an about section. Project galleries are coming soon.",
     "editProfile": "Edit profile",
     "ownerScopeNote": "Click “Edit profile” to change things right on the profile. Each field saves when you leave it.",
-    "emptyStateTitle": "Projects aren't part of the product yet",
-    "emptyStateBody": "The profile is a photo, a name and an address. Once galleries exist, they'll live here.",
     "saveProfile": "Save",
     "savedProfile": "Profile saved",
     "locationsHeading": "Based in and working across",
-    "bioHeading": "About"
+    "bioHeading": "About",
+    "coverAlt": "{name}'s cover photo"
   },
   "AccountMenu": {
     "menuLabel": "Account menu",
@@ -419,5 +433,94 @@
     "label": "Language selection",
     "pl": "Polski",
     "en": "English"
+  },
+  "Works": {
+    "heading": "Works",
+    "count": "{count} of {max}",
+    "add": "Add a work",
+    "limitReached": "The limit is {max} works. Remove one to add another.",
+    "emptyTitle": "No works yet",
+    "emptyBody": "Switch on editing and add the first one with the plus. A name and one photo are enough to start.",
+    "photoAlt": "{name}, photo {index}",
+    "card": {
+      "investor": "Investor",
+      "developer": "Developer",
+      "r360Uploaded": "R360 uploaded",
+      "r360None": "No R360",
+      "edit": "Edit",
+      "delete": "Delete",
+      "confirmDelete": "Delete it with its photos?",
+      "confirmYes": "Yes, delete",
+      "confirmNo": "No",
+      "deleting": "Deleting…",
+      "enlarge": "Enlarge photo {index} of {count}: {name}",
+      "deleteFailed": "Deleting failed. Try again."
+    },
+    "form": {
+      "newTitle": "New work",
+      "editTitle": "Edit work",
+      "optional": "optional",
+      "name": {
+        "label": "Name",
+        "placeholder": "e.g. Nowe Żerniki estate, stage II"
+      },
+      "investor": {
+        "label": "Investor",
+        "placeholder": "Who commissioned the project"
+      },
+      "developer": {
+        "label": "Developer",
+        "placeholder": "Who builds and sells"
+      },
+      "photos": {
+        "label": "Photos",
+        "rule": "1 to 3, JPEG, PNG or WebP up to 10 MB",
+        "hint": "The main photo opens the work's card and is the largest on it. The first one added is main until you pick another.",
+        "add": "Add a photo",
+        "addAnother": "Add another",
+        "required": "required",
+        "main": "Main",
+        "setMain": "Set as main",
+        "remove": "Remove photo",
+        "uploading": "Uploading…"
+      },
+      "save": "Save work",
+      "saveChanges": "Save changes",
+      "saving": "Saving…",
+      "cancel": "Cancel",
+      "errors": {
+        "nameRequired": "Give the work a name.",
+        "nameInvalid": "The name is too long or contains characters that are not allowed.",
+        "partyInvalid": "The text is too long or contains characters that are not allowed.",
+        "photoRequired": "Add at least one photo.",
+        "uploading": "Wait for the photos to finish uploading.",
+        "limit": "The limit is {max} works. Remove one to add another.",
+        "invalidImage": "One of the photos is no longer available. Upload it again.",
+        "rateLimited": "Too many saves. Wait a moment and try again.",
+        "generic": "Saving failed. Try again.",
+        "duplicatePhoto": "That photo is already on the list.",
+        "invalidArchive": "The R360 archive is no longer available. Upload it again."
+      },
+      "r360": {
+        "label": "Render 360",
+        "rule": "a zip archive with the orbit frames, no size limit",
+        "hint": "Visible only to you. A 360 viewer for visitors comes in a separate step.",
+        "add": "Add an R360 zip",
+        "uploading": "Uploading…",
+        "uploaded": "Uploaded",
+        "attached": "R360 archive",
+        "remove": "Remove",
+        "uploadingPercent": "Uploading… {percent}%",
+        "cancel": "Cancel"
+      }
+    },
+    "lightbox": {
+      "label": "Photo preview",
+      "close": "Close the preview",
+      "prev": "Previous photo",
+      "next": "Next photo",
+      "counter": "{index} / {count}",
+      "hint": "Esc closes, arrows move"
+    }
   }
 }

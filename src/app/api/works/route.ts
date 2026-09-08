@@ -5,14 +5,15 @@ import {
   rejectCrossSite,
   sessionUserId,
 } from "@/lib/api-route";
-import { presignAvatarSchema, presignAvatarUpload } from "@/lib/avatar";
 import { getDb } from "@/db/client";
 import { getStorage, keyPrefix } from "@/lib/storage";
-import { respondWithAvatarResult } from "../respond";
+import { workInputSchema } from "@/lib/work-schemas";
+import { createWork } from "@/lib/works";
+import { respondWithWorkResult } from "./respond";
 
-// Step one of the #12 avatar flow: authenticate, validate the A4 edge, hand
-// back a short-lived staging upload URL. Thin by design — the logic lives in
-// lib/avatar.ts, tested against the memory fake.
+// #72 / A12: add a work. The photos named in the body are confirmed
+// work-original files of the caller (lib/works checks); the ten-per-profile
+// limit is counted there too.
 
 export async function POST(request: Request) {
   const userId = await sessionUserId();
@@ -21,20 +22,18 @@ export async function POST(request: Request) {
   }
   const crossSite = rejectCrossSite(request);
   if (crossSite) return crossSite;
-  if (
-    !checkRateLimit(`avatar-presign:${userId}`, { windowSeconds: 60, max: 10 })
-  ) {
+  if (!checkRateLimit(`works:${userId}`, { windowSeconds: 60, max: 30 })) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
 
-  const input = await parseJsonBody(request, presignAvatarSchema);
+  const input = await parseJsonBody(request, workInputSchema);
   if (!input) {
     return NextResponse.json({ error: "invalid_request" }, { status: 400 });
   }
 
-  return respondWithAvatarResult(() =>
-    presignAvatarUpload(
-      { storage: getStorage(), db: getDb(), prefix: keyPrefix(), userId },
+  return respondWithWorkResult(() =>
+    createWork(
+      { db: getDb(), storage: getStorage(), prefix: keyPrefix(), userId },
       input,
     ),
   );

@@ -192,22 +192,29 @@ export interface FileStorage {
   putObject(key: string, body: Buffer, contentType: string): Promise<void>;
   getObject(key: string): Promise<Buffer>;
   // Size and type without the body — how an archive of any size is
-  // confirmed (A12): the app never reads it into memory. Declared here
-  // with #72; the implementation lands with its first caller (step 5).
-  headObject(key: string): Promise<{ sizeBytes: number; contentType: string }>;
+  // confirmed (A12): the app never reads it into memory (#72 step 5).
+  headObject(
+    key: string,
+  ): Promise<{ sizeBytes: number; contentType: string; etag: string }>;
+  // A copy inside the bucket — how a staged archive reaches its final key
+  // without passing through the app (#72 step 5).
+  copyObject(from: string, to: string, contentType: string): Promise<void>;
   deleteObject(key: string): Promise<void>;
   publicUrl(key: string): string; // stable, unsigned (G3)
 }
 
 // G2: content-addressed name → served with max-age=31536000, immutable.
-// Today's body (until #72 step 3):
-export function contentKey(hash: string, ext: string, prefix = ""): string {
-  return `${prefix}a/${hash}.${ext}`;
+// Since #72 the name sits under its owner — one object belongs to exactly
+// one account (§9); rows written before keep the `a/` key they record (#49),
+// which contentKey() still derives for them and nothing else.
+export function ownerKey(
+  userId: string,
+  hash: string,
+  ext: string,
+  prefix = "",
+): string {
+  return `${prefix}u/${userId}/${hash}.${ext}`;
 }
-// From #72 step 3 the name sits under its owner — one object belongs to
-// exactly one account (§9); rows written before keep the `a/` key they
-// record (#49):
-//   contentKey(userId, hash, ext, prefix) → `${prefix}u/${userId}/${hash}.${ext}`
 ```
 
 ---
@@ -375,6 +382,9 @@ export function contentKey(hash: string, ext: string, prefix = ""): string {
   parent; a variant hangs off its original by `parent_file_id`, which is how the dedup
   indexes tell the roles apart. The per-user sum of `size_bytes` = quota usage (A9; #69
   narrows it to originals).
+  An R360 archive is the one file the server never reads, so its identity is the checksum
+  storage computed on receipt: `files.sha256 = "md5-<etag>"` and the key
+  `u/<user id>/r360-<etag>.zip` (a single PUT's ETag is the body's MD5; #72 step 5).
   **An object has one owner** (decision of 08.09.2026): keys written since #72 are
   `u/<user id>/<sha256>.<ext>`, so identical bytes from two accounts are two objects and a
   work — or an account (#34) — is deleted by prefix. A bucket per user was ruled out:

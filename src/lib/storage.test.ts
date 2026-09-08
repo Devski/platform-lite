@@ -41,6 +41,42 @@ describe("memory storage (the G1 fake for dependent code)", () => {
     );
   });
 
+  it("answers headObject with size, type and the body's MD5, and copies privately (#72)", async () => {
+    const { storage, objects } = createMemoryStorage();
+    await storage.putObject(
+      "staging/u/k5.zip",
+      Buffer.from("zip!"),
+      "application/zip",
+      {
+        publicRead: true,
+      },
+    );
+    const head = await storage.headObject("staging/u/k5.zip");
+    expect(head).toMatchObject({
+      sizeBytes: 4,
+      contentType: "application/zip",
+    });
+    // MD5 of the body, as a single S3 PUT reports it.
+    expect(head.etag).toMatch(/^[0-9a-f]{32}$/);
+    expect((await storage.headObject("staging/u/k5.zip")).etag).toBe(head.etag);
+    await storage.copyObject(
+      "staging/u/k5.zip",
+      "u/x/r360-abc.zip",
+      "application/zip",
+    );
+    expect(objects.get("u/x/r360-abc.zip")).toEqual({
+      body: Buffer.from("zip!"),
+      contentType: "application/zip",
+      publicRead: false,
+    });
+    await expect(storage.headObject("nope")).rejects.toBeInstanceOf(
+      ObjectNotFoundError,
+    );
+    await expect(
+      storage.copyObject("nope", "x", "application/zip"),
+    ).rejects.toBeInstanceOf(ObjectNotFoundError);
+  });
+
   it("deletes idempotently", async () => {
     const { storage } = createMemoryStorage();
     await storage.putObject("a/k2.bin", Buffer.from("x"), "text/plain");
@@ -89,9 +125,9 @@ describe("S3 storage (offline: URL composition and signing)", () => {
     // The public address puts the bucket in the hostname, so a dot would land
     // the photo outside the provider's wildcard certificate. Failing at
     // construction beats emitting addresses no browser will load.
-    expect(() => createS3Storage({ ...config, bucket: "platform.dev" })).toThrow(
-      /must not contain a dot/,
-    );
+    expect(() =>
+      createS3Storage({ ...config, bucket: "platform.dev" }),
+    ).toThrow(/must not contain a dot/);
   });
 
   it("keeps the SIGNED path in path style while the public one is not", async () => {

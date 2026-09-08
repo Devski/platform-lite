@@ -1,7 +1,9 @@
 import type { ElementType, ComponentPropsWithoutRef } from "react";
 
 type CardOwnProps = {
-  padding?: "sm" | "default" | "lg";
+  /** "none" for a card whose first child bleeds to its edges (the cover
+   * photo, #72); the content below then pads itself. */
+  padding?: "none" | "sm" | "default" | "lg";
   /** "sunken" is the grey, recessed tone used for scope/notice rows. */
   tone?: "default" | "sunken";
   as?: ElementType;
@@ -16,6 +18,7 @@ type CardProps = CardOwnProps &
 // from the content twice; one stop buys back 8–16px without turning the
 // mobile card into a different component.
 const PADDING = {
+  none: "",
   sm: "p-(--sp-4) sm:p-(--sp-5)",
   default: "p-(--sp-7) sm:p-(--card-pad)",
   lg: "p-(--sp-9) sm:p-(--card-pad-lg)",
@@ -30,7 +33,8 @@ export function Card({
   className = "",
   ...rest
 }: CardProps) {
-  const bg = tone === "sunken" ? "bg-(--surface-sunken)" : "bg-(--surface-card)";
+  const bg =
+    tone === "sunken" ? "bg-(--surface-sunken)" : "bg-(--surface-card)";
   return (
     <Tag
       className={`rounded-md border border-(--border-hairline) ${bg} ${PADDING[padding]} ${className}`}

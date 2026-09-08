@@ -1,8 +1,8 @@
 import { verifyPassword } from "better-auth/crypto";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import sharp from "sharp";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { accounts, files, profiles, users } from "@/db/schema";
+import { accounts, files, profiles, users, works } from "@/db/schema";
 import { createTestDb, type TestDb } from "@/db/test-db";
 import { createAuth } from "@/lib/auth";
 import {
@@ -12,6 +12,7 @@ import {
 } from "@/lib/email";
 import { checkHandle, handleBaseFrom } from "@/lib/handle";
 import { createMemoryStorage, type FileStorage } from "@/lib/storage";
+import { listWorks } from "@/lib/works";
 import {
   avatarPng,
   SEED_PASSWORD,
@@ -30,6 +31,30 @@ import {
 const BASE_URL = "http://localhost:3000";
 const PREFIX = "devski/";
 const HANDLES = SEED_PROFILES.map((profile) => profile.handle);
+// #72: every second profile carries a generated cover — three more rows and
+// objects per covered profile, on top of the avatar's three.
+const COVERED = SEED_PROFILES.filter((profile) => profile.cover).map(
+  (profile) => profile.handle,
+);
+// #72 / A12: and every work photo is a set of three rows too.
+const rowsOf = (profile: (typeof SEED_PROFILES)[number]) =>
+  3 +
+  (profile.cover ? 3 : 0) +
+  profile.works.reduce((total, work) => total + work.photos * 3, 0);
+const IMAGE_ROWS = SEED_PROFILES.reduce(
+  (total, profile) => total + rowsOf(profile),
+  0,
+);
+const WITH_WORKS = SEED_PROFILES.filter(
+  (profile) => profile.works.length > 0,
+).map((profile) => profile.handle);
+const withCover = (handle: string, ...added: string[]) =>
+  `resumed  ${handle}  ${[
+    ...added,
+    ...(COVERED.includes(handle) ? ["cover"] : []),
+    ...(WITH_WORKS.includes(handle) ? ["works"] : []),
+  ].join(", ")} added`;
+const WORK_KINDS = ["work-original", "work-1600", "work-480"] as const;
 const SCRYPT_HASH_RE = /^[0-9a-f]+:[0-9a-f]+$/;
 
 let testDb: TestDb;
@@ -97,6 +122,8 @@ describe("SEED_PROFILES (the data)", () => {
     expect(SEED_PROFILES.some((p) => p.locations.includes("cała Polska"))).toBe(
       true,
     );
+    expect(COVERED.length).toBeGreaterThan(0);
+    expect(COVERED.length).toBeLessThan(SEED_PROFILES.length);
   });
 
   it("exercises the diacritic folding of handleBaseFrom", () => {
@@ -139,7 +166,7 @@ describe("seedProfiles", () => {
     const profileRows = await testDb.db.select().from(profiles);
     expect(profileRows).toHaveLength(14);
     const fileRows = await testDb.db.select().from(files);
-    expect(fileRows).toHaveLength(14 * 3);
+    expect(fileRows).toHaveLength(IMAGE_ROWS);
 
     for (const seed of SEED_PROFILES) {
       const user = userRows.find((row) => row.email === seed.email);
@@ -158,34 +185,69 @@ describe("seedProfiles", () => {
       expect(profile?.headline).toBe(seed.headline);
       expect(profile?.locations).toEqual(seed.locations);
       expect(profile?.bio).toBe(seed.bio);
-      expect(profile?.coverFileId).toBeNull();
-
       const own = fileRows.filter((row) => row.userId === user!.id);
-      expect(own.map((row) => row.kind).sort()).toEqual([
-        "avatar-128",
-        "avatar-512",
-        "avatar-original",
-      ]);
+      const photoSets = seed.works.reduce(
+        (total, work) => total + work.photos,
+        0,
+      );
+      expect(own.map((row) => row.kind).sort()).toEqual(
+        [
+          "avatar-128",
+          "avatar-512",
+          "avatar-original",
+          ...(seed.cover ? ["cover-1600", "cover-480", "cover-original"] : []),
+          ...Array(photoSets).fill("work-1600"),
+          ...Array(photoSets).fill("work-480"),
+          ...Array(photoSets).fill("work-original"),
+        ].sort(),
+      );
+      // #72: the works, through createWork, photos in the given number
+      // with the first as main.
+      const ownWorks = await listWorks({
+        db: testDb.db,
+        storage: memory.storage,
+        prefix: PREFIX,
+        userId: user!.id,
+      });
+      expect(ownWorks.map((work) => [work.name, work.images.length])).toEqual(
+        seed.works.map((work) => [work.name, work.photos]),
+      );
+      // #72: the cover, for the profiles that get one, through setCover.
+      if (seed.cover) {
+        const cover = own.find((row) => row.kind === "cover-original")!;
+        expect(profile?.coverFileId).toBe(cover.id);
+        expect(
+          memory.objects.has(
+            `${PREFIX}u/${user!.id}/${cover.sha256}-1600.webp`,
+          ),
+        ).toBe(true);
+      } else {
+        expect(profile?.coverFileId).toBeNull();
+      }
       const original = own.find((row) => row.kind === "avatar-original")!;
       expect(original.ext).toBe("png");
       expect(profile?.avatarFileId).toBe(original.id);
       // The published objects, named by the original's hash (G2).
-      expect(memory.objects.has(`${PREFIX}a/${original.sha256}.png`)).toBe(
-        true,
-      );
-      expect(memory.objects.has(`${PREFIX}a/${original.sha256}-512.webp`)).toBe(
-        true,
-      );
-      expect(memory.objects.has(`${PREFIX}a/${original.sha256}-128.webp`)).toBe(
-        true,
-      );
+      expect(
+        memory.objects.has(`${PREFIX}u/${user!.id}/${original.sha256}.png`),
+      ).toBe(true);
+      expect(
+        memory.objects.has(
+          `${PREFIX}u/${user!.id}/${original.sha256}-512.webp`,
+        ),
+      ).toBe(true);
+      expect(
+        memory.objects.has(
+          `${PREFIX}u/${user!.id}/${original.sha256}-128.webp`,
+        ),
+      ).toBe(true);
     }
 
     // Nothing but the 42 published objects: every staging copy was removed
     // by the pipeline, and nothing was written outside the prefix.
-    expect(memory.objects.size).toBe(14 * 3);
+    expect(memory.objects.size).toBe(IMAGE_ROWS);
     for (const key of memory.objects.keys()) {
-      expect(key.startsWith(`${PREFIX}a/`)).toBe(true);
+      expect(key.startsWith(`${PREFIX}u/`)).toBe(true);
     }
   }, 60_000);
 
@@ -254,7 +316,7 @@ describe("seedProfiles", () => {
     const { summary: second } = await run(memory.storage);
     expect(second).toEqual({ created: [], skipped: HANDLES, photos: [] });
     expect(await rowCounts()).toEqual(before);
-    expect(memory.objects.size).toBe(14 * 3);
+    expect(memory.objects.size).toBe(IMAGE_ROWS);
   }, 60_000);
 
   it("resumes photos: a run with storage after one without adds every missing photo, once", async () => {
@@ -263,23 +325,27 @@ describe("seedProfiles", () => {
 
     const { summary: second, lines } = await run(memory.storage);
     expect(second).toEqual({ created: [], skipped: [], photos: HANDLES });
-    expect(lines).toEqual(
-      HANDLES.map((handle) => `resumed  ${handle}  photo added`),
-    );
+    expect(lines).toEqual(HANDLES.map((handle) => withCover(handle, "photo")));
     expect(await rowCounts()).toEqual({
       users: 14,
       accounts: 14,
       profiles: 14,
-      files: 14 * 3,
+      files: IMAGE_ROWS,
     });
-    expect(memory.objects.size).toBe(14 * 3);
+    expect(memory.objects.size).toBe(IMAGE_ROWS);
     const profileRows = await testDb.db.select().from(profiles);
     expect(profileRows.every((row) => row.avatarFileId !== null)).toBe(true);
+    expect(
+      profileRows
+        .filter((row) => row.coverFileId !== null)
+        .map((row) => row.handle)
+        .sort(),
+    ).toEqual([...COVERED].sort());
 
     // Every profile has one now: nothing left to add.
     const { summary: third } = await run(memory.storage);
     expect(third).toEqual({ created: [], skipped: HANDLES, photos: [] });
-    expect(memory.objects.size).toBe(14 * 3);
+    expect(memory.objects.size).toBe(IMAGE_ROWS);
   }, 90_000);
 
   it("resumes sections: accounts seeded before #72 get headline, places and bio on the next run", async () => {
@@ -315,7 +381,7 @@ describe("seedProfiles", () => {
     const { summary: third, lines: thirdLines } = await run(memory.storage);
     expect(third).toEqual({ created: [], skipped: [], photos: HANDLES });
     expect(thirdLines).toEqual(
-      HANDLES.map((handle) => `resumed  ${handle}  sections, photo added`),
+      HANDLES.map((handle) => withCover(handle, "sections", "photo")),
     );
     // Nothing left: the next run skips everything.
     expect((await run(memory.storage)).summary).toEqual({
@@ -323,6 +389,32 @@ describe("seedProfiles", () => {
       skipped: HANDLES,
       photos: [],
     });
+  }, 90_000);
+
+  it("resumes works alone: a profile with its photo and sections but no works gets them", async () => {
+    const memory = createMemoryStorage();
+    await run(memory.storage);
+    // Photo and cover in place, works missing — the state the works step
+    // once skipped, because it hid behind the images' condition.
+    const gone = await testDb.db
+      .select({ id: files.id, key: files.objectKey })
+      .from(files)
+      .where(inArray(files.kind, WORK_KINDS));
+    await testDb.db.delete(works);
+    await testDb.db.delete(files).where(inArray(files.kind, WORK_KINDS));
+    for (const row of gone) if (row.key) memory.objects.delete(row.key);
+
+    const { summary, lines } = await run(memory.storage);
+    expect(summary).toEqual({
+      created: [],
+      skipped: HANDLES.filter((handle) => !WITH_WORKS.includes(handle)),
+      photos: [],
+    });
+    expect(lines.filter((line) => line.startsWith("resumed"))).toEqual(
+      WITH_WORKS.map((handle) => `resumed  ${handle}  works added`),
+    );
+    expect((await rowCounts()).files).toBe(IMAGE_ROWS);
+    expect(memory.objects.size).toBe(IMAGE_ROWS);
   }, 90_000);
 
   it("leaves a real user's account on a seed address alone: skipped, no photo", async () => {
@@ -351,6 +443,10 @@ describe("seedProfiles", () => {
       (row) => row.userId === stranger.id,
     );
     expect(strangerFiles).toHaveLength(0);
+    // Nor works (#72): the seed's works are for the seed's own accounts.
+    expect(
+      await testDb.db.select().from(works).where(eq(works.userId, stranger.id)),
+    ).toHaveLength(0);
   }, 60_000);
 
   it("without storage it seeds accounts, names and handles but no photos", async () => {
@@ -398,7 +494,9 @@ describe("seedProfiles", () => {
       users: 14,
       accounts: 13,
       profiles: 14,
-      files: 13 * 3,
+      // The skipped profile leaves neither its avatar set nor its cover
+      // nor its works' photos.
+      files: IMAGE_ROWS - rowsOf(first),
     });
   }, 60_000);
 });

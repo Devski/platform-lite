@@ -34,8 +34,9 @@ All commands: SPEC.md §3. The gate before every commit: `pnpm check`.
 ## Sample data
 
 `pnpm db:seed` creates 14 sample profiles — Polish studios and 3D creators with display
-names, handles, headlines, places, bios and generated avatar photos (initials on a colored
-square, rasterized by sharp; nothing downloaded) — so a fresh environment has real-looking
+names, handles, headlines, places, bios, generated avatar photos (initials on a colored
+square, rasterized by sharp; nothing downloaded), covers on every second profile and a
+few works with generated render photos — so a fresh environment has real-looking
 pages within a minute
 (SPEC.md G7). It targets `DATABASE_URL` from `.env` — the tunnelled dev database, the same
 one `pnpm db:migrate` uses (SPEC.md §3). To point it elsewhere, set the variable inline:
