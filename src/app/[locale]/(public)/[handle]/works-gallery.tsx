@@ -32,6 +32,12 @@ export interface GalleryWork {
   r360?: { fileId: string; sizeBytes: number } | null;
 }
 
+const LIGHTBOX = "__lightbox";
+
+function isLightboxState(state: unknown): boolean {
+  return typeof state === "object" && state !== null && LIGHTBOX in state;
+}
+
 interface Lightbox {
   work: GalleryWork;
   index: number;
@@ -57,6 +63,55 @@ export function WorksGallery({
 }) {
   const t = useTranslations("Works");
   const [lightbox, setLightbox] = useState<Lightbox | null>(null);
+  // #84: on a phone, back is the gesture for "close this picture", and it
+  // used to leave the site. Opening pushes a history entry marked as the
+  // lightbox's; back pops it and closes the picture, the page stays.
+  // Closing by the button or Escape pops that entry itself, so the next
+  // back goes where it always went. Stepping between photos adds nothing.
+  // The editing guard (#83) ignores this pop: the entry it lands on still
+  // carries its own marker, which rides along in the pushed state.
+  const lightboxRef = useRef<Lightbox | null>(null);
+  const pushed = useRef(false);
+  function commitLightbox(next: Lightbox | null) {
+    lightboxRef.current = next;
+    setLightbox(next);
+  }
+  function openLightbox(next: Lightbox) {
+    commitLightbox(next);
+    if (!pushed.current) {
+      window.history.pushState(
+        { ...(window.history.state as object | null), [LIGHTBOX]: true },
+        "",
+      );
+      pushed.current = true;
+    }
+  }
+  function closeLightbox() {
+    lightboxRef.current?.returnTo?.focus();
+    commitLightbox(null);
+    if (pushed.current) {
+      pushed.current = false;
+      window.history.back();
+    }
+  }
+  useEffect(() => {
+    // "pushed" means "the page is on the lightbox's entry": after a reload
+    // with the picture open, or a forward back onto the entry, the next
+    // opening reuses it rather than pushing a second one (#84 review).
+    pushed.current = isLightboxState(window.history.state);
+    function onPop(event: PopStateEvent) {
+      const onEntry = isLightboxState(event.state);
+      // The entry the lightbox pushed was left by back: close, without a
+      // back of our own.
+      if (pushed.current && !onEntry) {
+        lightboxRef.current?.returnTo?.focus();
+        commitLightbox(null);
+      }
+      pushed.current = onEntry;
+    }
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   return (
     <>
@@ -72,7 +127,7 @@ export function WorksGallery({
                 work={work}
                 owner={owner}
                 onOpen={(index, returnTo) =>
-                  setLightbox({ work, index, returnTo })
+                  openLightbox({ work, index, returnTo })
                 }
                 onEdit={onEdit}
                 onDelete={onDelete}
@@ -85,11 +140,8 @@ export function WorksGallery({
         <LightboxOverlay
           work={lightbox.work}
           index={lightbox.index}
-          onStep={(index) => setLightbox({ ...lightbox, index })}
-          onClose={() => {
-            lightbox.returnTo?.focus();
-            setLightbox(null);
-          }}
+          onStep={(index) => commitLightbox({ ...lightbox, index })}
+          onClose={closeLightbox}
           label={t("lightbox.label")}
         />
       )}
@@ -277,6 +329,7 @@ function LightboxOverlay({
 }) {
   const t = useTranslations("Works");
   const closeRef = useRef<HTMLButtonElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const count = work.images.length;
   const step = (delta: number) => onStep((index + delta + count) % count);
 
@@ -290,6 +343,32 @@ function LightboxOverlay({
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Tab") {
+        // A modal keeps the focus: Tab cycles through its own controls and
+        // never reaches the page behind it (#84 review) — where "Zapisz"
+        // or another card's button would move history under the picture.
+        const controls = Array.from(
+          rootRef.current?.querySelectorAll<HTMLElement>("button") ?? [],
+        );
+        if (controls.length === 0) return;
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        const active = document.activeElement;
+        if (
+          event.shiftKey &&
+          (active === first || !rootRef.current?.contains(active))
+        ) {
+          event.preventDefault();
+          last.focus();
+        } else if (
+          !event.shiftKey &&
+          (active === last || !rootRef.current?.contains(active))
+        ) {
+          event.preventDefault();
+          first.focus();
+        }
+        return;
+      }
       if (event.key === "Escape") onClose();
       else if (event.key === "ArrowLeft" && count > 1) step(-1);
       else if (event.key === "ArrowRight" && count > 1) step(1);
@@ -309,6 +388,7 @@ function LightboxOverlay({
 
   return (
     <div
+      ref={rootRef}
       role="dialog"
       aria-modal="true"
       aria-label={label}
