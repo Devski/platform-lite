@@ -224,6 +224,36 @@
         "heading": "Profile address",
         "current": "Your address: <link>{address}</link>",
         "empty": "You have no profile address yet."
+      },
+      "sections": {
+        "headline": {
+          "label": "Headline",
+          "placeholder": "One sentence: what you do and for whom",
+          "hint": "Shown under the name, on the profile and in link previews."
+        },
+        "locations": {
+          "label": "Add a place",
+          "placeholder": "City, voivodeship or your own words",
+          "hint": "Suggestions come from the TERYT register. Enter adds your own text, e.g. “all of Poland” or “Berlin”.",
+          "remove": "Remove {place}",
+          "suggestions": "Suggestions",
+          "kindVoivodeship": "voivodeship",
+          "kindCity": "city",
+          "duplicate": "That place is already on the list.",
+          "tooMany": "At most {max} places.",
+          "empty": "No place given."
+        },
+        "bio": {
+          "label": "Bio",
+          "placeholder": "Who you are, what you do, who you work with",
+          "hint": "Saved when you leave the field. Paragraph breaks are kept."
+        },
+        "counter": "{count} / {max}",
+        "errors": {
+          "invalid": "The text is too long or contains characters that are not allowed.",
+          "rateLimited": "Too many saves. Wait a moment and try again.",
+          "generic": "Saving failed. Try again."
+        }
       }
     }
   },
@@ -362,11 +392,15 @@
     "description": "{name}'s profile on {brand}",
     "avatarAlt": "{name}'s profile photo",
     "scopeBadge": "Scope",
-    "scopeNote": "The profile has a photo, a name and an address. Project galleries, an about section and tabs aren't part of the product yet.",
+    "scopeNote": "The profile has a photo, a name, an address, a headline, a location and an about section. Project galleries are coming soon.",
     "editProfile": "Edit profile",
-    "ownerScopeNote": "The profile is a photo, a name and an address. Click the pencil to edit them right on the profile.",
+    "ownerScopeNote": "Click “Edit profile” to change things right on the profile. Each field saves when you leave it.",
     "emptyStateTitle": "Projects aren't part of the product yet",
-    "emptyStateBody": "The profile is a photo, a name and an address. Once galleries exist, they'll live here."
+    "emptyStateBody": "The profile is a photo, a name and an address. Once galleries exist, they'll live here.",
+    "saveProfile": "Save",
+    "savedProfile": "Profile saved",
+    "locationsHeading": "Based in and working across",
+    "bioHeading": "About"
   },
   "AccountMenu": {
     "menuLabel": "Account menu",

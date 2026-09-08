@@ -118,6 +118,9 @@ describe("loadPublicProfile (§9 for the public page)", () => {
           url512: `memory://${PREFIX}a/${sha256}-512.webp`,
           url128: `memory://${PREFIX}a/${sha256}-128.webp`,
         },
+        headline: null,
+        locations: [],
+        bio: null,
       },
     });
   });
@@ -135,6 +138,9 @@ describe("loadPublicProfile (§9 for the public page)", () => {
         handle: "studio-x",
         displayName: DISPLAY_NAME,
         avatar: null,
+        headline: null,
+        locations: [],
+        bio: null,
       },
     });
   });
@@ -205,8 +211,15 @@ describe("profileMetadata", () => {
       url512: "https://cdn.example/a/abc-512.webp",
       url128: "https://cdn.example/a/abc-128.webp",
     },
+    headline: null,
+    locations: [],
+    bio: null,
   };
   const withoutAvatar: PublicProfile = { ...withAvatar, avatar: null };
+  const withHeadline: PublicProfile = {
+    ...withAvatar,
+    headline: "Wizualizacje dla deweloperów",
+  };
 
   function metadataFor(profile: PublicProfile, locale: Locale) {
     return profileMetadata({
@@ -220,6 +233,12 @@ describe("profileMetadata", () => {
       pathFor,
     });
   }
+
+  it("the share card describes the profile by its headline once it has one (#72)", () => {
+    const meta = metadataFor(withHeadline, "pl");
+    expect(meta.openGraph?.description).toBe("Wizualizacje dla deweloperów");
+    expect(metadataFor(withAvatar, "pl").openGraph?.description).toBe(BRAND);
+  });
 
   it("Polish: title, description, unprefixed canonical, hreflang map, OG and Twitter", () => {
     const meta = metadataFor(withAvatar, "pl");
