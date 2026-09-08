@@ -10,7 +10,11 @@ import {
   type AvatarDeps,
 } from "@/lib/avatar";
 import { checkHandle, handleBaseFrom } from "@/lib/handle";
-import { setAvatar, updateDisplayName } from "@/lib/profile";
+import {
+  setAvatar,
+  updateDisplayName,
+  updateProfileSections,
+} from "@/lib/profile";
 import { HandleError, setHandle } from "@/lib/profile-handle";
 import type { FileStorage } from "@/lib/storage";
 
@@ -50,34 +54,134 @@ export interface SeedProfile {
   displayName: string;
   handle: string;
   email: string;
+  // #72 / A12: the sections. Polish product copy, quoted as content.
+  headline: string;
+  locations: string[];
+  bio: string;
+}
+
+interface SeedEntry {
+  name: string;
+  headline: string;
+  locations: string[];
+  bio: string;
 }
 
 // Polish studios and 3D creators, several with diacritics and mixed forms so
 // the slugging is exercised: "Pracownia Żółć" → pracownia-zolc, "Loft & Cegła"
-// → loft-cegla, "Anna Nowak 3D" → anna-nowak-3d.
-const SEED_NAMES: readonly string[] = [
-  "Pracownia Żółć",
-  "Studio Praga",
-  "Atelier Wola",
-  "Biuro Projektów Mokotów",
-  "Jan Kowalski",
-  "Anna Nowak 3D",
-  "Formy Przestrzenne",
-  "Kreślarnia",
-  "Modelarnia Ochota",
-  "Wizualizacje Bemowo",
-  "Loft & Cegła",
-  "Szkic i Bryła",
-  "Render Lab Łódź",
-  "Cegła i Szkło",
+// → loft-cegla, "Anna Nowak 3D" → anna-nowak-3d. The sections vary on
+// purpose — a one-place solo creator next to a studio working nationwide,
+// a one-line bio next to two paragraphs — so the pages look lived in.
+const SEED_ENTRIES: readonly SeedEntry[] = [
+  {
+    name: "Pracownia Żółć",
+    headline:
+      "Wizualizacje architektoniczne dla konkursów i pozwoleń. Warszawa, od 2014 roku.",
+    locations: ["Warszawa", "mazowieckie"],
+    bio: "Pracownia założona przez dwoje architektów, którzy woleli rysować światło niż liczyć zbrojenie. Robimy widoki zewnętrzne, wnętrza i plansze konkursowe.\n\nPracujemy głównie z biurami architektonicznymi na etapie koncepcji i pozwolenia na budowę. Terminy liczymy w dniach roboczych.",
+  },
+  {
+    name: "Studio Praga",
+    headline:
+      "Wizualizacje architektoniczne i animacje 3D dla deweloperów. Od koncepcji po materiały sprzedażowe.",
+    locations: ["Warszawa", "mazowieckie", "cała Polska"],
+    bio: "Pracownia z warszawskiej Pragi, od 2016 roku. Robimy wizualizacje zewnętrzne i wnętrz, animacje przelotów oraz orbity 360 gotowe do makiet sprzedażowych.\n\nPracujemy z deweloperami i biurami architektonicznymi na etapie koncepcji, pozwolenia i sprzedaży. Trzy osoby, własna farma renderów.",
+  },
+  {
+    name: "Atelier Wola",
+    headline:
+      "Wnętrza mieszkań i biur w trójwymiarze. Realistycznie, bez retuszu.",
+    locations: ["Warszawa"],
+    bio: "Specjalizujemy się w wizualizacjach wnętrz: mieszkania pokazowe, biura, lokale usługowe. Materiały i oświetlenie ustawiamy według rzeczywistych próbek od producentów.",
+  },
+  {
+    name: "Biuro Projektów Mokotów",
+    headline:
+      "Pełna dokumentacja 3D dla inwestycji mieszkaniowych: model, wizualizacje, animacja.",
+    locations: ["Warszawa", "Kraków", "Wrocław"],
+    bio: "Biuro projektowe z zespołem wizualizacji w środku, więc model powstaje raz i służy do wszystkiego: rysunków, wizualizacji i animacji sprzedażowej.\n\nObsługujemy inwestycje wielorodzinne w największych miastach. Dla deweloperów przygotowujemy komplet materiałów do biura sprzedaży.",
+  },
+  {
+    name: "Jan Kowalski",
+    headline:
+      "Freelancer 3D. Domy jednorodzinne i małe inwestycje, szybkie terminy.",
+    locations: ["Poznań", "wielkopolskie"],
+    bio: "Pracuję sam, od dziesięciu lat, głównie z pracowniami projektującymi domy jednorodzinne. Jedna wizualizacja w trzy dni, komplet dla domu w tydzień.",
+  },
+  {
+    name: "Anna Nowak 3D",
+    headline:
+      "Wizualizacje i animacje dla architektury krajobrazu i przestrzeni publicznych.",
+    locations: ["Gdańsk", "Gdynia", "Sopot", "pomorskie"],
+    bio: "Parki, place, bulwary i podwórka. Roślinność modeluję gatunkami, nie plamami, więc widok z projektu wygląda jak to, co wyrośnie.\n\nWspółpracuję z pracowniami krajobrazu i z urzędami miast przy konsultacjach społecznych.",
+  },
+  {
+    name: "Formy Przestrzenne",
+    headline: "Modele 3D budynków pod druk, makiety i orbity 360.",
+    locations: ["Kraków", "małopolskie"],
+    bio: "Zaczynaliśmy od makiet fizycznych, dziś większość pracy to modele cyfrowe: uproszczone bryły pod orbity 360, modele pod druk 3D i pod makiety interaktywne.",
+  },
+  {
+    name: "Kreślarnia",
+    headline: "Wizualizacje dla architektów: konkursy, koncepcje, plansze.",
+    locations: ["Wrocław", "dolnośląskie"],
+    bio: "Dwie osoby, jedna farma renderów, kilkanaście konkursów rocznie. Pracujemy w rytmie pracowni architektonicznych, czyli nocami przed terminem.",
+  },
+  {
+    name: "Modelarnia Ochota",
+    headline:
+      "Makiety sprzedażowe i modele 3D dla deweloperów. Mieszkania w skali, które da się obejrzeć.",
+    locations: ["Warszawa", "Łódź", "cała Polska"],
+    bio: "Robimy modele pod makiety sprzedażowe: budynek, otoczenie, rzuty mieszkań mapowane na bryłę. Deweloper dostaje komplet do biura sprzedaży i na stronę.\n\nObsługujemy inwestycje w całej Polsce, z dojazdem na spotkania w Warszawie i Łodzi.",
+  },
+  {
+    name: "Wizualizacje Bemowo",
+    headline:
+      "Widoki zewnętrzne osiedli mieszkaniowych. Duże założenia, spójna seria.",
+    locations: ["Warszawa"],
+    bio: "Specjalizacja: osiedla wieloetapowe, gdzie kolejne etapy muszą wyglądać jak jedna inwestycja mimo lat między nimi. Trzymamy bibliotekę materiałów i otoczenia dla każdego klienta.",
+  },
+  {
+    name: "Loft & Cegła",
+    headline: "Adaptacje poprzemysłowe w 3D: lofty, hale, cegła.",
+    locations: ["Łódź", "łódzkie"],
+    bio: "Wizualizujemy adaptacje starych fabryk i magazynów. Znamy łódzką cegłę z natury, więc na renderach wygląda jak prawdziwa, a nie jak tekstura z internetu.",
+  },
+  {
+    name: "Szkic i Bryła",
+    headline:
+      "Od odręcznego szkicu do fotorealistycznej wizualizacji w jednym zespole.",
+    locations: ["Katowice", "śląskie"],
+    bio: "Łączymy szkic koncepcyjny z wizualizacją: klient najpierw widzi rysunek, potem bryłę, na końcu gotowy widok. Dobre na wczesne rozmowy z inwestorem.",
+  },
+  {
+    name: "Render Lab Łódź",
+    headline: "Farma renderów i wizualizacje dla pracowni z całej Polski.",
+    locations: ["Łódź", "cała Polska"],
+    bio: "Prowadzimy własną farmę renderów i wynajmujemy ją pracowniom, a przy okazji robimy wizualizacje dla tych, którzy wolą oddać całość. Animacje i orbity 360 liczymy w nocy, oddajemy rano.",
+  },
+  {
+    name: "Cegła i Szkło",
+    headline:
+      "Elewacje w 3D dla producentów i architektów: detal, materiał, światło.",
+    locations: ["Szczecin", "zachodniopomorskie", "Berlin"],
+    bio: "Wizualizujemy elewacje i detale: systemy fasadowe, okładziny, szkło. Pracujemy z producentami systemów i z architektami po obu stronach granicy.",
+  },
 ];
 
-function seedProfile(displayName: string): SeedProfile {
-  const handle = handleBaseFrom(displayName);
+function seedProfile(entry: SeedEntry): SeedProfile {
+  const handle = handleBaseFrom(entry.name);
   if (!handle) {
-    throw new Error(`seed: "${displayName}" yields no usable handle`);
+    throw new Error(`seed: "${entry.name}" yields no usable handle`);
   }
-  return { displayName, handle, email: `${handle}@${SEED_EMAIL_DOMAIN}` };
+  return {
+    displayName: entry.name,
+    handle,
+    email: `${handle}@${SEED_EMAIL_DOMAIN}`,
+    headline: entry.headline,
+    locations: entry.locations,
+    bio: entry.bio,
+  };
 }
 
 // Asserted at module load: an edit to the names that produces a duplicate or
@@ -93,7 +197,7 @@ function assertHandles(profiles: readonly SeedProfile[]): void {
 }
 
 export const SEED_PROFILES: readonly SeedProfile[] =
-  SEED_NAMES.map(seedProfile);
+  SEED_ENTRIES.map(seedProfile);
 assertHandles(SEED_PROFILES);
 
 // ---- Photos --------------------------------------------------------------
@@ -170,9 +274,11 @@ export interface SeedSummary {
 type CreateOutcome =
   | { kind: "created"; userId: string }
   | { kind: "skipped"; reason: "e-mail exists" | "handle taken" }
-  // Ours from an earlier run without a storage — the seed's handle on the
-  // seed's e-mail, avatar_file_id NULL — and a storage is present now.
-  | { kind: "photo missing"; userId: string };
+  // Ours from an earlier run — the seed's handle on the seed's e-mail — and
+  // missing something this run can add: the photo (avatar_file_id NULL and
+  // a storage present now) or, since #72, the sections (headline NULL, as
+  // every account seeded before them is).
+  | { kind: "resumed"; userId: string; photo: boolean; sections: boolean };
 
 // The account-row contract from the header, in one place: the users row and
 // its credential account exactly as Better Auth 1.7.2 leaves them after
@@ -215,6 +321,7 @@ async function createProfile(
       id: users.id,
       handle: profiles.handle,
       avatarFileId: profiles.avatarFileId,
+      headline: profiles.headline,
     })
     .from(users)
     .leftJoin(profiles, eq(profiles.userId, users.id))
@@ -223,8 +330,10 @@ async function createProfile(
     // The seed's own account is told from a real user's by the handle: a
     // different one means someone registered the address, and it stays theirs.
     const ours = existing.handle === profile.handle;
-    if (ours && existing.avatarFileId === null && canAddPhoto) {
-      return { kind: "photo missing", userId: existing.id };
+    const photo = ours && existing.avatarFileId === null && canAddPhoto;
+    const sections = ours && existing.headline === null;
+    if (photo || sections) {
+      return { kind: "resumed", userId: existing.id, photo, sections };
     }
     return { kind: "skipped", reason: "e-mail exists" };
   }
@@ -238,6 +347,7 @@ async function createProfile(
       await updateDisplayName({ db: tx, userId }, profile.displayName);
       // An initial assignment: no cooldown stamp (A6).
       await setHandle(tx, userId, profile.handle);
+      await writeSections(tx, userId, profile);
       return { kind: "created", userId };
     });
   } catch (error) {
@@ -246,6 +356,22 @@ async function createProfile(
     }
     throw error;
   }
+}
+
+// #72: the sections, through the same writer the owner's page uses.
+function writeSections(
+  db: Database,
+  userId: string,
+  profile: SeedProfile,
+): Promise<void> {
+  return updateProfileSections(
+    { db, userId },
+    {
+      headline: profile.headline,
+      locations: profile.locations,
+      bio: profile.bio,
+    },
+  );
 }
 
 // The #12 pipeline end to end, the seed standing in for the browser's PUT:
@@ -271,7 +397,8 @@ async function uploadAvatar(
  * existing e-mail (or a handle held by another account) is skipped and
  * reported; nothing is ever deleted. Photos only with a storage — and
  * resumable: a seed account left without one by an earlier run gets its
- * photo the first time a storage is present.
+ * photo the first time a storage is present, and one seeded before the
+ * sections existed (#72) gets them on the next run.
  */
 export async function seedProfiles(deps: SeedDeps): Promise<SeedSummary> {
   const { db, storage, prefix, log } = deps;
@@ -284,16 +411,29 @@ export async function seedProfiles(deps: SeedDeps): Promise<SeedSummary> {
       log(`skipped  ${handle}  (${outcome.reason})`);
       continue;
     }
+    if (outcome.kind === "resumed") {
+      const added: string[] = [];
+      if (outcome.sections) {
+        await writeSections(db, outcome.userId, profile);
+        added.push("sections");
+      }
+      if (outcome.photo && storage) {
+        await uploadAvatar(
+          { db, storage, prefix, userId: outcome.userId },
+          profile.displayName,
+        );
+        summary.photos.push(handle);
+        added.push("photo");
+      }
+      log(`resumed  ${handle}  ${added.join(", ")} added`);
+      continue;
+    }
     if (storage) {
       await uploadAvatar(
         { db, storage, prefix, userId: outcome.userId },
         profile.displayName,
       );
       summary.photos.push(handle);
-    }
-    if (outcome.kind === "photo missing") {
-      log(`photo    ${handle}  added`);
-      continue;
     }
     summary.created.push(handle);
     log(`created  ${handle}  ${storage ? "with photo" : "no photo"}`);

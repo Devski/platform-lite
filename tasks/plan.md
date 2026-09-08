@@ -87,6 +87,36 @@ in under 5 minutes (manual walkthrough); e2e green.
 tests; G10 restore procedure drilled; prod ready for manual deployment (each one — with
 approval, §7).
 
+### [Full functionality](https://github.com/Devski/platform-lite/milestone/6)
+
+Opened by Dawid; due 15.09.2026. "Everything needed to attract users to start their
+portfolio" — the profile becomes a portfolio, and the pieces around it that the
+08.09.2026 discussion found. Seven of the tasks were filed that day; the CDN one moved here
+from Phase 4 once its code half was split off.
+
+- [#72](https://github.com/Devski/platform-lite/issues/72) Profile editing: cover photo,
+  headline, location, bio and a list of works (A12) — the milestone's spine, in six PR-sized
+  steps listed on the issue; the approved interactive sketch is linked from it.
+- [#68](https://github.com/Devski/platform-lite/issues/68) R360 engine: process the uploaded
+  orbit zip and show it on the work — the milestone's "slide viewer"; #72 only stores the
+  archive. Depends on #72, #64.
+- [#69](https://github.com/Devski/platform-lite/issues/69) Storage meter per account: count
+  the largest representation of every asset, show the usage.
+- [#70](https://github.com/Devski/platform-lite/issues/70) Deliver user photos to fit the
+  visitor's connection: `srcset`, hints, and evaluate probing.
+- [#67](https://github.com/Devski/platform-lite/issues/67) Prepare our own images for
+  delivery: hero sizes, phone crop, cache headers for `public/` — the code half of #48.
+- [#48](https://github.com/Devski/platform-lite/issues/48) Deliver the hero, the assets and
+  user files through a CDN — the money half; not a launch blocker (`infra`, `deployment`).
+- [#71](https://github.com/Devski/platform-lite/issues/71) Decision: an on-the-fly image
+  resizer (imgproxy) instead of upload-time variants (`blocked` — waits on a need).
+- [#64](https://github.com/Devski/platform-lite/issues/64) Educational materials for renders
+  export — the frame contract #68 builds on.
+
+Verified for this milestone (08.09.2026): no OVHcloud CDN product transforms images, so every
+size a page needs is produced at upload (G5); a bucket per user is ruled out by the
+100-per-project limit, so an object's owner lives in its key (§9).
+
 ### Open decisions (§12)
 
 - ~~[#25](https://github.com/Devski/platform-lite/issues/25) Decision: product name and domain~~ — **resolved 05.09.2026**: `architektow3d.pl`, production on the apex, dev on `dev.`, previews on `*.dev.`. Unblocked #22, #24 and #31.
