@@ -14,7 +14,9 @@ type IconName =
   | "camera"
   | "check"
   | "mail"
-  | "menu";
+  | "menu"
+  | "map-pin"
+  | "x";
 
 const PATHS: Record<IconName, ReactNode> = {
   "map-pin-off": (
@@ -79,6 +81,20 @@ const PATHS: Record<IconName, ReactNode> = {
       <line x1="4" y1="6" x2="20" y2="6" />
       <line x1="4" y1="12" x2="20" y2="12" />
       <line x1="4" y1="18" x2="20" y2="18" />
+    </>
+  ),
+  // #72: the places a profile names (map-pin-off above is the 404's).
+  "map-pin": (
+    <>
+      <path d="M12 21s7-7.6 7-12a7 7 0 1 0-14 0c0 4.4 7 12 7 12Z" />
+      <circle cx="12" cy="9" r="2.5" />
+    </>
+  ),
+  // #72: remove a place chip; close.
+  x: (
+    <>
+      <line x1="6" y1="6" x2="18" y2="18" />
+      <line x1="18" y1="6" x2="6" y2="18" />
     </>
   ),
 };

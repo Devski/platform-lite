@@ -224,6 +224,36 @@
         "heading": "Adres profilu",
         "current": "Twój adres: <link>{address}</link>",
         "empty": "Nie masz jeszcze adresu profilu."
+      },
+      "sections": {
+        "headline": {
+          "label": "Nagłówek",
+          "placeholder": "Jednym zdaniem: co robisz i dla kogo",
+          "hint": "Widoczny pod nazwą, na profilu i w podglądzie linku."
+        },
+        "locations": {
+          "label": "Dodaj miejsce",
+          "placeholder": "Miasto, województwo albo własny opis",
+          "hint": "Podpowiedzi z rejestru TERYT. Enter dodaje własny tekst, np. „cała Polska” albo „Berlin”.",
+          "remove": "Usuń {place}",
+          "suggestions": "Podpowiedzi",
+          "kindVoivodeship": "województwo",
+          "kindCity": "miasto",
+          "duplicate": "To miejsce już jest na liście.",
+          "tooMany": "Maksymalnie {max} miejsc.",
+          "empty": "Nie podano miejsca."
+        },
+        "bio": {
+          "label": "Bio",
+          "placeholder": "Kim jesteście, co robicie, z kim pracujecie",
+          "hint": "Zapis po opuszczeniu pola. Podziały akapitów zostają."
+        },
+        "counter": "{count} / {max}",
+        "errors": {
+          "invalid": "Tekst jest za długi albo zawiera niedozwolone znaki.",
+          "rateLimited": "Zbyt wiele zapisów. Odczekaj chwilę i spróbuj ponownie.",
+          "generic": "Zapis nie powiódł się. Spróbuj ponownie."
+        }
       }
     }
   },
@@ -362,11 +392,15 @@
     "description": "Profil {name} na {brand}",
     "avatarAlt": "Zdjęcie profilowe {name}",
     "scopeBadge": "Zakres",
-    "scopeNote": "Profil zawiera zdjęcie, nazwę i adres. Galerie projektów, sekcja o mnie i zakładki nie istnieją jeszcze w produkcie.",
+    "scopeNote": "Profil zawiera zdjęcie, nazwę, adres, nagłówek, siedzibę i sekcję o nas. Galerie realizacji dojdą wkrótce.",
     "editProfile": "Edytuj profil",
-    "ownerScopeNote": "Profil to zdjęcie, nazwa i adres. Kliknij ikonę ołówka, aby edytować dane bezpośrednio na profilu.",
+    "ownerScopeNote": "Kliknij „Edytuj profil”, aby zmieniać dane bezpośrednio na profilu. Każde pole zapisuje się, gdy je opuścisz.",
     "emptyStateTitle": "Projekty nie są jeszcze częścią produktu",
-    "emptyStateBody": "Profil to zdjęcie, nazwa i adres. Gdy powstaną galerie, to tutaj się znajdą."
+    "emptyStateBody": "Profil to zdjęcie, nazwa i adres. Gdy powstaną galerie, to tutaj się znajdą.",
+    "saveProfile": "Zapisz",
+    "savedProfile": "Zapisano profil",
+    "locationsHeading": "Siedziba i obszar działania",
+    "bioHeading": "O nas"
   },
   "AccountMenu": {
     "menuLabel": "Menu konta",

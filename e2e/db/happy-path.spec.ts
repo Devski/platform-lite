@@ -108,7 +108,10 @@ test("a new user goes from the landing page to a live public profile", async ({
     ).toBeVisible();
   });
 
+  // The bar's edit control reads "Edytuj profil" out of editing and "Zapisz"
+  // while editing (#72): two locators for the one button.
   const pencil = page.getByRole("button", { name: "Edytuj profil" });
+  const save = page.getByRole("button", { name: "Zapisz", exact: true });
 
   await test.step("A4: correct the display name on the profile itself", async () => {
     // The pencil in the top bar turns the profile's own heading into an
@@ -120,7 +123,7 @@ test("a new user goes from the landing page to a live public profile", async ({
     await field.blur();
     // Leaving edit mode puts the SERVER's copy back on screen, so the heading
     // is the saved name and not whatever is still sitting in the input.
-    await pencil.click();
+    await save.click();
     await expect(
       page.getByRole("heading", { level: 1, name: identity.displayName }),
     ).toBeVisible({ timeout: 15_000 });

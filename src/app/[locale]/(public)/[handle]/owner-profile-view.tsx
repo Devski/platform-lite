@@ -1,22 +1,42 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "@/i18n/navigation";
 import { AccountMenu } from "@/components/ui/account-menu";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Icon } from "@/components/ui/icon";
-import { IconButton } from "@/components/ui/icon-button";
+import { Input } from "@/components/ui/input";
 import { LogoMark } from "@/components/ui/logo-mark";
 import { Plaque } from "@/components/ui/plaque";
+import { Textarea } from "@/components/ui/textarea";
 import { TopBar } from "@/components/ui/top-bar";
 import { postJson } from "@/lib/api-client";
 import { AVATAR_CONTENT_TYPES, AVATAR_MAX_BYTES } from "@/lib/avatar-shared";
-import { DISPLAY_NAME_MAX, displayNameSchema } from "@/lib/profile-schemas";
+import {
+  BIO_MAX,
+  bioSchema,
+  DISPLAY_NAME_MAX,
+  displayNameSchema,
+  HEADLINE_MAX,
+  headlineSchema,
+  LOCATION_MAX,
+  LOCATIONS_MAX,
+  locationsSchema,
+} from "@/lib/profile-schemas";
 import { IMMUTABLE_CACHE_CONTROL } from "@/lib/storage-shared";
+import type { Place, searchPlaces } from "@/lib/teryt";
+import {
+  BioView,
+  HeadlineView,
+  LocationsView,
+  PlaceChip,
+  SectionHeading,
+} from "./profile-sections";
 
 const AVATAR_ERROR_KEYS = new Set([
   "quota_exceeded",
@@ -31,66 +51,221 @@ interface OwnerProfile {
   handle: string;
   displayName: string;
   avatar: { url128: string } | null;
+  headline: string | null;
+  locations: string[];
+  bio: string | null;
+}
+
+// The editable fields as the server holds them, "" and [] for none.
+interface Fields {
+  name: string;
+  headline: string;
+  bio: string;
+  locations: string[];
+}
+
+function fieldsOf(profile: OwnerProfile): Fields {
+  return {
+    name: profile.displayName,
+    headline: profile.headline ?? "",
+    bio: profile.bio ?? "",
+    locations: profile.locations,
+  };
+}
+
+type SectionsErrorKey = "invalid" | "rateLimited" | "generic";
+
+// The one call every section makes: a subset of the A12 fields, answered
+// with a dictionary key on failure and nothing on success.
+async function postSections(
+  body: Record<string, unknown>,
+): Promise<SectionsErrorKey | null> {
+  try {
+    const response = await postJson("/api/profile/sections", body);
+    if (response.ok) return null;
+    return response.status === 429 ? "rateLimited" : "generic";
+  } catch {
+    return "generic";
+  }
 }
 
 // #58: the owner's own view of their public profile — the same shell as a
-// visitor's (screen 2), just with the top bar's edit chrome and, once the
-// pencil is on, the avatar and name turning into their own editable
-// controls right on the card instead of a separate settings form.
+// visitor's (screen 2), with the top bar's edit control and, once editing
+// is on, the avatar, the name and (since #72) the headline, the places and
+// the bio turning into their own controls right on the card.
+//
+// While editing, the fields on screen are the truth: each one posts itself
+// when it is left and keeps what it posted. Nothing refreshes the page until
+// "Zapisz", which waits for every save still in flight and refreshes once —
+// a refresh per field raced the next field, and a stale server copy landing
+// after an optimistic change wiped it (#72 step 2 review). Out of editing
+// the server's copy is the truth, re-seeded from the prop during render (the
+// pattern React's docs recommend for derived state), and only then.
 export function OwnerProfileView({ profile }: { profile: OwnerProfile }) {
   const t = useTranslations("PublicProfile");
   const tAvatar = useTranslations("Settings.profile.avatar");
   const tName = useTranslations("Settings.profile.name");
+  const tSections = useTranslations("Settings.profile.sections");
   const router = useRouter();
   const wordmark = useTranslations("Brand")("wordmark");
 
   const [editing, setEditing] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const [savedNotice, setSavedNotice] = useState(false);
+  useEffect(() => {
+    if (!savedNotice) return;
+    const timer = setTimeout(() => setSavedNotice(false), 2500);
+    return () => clearTimeout(timer);
+  }, [savedNotice]);
 
-  const [name, setName] = useState(profile.displayName);
-  // Adjusting state during render (not in an effect) when the prop the
-  // input was seeded from changes — the pattern React's docs recommend for
-  // this, since a save's router.refresh() is the only thing that ever
-  // changes profile.displayName from outside the input itself.
-  const [syncedName, setSyncedName] = useState(profile.displayName);
-  if (profile.displayName !== syncedName) {
-    setSyncedName(profile.displayName);
-    setName(profile.displayName);
+  const [fields, setFields] = useState(() => fieldsOf(profile));
+  // What the server holds, as far as this page knows: seeded with the prop,
+  // advanced by every successful save. A field equal to it is not re-sent.
+  const [saved, setSaved] = useState(() => fieldsOf(profile));
+  const [synced, setSynced] = useState(profile);
+  if (!editing && profile !== synced) {
+    setSynced(profile);
+    setFields(fieldsOf(profile));
+    setSaved(fieldsOf(profile));
   }
+  const setField = <K extends keyof Fields>(key: K, value: Fields[K]) =>
+    setFields((current) => ({ ...current, [key]: value }));
+  const markSaved = <K extends keyof Fields>(key: K, value: Fields[K]) =>
+    setSaved((current) => ({ ...current, [key]: value }));
+
   const [nameError, setNameError] = useState<string | null>(null);
   const [nameSaving, setNameSaving] = useState(false);
+  const [headlineError, setHeadlineError] = useState<string | null>(null);
+  const [bioError, setBioError] = useState<string | null>(null);
+  const [locationsError, setLocationsError] = useState<string | null>(null);
 
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  async function saveName() {
-    setNameError(null);
-    const trimmed = name.trim();
-    if (trimmed === profile.displayName) return;
-    const parsed = displayNameSchema.safeParse(trimmed);
-    if (!parsed.success) {
-      setNameError(tName("errors.invalid", { max: DISPLAY_NAME_MAX }));
+  const headlineId = useId();
+  const bioId = useId();
+  const locationsId = useId();
+
+  // Saves still in flight, each resolving to whether it succeeded, so
+  // "Zapisz" can wait for them and stay open if one failed.
+  const pending = useRef(new Set<Promise<boolean>>());
+  function track(save: Promise<boolean>): Promise<boolean> {
+    pending.current.add(save);
+    void save.finally(() => pending.current.delete(save));
+    return save;
+  }
+
+  function saveName(): Promise<boolean> {
+    return track(
+      (async () => {
+        setNameError(null);
+        const trimmed = fields.name.trim();
+        if (trimmed === saved.name) return true;
+        const parsed = displayNameSchema.safeParse(trimmed);
+        if (!parsed.success) {
+          setNameError(tName("errors.invalid", { max: DISPLAY_NAME_MAX }));
+          return false;
+        }
+        setNameSaving(true);
+        try {
+          const response = await postJson("/api/profile", {
+            displayName: parsed.data,
+          });
+          if (!response.ok) {
+            setNameError(
+              tName(
+                response.status === 429
+                  ? "errors.rateLimited"
+                  : "errors.generic",
+              ),
+            );
+            return false;
+          }
+          markSaved("name", parsed.data);
+          setField("name", parsed.data);
+          return true;
+        } catch {
+          setNameError(tName("errors.generic"));
+          return false;
+        } finally {
+          setNameSaving(false);
+        }
+      })(),
+    );
+  }
+
+  // The headline and the bio share one shape: validate with the shared
+  // schema, skip an unchanged value, post the one field, keep it.
+  function saveText(
+    field: "headline" | "bio",
+    setError: (message: string | null) => void,
+  ): Promise<boolean> {
+    return track(
+      (async () => {
+        setError(null);
+        const schema = field === "headline" ? headlineSchema : bioSchema;
+        const parsed = schema.safeParse(fields[field]);
+        if (!parsed.success) {
+          setError(tSections("errors.invalid"));
+          return false;
+        }
+        if (parsed.data === saved[field]) return true;
+        const failure = await postSections({ [field]: parsed.data });
+        if (failure) {
+          setError(tSections(`errors.${failure}`));
+          return false;
+        }
+        markSaved(field, parsed.data);
+        return true;
+      })(),
+    );
+  }
+
+  function saveLocations(next: string[]): Promise<boolean> {
+    return track(
+      (async () => {
+        setLocationsError(null);
+        const parsed = locationsSchema.safeParse(next);
+        if (!parsed.success) {
+          setLocationsError(tSections("errors.invalid"));
+          return false;
+        }
+        const previous = fields.locations;
+        setField("locations", parsed.data);
+        const failure = await postSections({ locations: parsed.data });
+        if (failure) {
+          setLocationsError(tSections(`errors.${failure}`));
+          setField("locations", previous);
+          return false;
+        }
+        markSaved("locations", parsed.data);
+        return true;
+      })(),
+    );
+  }
+
+  function addPlace(raw: string) {
+    const place = raw.trim();
+    if (!place) return;
+    const folded = place.toLocaleLowerCase("pl");
+    if (
+      fields.locations.some(
+        (existing) => existing.toLocaleLowerCase("pl") === folded,
+      )
+    ) {
+      setLocationsError(tSections("locations.duplicate"));
       return;
     }
-    setNameSaving(true);
-    try {
-      const response = await postJson("/api/profile", {
-        displayName: parsed.data,
-      });
-      if (!response.ok) {
-        setNameError(
-          tName(
-            response.status === 429 ? "errors.rateLimited" : "errors.generic",
-          ),
-        );
-        return;
-      }
-      router.refresh();
-    } catch {
-      setNameError(tName("errors.generic"));
-    } finally {
-      setNameSaving(false);
+    if (fields.locations.length >= LOCATIONS_MAX) {
+      setLocationsError(tSections("locations.tooMany", { max: LOCATIONS_MAX }));
+      return;
     }
+    void saveLocations([...fields.locations, place]);
+  }
+
+  function removePlace(place: string) {
+    void saveLocations(fields.locations.filter((existing) => existing !== place));
   }
 
   function avatarErrorCopy(code: unknown, status: number): string {
@@ -105,7 +280,8 @@ export function OwnerProfileView({ profile }: { profile: OwnerProfile }) {
   // copy of it: presign a staging slot, PUT the file straight to storage with
   // the signed headers (G4 — the bytes never touch the app server), confirm
   // so the server verifies and publishes, then point the profile at the
-  // returned original.
+  // returned original. The photo is the one change that refreshes at once:
+  // its URL comes from the server and nothing on this page holds it.
   async function handleAvatarFile(file: File) {
     setAvatarError(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -168,6 +344,41 @@ export function OwnerProfileView({ profile }: { profile: OwnerProfile }) {
     }
   }
 
+  async function toggleEditing() {
+    if (!editing) {
+      setEditing(true);
+      setSavedNotice(false);
+      clearErrors();
+      return;
+    }
+    // Fields save on blur; leaving takes whatever still has focus with it,
+    // then waits for every save in flight. A failed one keeps the editing
+    // chrome open with its error on screen — "Zapisano" is never claimed
+    // for a save that did not happen.
+    setLeaving(true);
+    try {
+      const active = document.activeElement;
+      if (active instanceof HTMLElement) active.blur();
+      const outcomes = await Promise.all([...pending.current]);
+      if (outcomes.some((ok) => !ok)) return;
+      setEditing(false);
+      setSavedNotice(true);
+      router.refresh();
+    } finally {
+      setLeaving(false);
+    }
+  }
+
+  // A failed save shouldn't keep shouting once the owner has stepped back
+  // in for another try.
+  function clearErrors() {
+    setNameError(null);
+    setAvatarError(null);
+    setHeadlineError(null);
+    setBioError(null);
+    setLocationsError(null);
+  }
+
   return (
     <>
       <TopBar
@@ -175,18 +386,20 @@ export function OwnerProfileView({ profile }: { profile: OwnerProfile }) {
         left={<LogoMark href={`/${profile.handle}`} wordmark={wordmark} />}
         right={
           <>
-            <IconButton
-              icon="pencil"
-              label={t("editProfile")}
-              pressed={editing}
-              onClick={() => {
-                setEditing((v) => !v);
-                // A failed save shouldn't keep shouting once the owner has
-                // stepped away from editing — or back in for another try.
-                setNameError(null);
-                setAvatarError(null);
-              }}
-            />
+            {/* A quiet button with a label and an icon, not a bare pencil
+                (decision of 08.09.2026): out of editing it invites, in
+                editing it names the way out. The label carries the state,
+                so no aria-pressed — a toggle whose name changes would read
+                "Zapisz, pressed". */}
+            <Button
+              variant="quiet"
+              onClick={() => void toggleEditing()}
+              disabled={leaving}
+              aria-busy={leaving || undefined}
+            >
+              <Icon name={editing ? "check" : "pencil"} size={16} />
+              {editing ? t("saveProfile") : t("editProfile")}
+            </Button>
             <AccountMenu
               handle={profile.handle}
               avatarUrl={profile.avatar?.url128 ?? null}
@@ -196,7 +409,7 @@ export function OwnerProfileView({ profile }: { profile: OwnerProfile }) {
         }
       />
       <main className="mx-auto flex max-w-(--measure-page) flex-col gap-(--sp-5) px-(--sp-5) pt-(--sp-7) pb-(--sp-10) sm:gap-(--sp-6) sm:px-(--sp-7) sm:pt-(--sp-10) sm:pb-(--sp-14)">
-        <Card as="article" padding="lg">
+        <Card as="article" padding="lg" className="flex flex-col gap-(--sp-7)">
           {/* Stacked below sm, exactly as the visitor's copy of this card is
               (screen 2): a 128px avatar plus a display-size name cannot
               share the 248px a 360px phone leaves inside the card, and the
@@ -242,9 +455,9 @@ export function OwnerProfileView({ profile }: { profile: OwnerProfile }) {
               {editing ? (
                 <input
                   type="text"
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  onBlur={saveName}
+                  value={fields.name}
+                  onChange={(event) => setField("name", event.target.value)}
+                  onBlur={() => void saveName()}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") {
                       event.preventDefault();
@@ -263,25 +476,94 @@ export function OwnerProfileView({ profile }: { profile: OwnerProfile }) {
                 // name is one 80-character field and may hold a single word
                 // longer than any column we can give it.
                 <h1 className="type-display break-words text-(--text-strong)">
-                  {profile.displayName}
+                  {fields.name}
                 </h1>
+              )}
+              {editing ? (
+                <TextSectionField
+                  id={headlineId}
+                  field="headline"
+                  rows={2}
+                  max={HEADLINE_MAX}
+                  value={fields.headline}
+                  error={headlineError}
+                  onChange={(value) => setField("headline", value)}
+                  onBlur={() => void saveText("headline", setHeadlineError)}
+                />
+              ) : (
+                <HeadlineView headline={fields.headline || null} />
               )}
               {avatarBusy && (
                 <p className="type-sm text-(--text-muted)" role="status">
                   {tAvatar("uploading")}
                 </p>
               )}
-              {/* One shared slot for both fields' errors. If a stale name
-                  error and a fresh avatar error were both pending it would
-                  show only the name one — rare enough in one editing pass
-                  not to warrant two separate slots. */}
+              {savedNotice && (
+                <p className="type-sm text-(--state-success)" role="status">
+                  {t("savedProfile")}
+                </p>
+              )}
+              {/* One shared slot for the name's and the avatar's errors. If a
+                  stale name error and a fresh avatar error were both pending
+                  it would show only the name one — rare enough in one
+                  editing pass not to warrant two separate slots. */}
               {(nameError || avatarError) && (
-                <p id="profile-edit-error" className="type-sm text-(--state-danger)" role="alert">
+                <p
+                  id="profile-edit-error"
+                  className="type-sm text-(--state-danger)"
+                  role="alert"
+                >
                   {nameError ?? avatarError}
                 </p>
               )}
             </div>
           </div>
+
+          {editing ? (
+            <section className="flex flex-col gap-(--sp-3)">
+              <SectionHeading>{t("locationsHeading")}</SectionHeading>
+              <ul className="flex flex-wrap items-center gap-(--sp-3)">
+                {fields.locations.length === 0 && (
+                  <li className="type-sm text-(--text-subtle)">
+                    {tSections("locations.empty")}
+                  </li>
+                )}
+                {fields.locations.map((place) => (
+                  <li key={place} className="flex">
+                    <PlaceChip
+                      place={place}
+                      onRemove={() => removePlace(place)}
+                      removeLabel={tSections("locations.remove", { place })}
+                    />
+                  </li>
+                ))}
+              </ul>
+              <PlaceCombobox
+                id={locationsId}
+                exclude={fields.locations}
+                disabled={fields.locations.length >= LOCATIONS_MAX}
+                onAdd={addPlace}
+                error={locationsError}
+              />
+            </section>
+          ) : (
+            <LocationsView locations={fields.locations} />
+          )}
+
+          {editing ? (
+            <TextSectionField
+              id={bioId}
+              field="bio"
+              rows={6}
+              max={BIO_MAX}
+              value={fields.bio}
+              error={bioError}
+              onChange={(value) => setField("bio", value)}
+              onBlur={() => void saveText("bio", setBioError)}
+            />
+          ) : (
+            <BioView bio={fields.bio || null} />
+          )}
         </Card>
         <Card padding="sm" tone="sunken">
           <div className="flex flex-wrap items-center gap-(--sp-4)">
@@ -298,8 +580,229 @@ export function OwnerProfileView({ profile }: { profile: OwnerProfile }) {
         />
       </main>
       <div className="mx-auto flex max-w-(--measure-page) justify-center px-(--sp-5) py-(--sp-7) sm:px-(--sp-7) sm:py-(--sp-8)">
-        <Plaque name={profile.displayName} width={150} tilt={0} shadow={false} />
+        <Plaque name={fields.name} width={150} tilt={0} shadow={false} />
       </div>
     </>
+  );
+}
+
+// Ninety percent of the limit: where the counter starts to warn — and the
+// only point at which it speaks up, so a screen reader is not read every
+// keystroke's count.
+function nearLimit(length: number, max: number): boolean {
+  return length >= max * 0.9;
+}
+
+// The headline and the bio in edit mode: a labelled textarea with its hint,
+// a counter that warns near the limit, and the field's own error line.
+function TextSectionField({
+  id,
+  field,
+  rows,
+  max,
+  value,
+  error,
+  onChange,
+  onBlur,
+}: {
+  id: string;
+  field: "headline" | "bio";
+  rows: number;
+  max: number;
+  value: string;
+  error: string | null;
+  onChange: (value: string) => void;
+  onBlur: () => void;
+}) {
+  const tSections = useTranslations("Settings.profile.sections");
+  const near = nearLimit(value.length, max);
+  return (
+    <div className="flex max-w-(--measure-prose) flex-col gap-(--sp-2)">
+      <label htmlFor={id} className="type-label text-(--text-body)">
+        {tSections(`${field}.label`)}
+      </label>
+      <Textarea
+        id={id}
+        rows={rows}
+        maxLength={max}
+        value={value}
+        placeholder={tSections(`${field}.placeholder`)}
+        onChange={(event) => onChange(event.target.value)}
+        onBlur={onBlur}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? `${id}-hint ${id}-error` : `${id}-hint`}
+      />
+      <div id={`${id}-hint`} className="flex justify-between gap-(--sp-4)">
+        <span className="type-sm text-(--text-muted)">
+          {tSections(`${field}.hint`)}
+        </span>
+        <span
+          className={`type-sm tabular-nums ${near ? "text-(--state-warning)" : "text-(--text-subtle)"}`}
+          aria-live={near ? "polite" : "off"}
+        >
+          {tSections("counter", { count: value.length, max })}
+        </span>
+      </div>
+      {error && (
+        <p
+          id={`${id}-error`}
+          className="type-sm text-(--state-danger)"
+          role="alert"
+        >
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+type SearchPlaces = typeof searchPlaces;
+
+// The place field: an input with TERYT suggestions underneath. A suggestion
+// is chosen with a click or the arrow keys and Enter; Enter on the input
+// itself adds what was typed, list or no list (A12: free text is allowed).
+// The list itself — 16 voivodeships and every city, 39 KB — is fetched the
+// first time the field is focused, so neither a visitor nor an owner who
+// never edits their places pays for it.
+function PlaceCombobox({
+  id,
+  exclude,
+  disabled,
+  onAdd,
+  error,
+}: {
+  id: string;
+  exclude: string[];
+  disabled: boolean;
+  onAdd: (place: string) => void;
+  error: string | null;
+}) {
+  const tSections = useTranslations("Settings.profile.sections");
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const [search, setSearch] = useState<SearchPlaces | null>(null);
+  const listId = `${id}-suggestions`;
+  const hits: Place[] = open && search ? search(query, { exclude }) : [];
+
+  function loadList() {
+    if (search) return;
+    void import("@/lib/teryt").then((module) =>
+      setSearch(() => module.searchPlaces),
+    );
+  }
+
+  function choose(place: string) {
+    onAdd(place);
+    setQuery("");
+    setOpen(false);
+    setActiveIndex(-1);
+  }
+
+  return (
+    <div className="flex max-w-(--measure-form) flex-col gap-(--sp-2)">
+      <label htmlFor={id} className="type-label text-(--text-body)">
+        {tSections("locations.label")}
+      </label>
+      <div className="relative">
+        <Input
+          id={id}
+          value={query}
+          disabled={disabled}
+          placeholder={tSections("locations.placeholder")}
+          autoComplete="off"
+          maxLength={LOCATION_MAX}
+          role="combobox"
+          aria-expanded={hits.length > 0}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          aria-activedescendant={
+            activeIndex >= 0 ? `${listId}-${activeIndex}` : undefined
+          }
+          aria-describedby={error ? `${id}-hint ${id}-error` : `${id}-hint`}
+          aria-invalid={error ? true : undefined}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setOpen(true);
+            setActiveIndex(-1);
+          }}
+          onFocus={() => {
+            loadList();
+            setOpen(true);
+          }}
+          onBlur={() => {
+            // Let a click on a suggestion land before the list goes away.
+            setTimeout(() => setOpen(false), 120);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown" && hits.length > 0) {
+              event.preventDefault();
+              setActiveIndex((index) => (index + 1) % hits.length);
+            } else if (event.key === "ArrowUp" && hits.length > 0) {
+              event.preventDefault();
+              setActiveIndex((index) =>
+                index <= 0 ? hits.length - 1 : index - 1,
+              );
+            } else if (event.key === "Enter") {
+              event.preventDefault();
+              const chosen = activeIndex >= 0 ? hits[activeIndex] : undefined;
+              choose(chosen ? chosen.name : query);
+            } else if (event.key === "Escape") {
+              setOpen(false);
+              setActiveIndex(-1);
+            }
+          }}
+          className="w-full"
+        />
+        {hits.length > 0 && (
+          <ul
+            id={listId}
+            role="listbox"
+            aria-label={tSections("locations.suggestions")}
+            className="absolute top-full right-0 left-0 z-10 mt-(--sp-2) max-h-56 overflow-auto rounded-md border border-(--border-default) bg-(--surface-card) p-(--sp-2) shadow-md"
+          >
+            {hits.map((place, index) => (
+              <li
+                key={`${place.kind}:${place.name}:${place.voivodeship ?? ""}`}
+                id={`${listId}-${index}`}
+                role="option"
+                aria-selected={index === activeIndex}
+                onMouseDown={(event) => {
+                  // mousedown, not click: the input's blur fires first and
+                  // would have closed the list under a click.
+                  event.preventDefault();
+                  choose(place.name);
+                }}
+                onMouseEnter={() => setActiveIndex(index)}
+                className={`flex cursor-pointer items-center justify-between gap-(--sp-4) rounded-sm px-(--sp-4) py-(--sp-3) type-sm ${
+                  index === activeIndex
+                    ? "bg-(--surface-hover) text-(--text-strong)"
+                    : "text-(--text-body)"
+                }`}
+              >
+                <span>{place.name}</span>
+                <span className="type-eyebrow text-(--text-subtle)">
+                  {place.kind === "voivodeship"
+                    ? tSections("locations.kindVoivodeship")
+                    : (place.voivodeship ?? tSections("locations.kindCity"))}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <p id={`${id}-hint`} className="type-sm text-(--text-muted)">
+        {tSections("locations.hint")}
+      </p>
+      {error && (
+        <p
+          id={`${id}-error`}
+          className="type-sm text-(--state-danger)"
+          role="alert"
+        >
+          {error}
+        </p>
+      )}
+    </div>
   );
 }

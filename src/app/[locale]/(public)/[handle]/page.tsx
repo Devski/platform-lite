@@ -27,6 +27,7 @@ import { MobileMenu } from "@/components/ui/mobile-menu";
 import { Plaque } from "@/components/ui/plaque";
 import { TopBar } from "@/components/ui/top-bar";
 import { OwnerProfileView } from "./owner-profile-view";
+import { BioView, HeadlineView, LocationsView } from "./profile-sections";
 
 // Whether the CURRENT viewer owns this profile (screen 6 vs screen 2). Fails
 // closed like every other session read here: a session that cannot be
@@ -34,7 +35,9 @@ import { OwnerProfileView } from "./owner-profile-view";
 // treated as "not the owner", never the other way round.
 async function isOwnerViewing(userId: string): Promise<boolean> {
   try {
-    const session = await getAuth().api.getSession({ headers: await headers() });
+    const session = await getAuth().api.getSession({
+      headers: await headers(),
+    });
     return session?.user.id === userId;
   } catch {
     return false;
@@ -44,8 +47,8 @@ async function isOwnerViewing(userId: string): Promise<boolean> {
 // A7: the public profile — the one page an anonymous visitor (and a crawler)
 // sees. The §9 resolution and the <head> live in src/lib/public-profile.ts;
 // this file is the request side of it: locale, one lookup, the three answers
-// (render, 308, 404) and a card with nothing on it but the photo, the name
-// and the address (§1 — no cover, no tabs, no about).
+// (render, 308, 404) and the card: the photo, the name and the address, and
+// since #72 the A12 sections a profile has filled in (§1 — still no tabs).
 
 // Every render reads the database, so the page is never prerendered — the
 // (app) layout takes the same way out for its session reads.
@@ -135,7 +138,11 @@ export async function generateMetadata({
     origin,
     locale,
     brand,
-    description: t("description", { name: result.profile.displayName, brand }),
+    // A7: the headline is the profile's own one-line description once it
+    // has one; the generic sentence stands in until then.
+    description:
+      result.profile.headline ??
+      t("description", { name: result.profile.displayName, brand }),
     avatarAlt: t("avatarAlt", { name: result.profile.displayName }),
     placeholderImage: `${origin}${monogramImagePath(result.profile.handle)}`,
     pathFor: handlePath,
@@ -214,7 +221,7 @@ export default async function PublicProfilePage({
         mobileMenu={<MobileMenu>{actions}</MobileMenu>}
       />
       <main className="mx-auto flex max-w-(--measure-page) flex-col gap-(--sp-5) px-(--sp-5) pt-(--sp-8) pb-(--sp-10) sm:gap-(--sp-6) sm:px-(--sp-7) sm:pt-(--sp-12) sm:pb-(--sp-14)">
-        <Card as="article" padding="lg">
+        <Card as="article" padding="lg" className="flex flex-col gap-(--sp-7)">
           {/* Stacked below sm. A 128px avatar plus a display-size name has
               no way to share the 248px a 360px phone leaves inside this
               card, and the name was the half that ran off the right edge;
@@ -240,8 +247,13 @@ export default async function PublicProfilePage({
               <h1 className="type-display break-words text-(--text-strong)">
                 {profile.displayName}
               </h1>
+              <HeadlineView headline={profile.headline} />
             </div>
           </div>
+          {/* #72 / A12: the sections, each absent when the profile has
+              nothing there — the same components the owner sees. */}
+          <LocationsView locations={profile.locations} />
+          <BioView bio={profile.bio} />
         </Card>
         <Card padding="sm" tone="sunken">
           <div className="flex flex-wrap items-center gap-(--sp-4)">
@@ -253,7 +265,12 @@ export default async function PublicProfilePage({
         </Card>
       </main>
       <div className="mx-auto flex max-w-(--measure-page) justify-center px-(--sp-5) py-(--sp-7) sm:px-(--sp-7) sm:py-(--sp-8)">
-        <Plaque name={profile.displayName} width={150} tilt={0} shadow={false} />
+        <Plaque
+          name={profile.displayName}
+          width={150}
+          tilt={0}
+          shadow={false}
+        />
       </div>
       <Footer maxWidth="measure-page" />
     </>

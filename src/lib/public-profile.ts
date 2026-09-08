@@ -17,6 +17,10 @@ export interface PublicProfile {
   /** profiles.display_name — a live handle always has a row (setHandle seeds it). */
   displayName: string;
   avatar: { url512: string; url128: string } | null;
+  // #72 / A12: the sections, as stored — null and [] mean "none".
+  headline: string | null;
+  locations: string[];
+  bio: string | null;
 }
 
 export type PublicProfileLookup =
@@ -70,6 +74,9 @@ export async function loadPublicProfile(
       avatar: view.avatar
         ? { url512: view.avatar.url512, url128: view.avatar.url128 }
         : null,
+      headline: view.headline,
+      locations: view.locations,
+      bio: view.bio,
     },
   };
 }
@@ -147,7 +154,9 @@ export function profileMetadata(input: ProfileMetadataInput): Metadata {
       // (decision of 05.09.2026): a shared link is about the person, and
       // the reader already sees the domain on the line below it.
       title: profile.displayName,
-      description: brand,
+      // The headline, when the profile has one, says what the card is
+      // about better than the product name does (#72).
+      description: profile.headline ?? brand,
       url: canonical,
       siteName: brand,
       locale: OG_LOCALES[locale],
