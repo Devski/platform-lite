@@ -95,14 +95,19 @@ export function WorksGallery({
     }
   }
   useEffect(() => {
+    // "pushed" means "the page is on the lightbox's entry": after a reload
+    // with the picture open, or a forward back onto the entry, the next
+    // opening reuses it rather than pushing a second one (#84 review).
+    pushed.current = isLightboxState(window.history.state);
     function onPop(event: PopStateEvent) {
+      const onEntry = isLightboxState(event.state);
       // The entry the lightbox pushed was left by back: close, without a
       // back of our own.
-      if (pushed.current && !isLightboxState(event.state)) {
-        pushed.current = false;
+      if (pushed.current && !onEntry) {
         lightboxRef.current?.returnTo?.focus();
         commitLightbox(null);
       }
+      pushed.current = onEntry;
     }
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
@@ -324,6 +329,7 @@ function LightboxOverlay({
 }) {
   const t = useTranslations("Works");
   const closeRef = useRef<HTMLButtonElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const count = work.images.length;
   const step = (delta: number) => onStep((index + delta + count) % count);
 
@@ -337,6 +343,32 @@ function LightboxOverlay({
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Tab") {
+        // A modal keeps the focus: Tab cycles through its own controls and
+        // never reaches the page behind it (#84 review) — where "Zapisz"
+        // or another card's button would move history under the picture.
+        const controls = Array.from(
+          rootRef.current?.querySelectorAll<HTMLElement>("button") ?? [],
+        );
+        if (controls.length === 0) return;
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        const active = document.activeElement;
+        if (
+          event.shiftKey &&
+          (active === first || !rootRef.current?.contains(active))
+        ) {
+          event.preventDefault();
+          last.focus();
+        } else if (
+          !event.shiftKey &&
+          (active === last || !rootRef.current?.contains(active))
+        ) {
+          event.preventDefault();
+          first.focus();
+        }
+        return;
+      }
       if (event.key === "Escape") onClose();
       else if (event.key === "ArrowLeft" && count > 1) step(-1);
       else if (event.key === "ArrowRight" && count > 1) step(1);
@@ -356,6 +388,7 @@ function LightboxOverlay({
 
   return (
     <div
+      ref={rootRef}
       role="dialog"
       aria-modal="true"
       aria-label={label}

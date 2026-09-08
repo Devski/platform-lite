@@ -96,6 +96,16 @@ test("Escape closes it the same way, and opening twice pushes one entry each tim
   expect(await depth()).toBe(before + 1);
   await page.goBack();
   await expect(picture).toHaveCount(0);
+
+  // Forward onto the entry back had popped, then a new opening: the entry
+  // is reused, not doubled — Escape and one back leave the page.
+  await page.goForward();
+  await expect(picture).toHaveCount(0);
+  await enlarge.click();
+  await expect(picture).toBeVisible();
+  expect(await depth()).toBe(before + 1);
+  await page.keyboard.press("Escape");
+  await expect(picture).toHaveCount(0);
   await page.goBack();
   await expect(page).toHaveURL(/\/nie-ma-takiej-strony$/);
 });
