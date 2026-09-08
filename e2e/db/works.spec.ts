@@ -222,29 +222,28 @@ test("several at once (#79): the picker takes what fits and says so, replace kee
   });
   const picker = page.getByTestId("work-photos");
   const removeButtons = page.getByRole("button", { name: "Usuń zdjęcie" });
+  // Many while two or more fit, one for the last place.
+  await expect(picker).toHaveAttribute("multiple", "");
 
-  // Two files in one pick: two upload chains, two tiles, "2 / 3".
-  await picker.setInputFiles([
-    await pngFile("a.png", 1),
-    await pngFile("b.png", 2),
-  ]);
-  await expect(removeButtons).toHaveCount(2);
-  await expect(page.getByText("2 / 3")).toBeVisible();
-  expect(uploads).toBe(2);
+  // One file first: one chain, one tile, the tile switched to the server's
+  // 480 px variant once confirmed.
+  await picker.setInputFiles([await pngFile("a.png", 1)]);
+  await expect(removeButtons).toHaveCount(1);
+  await expect(page.getByText("1 / 3")).toBeVisible();
   await expect(page.locator("form img").first()).toHaveAttribute(
     "src",
     "/__stub-storage/thumb-1.webp",
   );
 
-  // Three more when one fits: one goes up, the owner is told, and the
-  // "+" tile is gone once the work is full.
+  // Three files when two fit: two go up in parallel, the owner is told,
+  // and the "+" tile is gone once the work is full.
   await picker.setInputFiles([
+    await pngFile("b.png", 2),
     await pngFile("c.png", 3),
     await pngFile("d.png", 4),
-    await pngFile("e.png", 5),
   ]);
   await expect(
-    page.getByText("Zmieściło się 1 z 3: realizacja ma najwyżej 3 zdjęcia."),
+    page.getByText("Zmieściło się 2 z 3: realizacja ma najwyżej 3 zdjęcia."),
   ).toBeVisible();
   await expect(removeButtons).toHaveCount(3);
   expect(uploads).toBe(3);
@@ -255,13 +254,23 @@ test("several at once (#79): the picker takes what fits and says so, replace kee
     ),
   ).toBeVisible();
 
+  // With one place left the picker is single-file: a phone's gallery then
+  // cannot offer seven for one.
+  await removeButtons.nth(2).click();
+  await expect.poll(() => discarded.length).toBe(1);
+  expect(discarded[0].postDataJSON()).toEqual({ fileId: fileIdAt(3) });
+  await expect(removeButtons).toHaveCount(2);
+  await expect(picker).not.toHaveAttribute("multiple");
+  await picker.setInputFiles(await pngFile("c.png", 3));
+  await expect(removeButtons).toHaveCount(3);
+
   // Replace the main photo: the new one is main, the old one discarded.
   await page
     .getByTestId("work-photo-replace-0")
     .setInputFiles(await pngFile("f.png", 6));
-  await expect.poll(() => uploads).toBe(4);
-  await expect.poll(() => discarded.length).toBe(1);
-  expect(discarded[0].postDataJSON()).toEqual({ fileId: fileIdAt(1) });
+  await expect.poll(() => uploads).toBe(5);
+  await expect.poll(() => discarded.length).toBe(2);
+  expect(discarded[1].postDataJSON()).toEqual({ fileId: fileIdAt(1) });
   await expect(removeButtons).toHaveCount(3);
 
   await page.getByLabel("Nazwa", { exact: true }).fill("Trzy ujęcia");
@@ -271,7 +280,7 @@ test("several at once (#79): the picker takes what fits and says so, replace kee
     name: "Trzy ujęcia",
     investor: "",
     developer: "",
-    imageFileIds: [fileIdAt(4), fileIdAt(2), fileIdAt(3)],
+    imageFileIds: [fileIdAt(5), fileIdAt(2), fileIdAt(4)],
     r360FileId: null,
   });
   await expect(

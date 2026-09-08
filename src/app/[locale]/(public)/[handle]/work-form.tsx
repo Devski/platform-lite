@@ -44,8 +44,11 @@ interface Slot {
   broken?: boolean;
 }
 
+// 36 px targets with a clear gap: two 24 px ones side by side in a tile's
+// corner were too close for a thumb — Android Chrome answers an ambiguous
+// tap with nothing (Dawid, 08.09.2026).
 const TILE_ACTION_CLASS =
-  "flex h-6 w-6 items-center justify-center rounded-full bg-(--n-950)/70 text-white hover:bg-(--n-950) focus-visible:outline-none focus-visible:shadow-[var(--ring-focus)] focus-within:shadow-[var(--ring-focus)]";
+  "flex h-9 w-9 touch-manipulation items-center justify-center rounded-full bg-(--n-950)/70 text-white hover:bg-(--n-950) focus-visible:outline-none focus-visible:shadow-[var(--ring-focus)] focus-within:shadow-[var(--ring-focus)]";
 
 // Best-effort: an orphan set is the quota's problem, not the owner's, and
 // the route answers a file a work names with a no-op.
@@ -540,14 +543,14 @@ export function WorkForm({
                   {t("photos.uploading")}
                 </span>
               ) : (
-                <span className="absolute top-1.5 right-1.5 flex gap-1">
+                <span className="absolute top-1 right-1 flex gap-2">
                   {/* Replace: a picker for one file that takes this tile's
                       place, so a replaced main photo stays main. */}
                   <label
                     title={t("photos.replace")}
                     className={`${TILE_ACTION_CLASS} cursor-pointer`}
                   >
-                    <Icon name="upload" size={12} />
+                    <Icon name="upload" size={16} />
                     <span className="sr-only">{t("photos.replace")}</span>
                     <input
                       type="file"
@@ -567,7 +570,7 @@ export function WorkForm({
                     title={t("photos.remove")}
                     className={TILE_ACTION_CLASS}
                   >
-                    <Icon name="x" size={12} />
+                    <Icon name="x" size={16} />
                   </button>
                 </span>
               )}
@@ -584,7 +587,10 @@ export function WorkForm({
               )}
               <input
                 type="file"
-                multiple
+                // The web cannot tell a phone's picker "at most N"; it can
+                // only offer one or many. Many while two or more fit, one
+                // for the last place — so at least that pick cannot overflow.
+                multiple={WORK_PHOTOS_MAX - slots.length > 1}
                 accept={IMAGE_CONTENT_TYPES.join(",")}
                 className="sr-only"
                 data-testid="work-photos"
