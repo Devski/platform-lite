@@ -57,7 +57,14 @@ function serverFailure(code: unknown, status: number): UploadFailure {
 }
 
 export type UploadResult =
-  { ok: true; fileId: string } | { ok: false; failure: UploadFailure };
+  | {
+      ok: true;
+      fileId: string;
+      /** The 480 px variant's URL, when the server named its variants:
+       * what a page shows for the photo from now on (#79). */
+      thumbnailUrl?: string;
+    }
+  | { ok: false; failure: UploadFailure };
 
 export async function uploadImage(
   file: File,
@@ -104,6 +111,7 @@ export async function uploadImage(
     const confirm = await postJson<{
       error?: string;
       original?: { fileId: string };
+      variants?: { kind: string; url: string }[];
     }>("/api/uploads/confirm", {
       stagingKey: presign.data.stagingKey,
       purpose,
@@ -114,7 +122,14 @@ export async function uploadImage(
         failure: serverFailure(confirm.data.error, confirm.status),
       };
     }
-    return { ok: true, fileId: confirm.data.original.fileId };
+    const thumbnailUrl = confirm.data.variants?.find((variant) =>
+      variant.kind.endsWith("-480"),
+    )?.url;
+    return {
+      ok: true,
+      fileId: confirm.data.original.fileId,
+      ...(thumbnailUrl ? { thumbnailUrl } : {}),
+    };
   } catch {
     return { ok: false, failure: "generic" };
   }

@@ -94,6 +94,33 @@ describe("uploadImage", () => {
     expect(calls).toHaveLength(0);
   });
 
+  it("hands back the 480 px variant's URL when confirm names the variants (#79)", async () => {
+    stubFetch(({ url }) => {
+      if (url.endsWith("/api/uploads/presign")) {
+        return {
+          status: 200,
+          body: { stagingKey: "s/1", uploadUrl: "https://bucket/put" },
+        };
+      }
+      if (url === "https://bucket/put") return { status: 200 };
+      return {
+        status: 200,
+        body: {
+          original: { fileId: "f-1" },
+          variants: [
+            { kind: "work-1600", url: "https://cdn/f-1-1600.webp" },
+            { kind: "work-480", url: "https://cdn/f-1-480.webp" },
+          ],
+        },
+      };
+    });
+    expect(await uploadImage(png, "work")).toEqual({
+      ok: true,
+      fileId: "f-1",
+      thumbnailUrl: "https://cdn/f-1-480.webp",
+    });
+  });
+
   it("presigns, PUTs the bytes with the signed headers, confirms with the purpose, returns the file id", async () => {
     const calls = stubFetch(({ url }) => {
       if (url.endsWith("/api/uploads/presign")) {
