@@ -34,6 +34,16 @@ test.skip(
 // runs the day the five S3_* variables are set, and until then the page is
 // asserted in its avatar-less state instead.
 const photoConfigured = isStorageConfigured();
+const WORK_NAME = "Osiedle Nowe Żerniki, etap II";
+
+// A real decodable image, generated here rather than committed: the server
+// verifies the uploaded bytes by decoding them (#12).
+async function solidPng(background: { r: number; g: number; b: number }) {
+  const sharp = (await import("sharp")).default;
+  return sharp({ create: { width: 640, height: 480, channels: 3, background } })
+    .png()
+    .toBuffer();
+}
 
 test.use({ locale: "pl-PL" });
 
@@ -133,19 +143,7 @@ test("a new user goes from the landing page to a live public profile", async ({
   // the whole journey, which would throw away every assertion after it.
   if (photoConfigured) {
     await test.step("A4: upload the profile photo", async () => {
-      // A real decodable image, generated here rather than committed: the
-      // server verifies the uploaded bytes by decoding them (#12).
-      const sharp = (await import("sharp")).default;
-      const photo = await sharp({
-        create: {
-          width: 640,
-          height: 480,
-          channels: 3,
-          background: { r: 29, g: 78, b: 216 },
-        },
-      })
-        .png()
-        .toBuffer();
+      const photo = await solidPng({ r: 29, g: 78, b: 216 });
       // The camera badge is a <label> over a visually hidden file input, and
       // both exist only while the pencil is on.
       await pencil.click();
@@ -163,6 +161,32 @@ test("a new user goes from the landing page to a live public profile", async ({
         { timeout: 60_000 },
       );
     });
+
+    await test.step("A12: add a work with one photo", async () => {
+      // The "+" opens the form; a work needs a name and at least one photo
+      // (#72). The photo goes through the same chain as the avatar, as a
+      // work image, and the card appears on the page once saved.
+      await page.getByRole("button", { name: "Dodaj realizację" }).click();
+      await page.getByLabel("Nazwa", { exact: true }).fill(WORK_NAME);
+      await page.getByTestId("work-photo-0").setInputFiles({
+        name: "render.png",
+        mimeType: "image/png",
+        buffer: await solidPng({ r: 180, g: 83, b: 9 }),
+      });
+      // The "Główne" badge is on the slot from the moment it is picked; the
+      // remove button appears only once the upload is confirmed — that is
+      // the wait, so a failed upload fails here and not on a photo-less save.
+      await expect(
+        page.getByRole("button", { name: "Usuń zdjęcie" }),
+      ).toBeVisible({ timeout: 60_000 });
+      await expect(page.getByText("Główne", { exact: true })).toBeVisible();
+      await page.getByRole("button", { name: "Zapisz realizację" }).click();
+      await expect(
+        page.getByRole("heading", { level: 3, name: WORK_NAME }),
+      ).toBeVisible({ timeout: 15_000 });
+      await save.click();
+      await expect(pencil).toBeVisible();
+    });
   }
 
   await test.step("A7: the public profile page is live", async () => {
@@ -176,12 +200,30 @@ test("a new user goes from the landing page to a live public profile", async ({
     // A7's <head>: the profile's own title, not the not-found one.
     await expect(page).toHaveTitle(`${identity.displayName} · Architektów 3d`);
 
-    const photoOnPage = page.locator("article img");
+    // The profile card is the page's first article; every work card is one
+    // too, with its own image, so this must not match across them.
+    const photoOnPage = page.locator("article img").first();
     if (photoConfigured) {
       await expect(photoOnPage).toHaveAttribute(
         "alt",
         `Zdjęcie profilowe ${identity.displayName}`,
       );
+      // The work is on the visitor's page too: its card, with its photo
+      // decoded (not just a sized box), and no editing control near it.
+      await expect(
+        page.getByRole("heading", { level: 3, name: WORK_NAME }),
+      ).toBeVisible();
+      const workPhoto = page.getByRole("img", {
+        name: `${WORK_NAME}, zdjęcie 1`,
+      });
+      // The card's image loads lazily: bring it into view before asking
+      // whether it decoded.
+      await workPhoto.scrollIntoViewIfNeeded();
+      await expect
+        .poll(() =>
+          workPhoto.evaluate((el) => (el as HTMLImageElement).naturalWidth),
+        )
+        .toBeGreaterThan(0);
       // The box is sized by CSS, so toBeVisible() would pass on a broken
       // source — assert the bitmap actually decoded.
       await expect

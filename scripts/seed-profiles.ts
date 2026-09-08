@@ -576,7 +576,10 @@ export async function seedProfiles(deps: SeedDeps): Promise<SeedSummary> {
         await writeSections(db, outcome.userId, profile);
         added.push("sections");
       }
-      if (storage && (outcome.photo || outcome.cover)) {
+      // Each on its own: a profile that already has its photo and every
+      // cover it was planned to have, but no works, still gets the works
+      // (step 6 found them skipped together with the images).
+      if (storage) {
         const imageDeps = { db, storage, prefix, userId: outcome.userId };
         if (outcome.photo) {
           await uploadImage(imageDeps, "avatar", profile.displayName);

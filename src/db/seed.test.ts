@@ -1,8 +1,8 @@
 import { verifyPassword } from "better-auth/crypto";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import sharp from "sharp";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { accounts, files, profiles, users } from "@/db/schema";
+import { accounts, files, profiles, users, works } from "@/db/schema";
 import { createTestDb, type TestDb } from "@/db/test-db";
 import { createAuth } from "@/lib/auth";
 import {
@@ -54,6 +54,7 @@ const withCover = (handle: string, ...added: string[]) =>
     ...(COVERED.includes(handle) ? ["cover"] : []),
     ...(WITH_WORKS.includes(handle) ? ["works"] : []),
   ].join(", ")} added`;
+const WORK_KINDS = ["work-original", "work-1600", "work-480"] as const;
 const SCRYPT_HASH_RE = /^[0-9a-f]+:[0-9a-f]+$/;
 
 let testDb: TestDb;
@@ -390,6 +391,32 @@ describe("seedProfiles", () => {
     });
   }, 90_000);
 
+  it("resumes works alone: a profile with its photo and sections but no works gets them", async () => {
+    const memory = createMemoryStorage();
+    await run(memory.storage);
+    // Photo and cover in place, works missing — the state the works step
+    // once skipped, because it hid behind the images' condition.
+    const gone = await testDb.db
+      .select({ id: files.id, key: files.objectKey })
+      .from(files)
+      .where(inArray(files.kind, WORK_KINDS));
+    await testDb.db.delete(works);
+    await testDb.db.delete(files).where(inArray(files.kind, WORK_KINDS));
+    for (const row of gone) if (row.key) memory.objects.delete(row.key);
+
+    const { summary, lines } = await run(memory.storage);
+    expect(summary).toEqual({
+      created: [],
+      skipped: HANDLES.filter((handle) => !WITH_WORKS.includes(handle)),
+      photos: [],
+    });
+    expect(lines.filter((line) => line.startsWith("resumed"))).toEqual(
+      WITH_WORKS.map((handle) => `resumed  ${handle}  works added`),
+    );
+    expect((await rowCounts()).files).toBe(IMAGE_ROWS);
+    expect(memory.objects.size).toBe(IMAGE_ROWS);
+  }, 90_000);
+
   it("leaves a real user's account on a seed address alone: skipped, no photo", async () => {
     const [first, ...rest] = SEED_PROFILES;
     const [stranger] = await testDb.db
@@ -416,6 +443,10 @@ describe("seedProfiles", () => {
       (row) => row.userId === stranger.id,
     );
     expect(strangerFiles).toHaveLength(0);
+    // Nor works (#72): the seed's works are for the seed's own accounts.
+    expect(
+      await testDb.db.select().from(works).where(eq(works.userId, stranger.id)),
+    ).toHaveLength(0);
   }, 60_000);
 
   it("without storage it seeds accounts, names and handles but no photos", async () => {
