@@ -8,6 +8,36 @@ import { Icon } from "@/components/ui/icon";
 // No "use client": rendered by the visitor's page as Server Components
 // (§5), and bundled for the owner by the client module that imports them.
 
+// The cover across the top of the card: a 3:1 band, the photo centre-cropped
+// into it by CSS (the stored variants keep their own aspect ratio, A12), the
+// 480 px width for phones and the 1600 px one from tablets up. Pre-optimized
+// WebP from storage (G2/G5), as the avatar — next/image would only re-proxy
+// an already-final asset.
+export function CoverView({
+  cover,
+  name,
+}: {
+  cover: { url1600: string; url480: string } | null;
+  name: string;
+}) {
+  const t = useTranslations("PublicProfile");
+  if (!cover) return null;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={cover.url1600}
+      srcSet={`${cover.url480} 480w, ${cover.url1600} 1600w`}
+      sizes="(max-width: 640px) 100vw, 68rem"
+      alt={t("coverAlt", { name })}
+      className="aspect-[3/1] w-full object-cover"
+    />
+  );
+}
+
+// The padded body of a card whose cover bleeds to the edges (padding="none").
+export const CARD_BODY_CLASS =
+  "flex flex-col gap-(--sp-7) p-(--sp-9) sm:p-(--card-pad-lg)";
+
 export function HeadlineView({ headline }: { headline: string | null }) {
   if (!headline) return null;
   return (

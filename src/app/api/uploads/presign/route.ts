@@ -1,20 +1,19 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import {
   checkRateLimit,
   parseJsonBody,
   rejectCrossSite,
   sessionUserId,
 } from "@/lib/api-route";
-import { confirmAvatarUpload } from "@/lib/avatar";
 import { getDb } from "@/db/client";
+import { presignImageSchema, presignImageUpload } from "@/lib/image-upload";
 import { getStorage, keyPrefix } from "@/lib/storage";
-import { respondWithAvatarResult } from "../respond";
+import { respondWithUploadResult } from "../respond";
 
-// Step two of the #12 avatar flow: verify the staged bytes server-side and
-// publish original + WebP variants under content-addressed keys.
-
-const confirmSchema = z.object({ stagingKey: z.string().min(1) });
+// Step one of the image flow (#12, for every purpose since #72):
+// authenticate, validate the A4 edge, hand back a short-lived staging
+// upload URL. Thin by design — the logic lives in lib/image-upload.ts,
+// tested against the memory fake.
 
 export async function POST(request: Request) {
   const userId = await sessionUserId();
@@ -23,20 +22,19 @@ export async function POST(request: Request) {
   }
   const crossSite = rejectCrossSite(request);
   if (crossSite) return crossSite;
-  // Tighter than presign: each confirm decodes and re-encodes up to 10 MB.
   if (
-    !checkRateLimit(`avatar-confirm:${userId}`, { windowSeconds: 60, max: 5 })
+    !checkRateLimit(`upload-presign:${userId}`, { windowSeconds: 60, max: 10 })
   ) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
 
-  const input = await parseJsonBody(request, confirmSchema);
+  const input = await parseJsonBody(request, presignImageSchema);
   if (!input) {
     return NextResponse.json({ error: "invalid_request" }, { status: 400 });
   }
 
-  return respondWithAvatarResult(() =>
-    confirmAvatarUpload(
+  return respondWithUploadResult(() =>
+    presignImageUpload(
       { storage: getStorage(), db: getDb(), prefix: keyPrefix(), userId },
       input,
     ),

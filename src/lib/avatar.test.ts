@@ -123,11 +123,17 @@ describe("presignAvatarUpload (A4, G4)", () => {
       ext: "png",
     });
     await expect(
-      presignAvatarUpload(d.common, { sizeBytes: 51, contentType: "image/png" }),
+      presignAvatarUpload(d.common, {
+        sizeBytes: 51,
+        contentType: "image/png",
+      }),
     ).rejects.toMatchObject({ code: "quota_exceeded" });
     // Right at the limit still passes.
     await expect(
-      presignAvatarUpload(d.common, { sizeBytes: 50, contentType: "image/png" }),
+      presignAvatarUpload(d.common, {
+        sizeBytes: 50,
+        contentType: "image/png",
+      }),
     ).resolves.toBeTruthy();
   });
 
@@ -159,8 +165,12 @@ describe("confirmAvatarUpload (A4, G2, G5)", () => {
 
     // Content-addressed original named by its own bytes (G2).
     const originalHash = sha256(original);
-    expect(result.original.key).toBe(`${PREFIX}a/${originalHash}.png`);
-    expect(result.original.url).toBe(`memory://${PREFIX}a/${originalHash}.png`);
+    expect(result.original.key).toBe(
+      `${PREFIX}u/${userId}/${originalHash}.png`,
+    );
+    expect(result.original.url).toBe(
+      `memory://${PREFIX}u/${userId}/${originalHash}.png`,
+    );
 
     // Variants: square WebP at 512 and 128, derivable from the original hash.
     expect(result.variants.map((v) => v.kind)).toEqual([
@@ -169,7 +179,9 @@ describe("confirmAvatarUpload (A4, G2, G5)", () => {
     ]);
     for (const variant of result.variants) {
       const px = variant.kind === "avatar-512" ? 512 : 128;
-      expect(variant.key).toBe(`${PREFIX}a/${originalHash}-${px}.webp`);
+      expect(variant.key).toBe(
+        `${PREFIX}u/${userId}/${originalHash}-${px}.webp`,
+      );
       const stored = d.objects.get(variant.key);
       expect(stored?.contentType).toBe("image/webp");
       const meta = await sharp(stored!.body).metadata();
@@ -206,7 +218,7 @@ describe("confirmAvatarUpload (A4, G2, G5)", () => {
     expect(result.original.fileId).toBe(originalRow.id);
     for (const row of rows.filter((r) => r.kind !== "avatar-original")) {
       const stored = d.objects.get(
-        `${PREFIX}a/${originalHash}-${row.kind === "avatar-512" ? 512 : 128}.webp`,
+        `${PREFIX}u/${userId}/${originalHash}-${row.kind === "avatar-512" ? 512 : 128}.webp`,
       )!;
       expect(row.sha256).toBe(sha256(stored.body));
       expect(row.sizeBytes).toBe(stored.body.length);
@@ -219,7 +231,9 @@ describe("confirmAvatarUpload (A4, G2, G5)", () => {
     // Claimed as PNG; the decoder decides.
     const stagingKey = await staged(d, jpeg, "image/png");
     const result = await confirmAvatarUpload(d.common, { stagingKey });
-    expect(result.original.key).toBe(`${PREFIX}a/${sha256(jpeg)}.jpg`);
+    expect(result.original.key).toBe(
+      `${PREFIX}u/${userId}/${sha256(jpeg)}.jpg`,
+    );
   });
 
   it("refuses a staging key outside this user's namespace", async () => {

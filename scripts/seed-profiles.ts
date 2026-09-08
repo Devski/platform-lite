@@ -5,13 +5,14 @@ import sharp from "sharp";
 import type { Database } from "@/db/client";
 import { accounts, profiles, users } from "@/db/schema";
 import {
-  confirmAvatarUpload,
-  presignAvatarUpload,
-  type AvatarDeps,
-} from "@/lib/avatar";
+  confirmImageUpload,
+  presignImageUpload,
+  type ImageUploadDeps,
+} from "@/lib/image-upload";
 import { checkHandle, handleBaseFrom } from "@/lib/handle";
 import {
   setAvatar,
+  setCover,
   updateDisplayName,
   updateProfileSections,
 } from "@/lib/profile";
@@ -58,6 +59,9 @@ export interface SeedProfile {
   headline: string;
   locations: string[];
   bio: string;
+  // #72: every second profile gets a generated cover, so the pages show
+  // both shapes of the card.
+  cover: boolean;
 }
 
 interface SeedEntry {
@@ -169,7 +173,7 @@ const SEED_ENTRIES: readonly SeedEntry[] = [
   },
 ];
 
-function seedProfile(entry: SeedEntry): SeedProfile {
+function seedProfile(entry: SeedEntry, index: number): SeedProfile {
   const handle = handleBaseFrom(entry.name);
   if (!handle) {
     throw new Error(`seed: "${entry.name}" yields no usable handle`);
@@ -181,6 +185,7 @@ function seedProfile(entry: SeedEntry): SeedProfile {
     headline: entry.headline,
     locations: entry.locations,
     bio: entry.bio,
+    cover: index % 2 === 0,
   };
 }
 
@@ -252,6 +257,24 @@ export async function avatarPng(displayName: string): Promise<Buffer> {
   return sharp(Buffer.from(svg)).png().toBuffer();
 }
 
+// #72: a 1600×533 (3:1) PNG — a diagonal two-tone field in the name's hue,
+// distinct enough from the avatar's flat square that a cover reads as one.
+const COVER_WIDTH = 1600;
+const COVER_HEIGHT = 533;
+
+export async function coverPng(displayName: string): Promise<Buffer> {
+  const digest = createHash("sha256").update(displayName).digest();
+  const hue = digest.readUInt16BE(0) % 360;
+  const dark = hslToHex(hue, 0.4, 0.3);
+  const light = hslToHex((hue + 30) % 360, 0.35, 0.55);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${COVER_WIDTH}" height="${COVER_HEIGHT}">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${dark}"/><stop offset="1" stop-color="${light}"/></linearGradient></defs>
+  <rect width="100%" height="100%" fill="url(#g)"/>
+  <polygon points="${COVER_WIDTH * 0.55},0 ${COVER_WIDTH},0 ${COVER_WIDTH},${COVER_HEIGHT} ${COVER_WIDTH * 0.4},${COVER_HEIGHT}" fill="#ffffff" fill-opacity="0.08"/>
+</svg>`;
+  return sharp(Buffer.from(svg)).png().toBuffer();
+}
+
 // ---- Seeding -------------------------------------------------------------
 
 export interface SeedDeps {
@@ -276,9 +299,16 @@ type CreateOutcome =
   | { kind: "skipped"; reason: "e-mail exists" | "handle taken" }
   // Ours from an earlier run — the seed's handle on the seed's e-mail — and
   // missing something this run can add: the photo (avatar_file_id NULL and
-  // a storage present now) or, since #72, the sections (headline NULL, as
-  // every account seeded before them is).
-  | { kind: "resumed"; userId: string; photo: boolean; sections: boolean };
+  // a storage present now), the cover likewise (#72, for the profiles that
+  // get one), or the sections (headline NULL, as every account seeded
+  // before them is).
+  | {
+      kind: "resumed";
+      userId: string;
+      photo: boolean;
+      cover: boolean;
+      sections: boolean;
+    };
 
 // The account-row contract from the header, in one place: the users row and
 // its credential account exactly as Better Auth 1.7.2 leaves them after
@@ -321,6 +351,7 @@ async function createProfile(
       id: users.id,
       handle: profiles.handle,
       avatarFileId: profiles.avatarFileId,
+      coverFileId: profiles.coverFileId,
       headline: profiles.headline,
     })
     .from(users)
@@ -331,9 +362,11 @@ async function createProfile(
     // different one means someone registered the address, and it stays theirs.
     const ours = existing.handle === profile.handle;
     const photo = ours && existing.avatarFileId === null && canAddPhoto;
+    const cover =
+      ours && profile.cover && existing.coverFileId === null && canAddPhoto;
     const sections = ours && existing.headline === null;
-    if (photo || sections) {
-      return { kind: "resumed", userId: existing.id, photo, sections };
+    if (photo || cover || sections) {
+      return { kind: "resumed", userId: existing.id, photo, cover, sections };
     }
     return { kind: "skipped", reason: "e-mail exists" };
   }
@@ -377,19 +410,24 @@ function writeSections(
 // The #12 pipeline end to end, the seed standing in for the browser's PUT:
 // presign → put the bytes on the staging key → confirm (decode-verify,
 // variants, files rows) → point the profile at the original. Never a files
-// row or an object written by hand.
-async function uploadAvatar(
-  deps: AvatarDeps,
+// row or an object written by hand. One routine for both slots (#72).
+async function uploadImage(
+  deps: ImageUploadDeps,
+  purpose: "avatar" | "cover",
   displayName: string,
 ): Promise<void> {
-  const png = await avatarPng(displayName);
-  const { stagingKey } = await presignAvatarUpload(deps, {
+  const png =
+    purpose === "avatar"
+      ? await avatarPng(displayName)
+      : await coverPng(displayName);
+  const { stagingKey } = await presignImageUpload(deps, {
     sizeBytes: png.length,
     contentType: "image/png",
   });
   await deps.storage.putObject(stagingKey, png, "image/png");
-  const confirmed = await confirmAvatarUpload(deps, { stagingKey });
-  await setAvatar(deps, confirmed.original.fileId);
+  const confirmed = await confirmImageUpload(deps, { stagingKey, purpose });
+  if (purpose === "avatar") await setAvatar(deps, confirmed.original.fileId);
+  else await setCover(deps, confirmed.original.fileId);
 }
 
 /**
@@ -417,22 +455,27 @@ export async function seedProfiles(deps: SeedDeps): Promise<SeedSummary> {
         await writeSections(db, outcome.userId, profile);
         added.push("sections");
       }
-      if (outcome.photo && storage) {
-        await uploadAvatar(
-          { db, storage, prefix, userId: outcome.userId },
-          profile.displayName,
-        );
-        summary.photos.push(handle);
-        added.push("photo");
+      if (storage && (outcome.photo || outcome.cover)) {
+        const imageDeps = { db, storage, prefix, userId: outcome.userId };
+        if (outcome.photo) {
+          await uploadImage(imageDeps, "avatar", profile.displayName);
+          summary.photos.push(handle);
+          added.push("photo");
+        }
+        if (outcome.cover) {
+          await uploadImage(imageDeps, "cover", profile.displayName);
+          added.push("cover");
+        }
       }
       log(`resumed  ${handle}  ${added.join(", ")} added`);
       continue;
     }
     if (storage) {
-      await uploadAvatar(
-        { db, storage, prefix, userId: outcome.userId },
-        profile.displayName,
-      );
+      const imageDeps = { db, storage, prefix, userId: outcome.userId };
+      await uploadImage(imageDeps, "avatar", profile.displayName);
+      if (profile.cover) {
+        await uploadImage(imageDeps, "cover", profile.displayName);
+      }
       summary.photos.push(handle);
     }
     summary.created.push(handle);

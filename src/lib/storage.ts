@@ -71,7 +71,22 @@ export function contentKey(hash: string, ext: string, prefix = ""): string {
   // G2: the name IS the content hash, so a changed file is a new URL and the
   // old one can be cached for a year. Keys use only URL-safe characters
   // (hex hash, known extensions, the per-developer/PR prefix from SPEC §4).
+  // The layout of every object written before #72; kept so rows without an
+  // object_key (#49) can still be addressed, and never used for new ones.
   return `${prefix}a/${hash}.${ext}`;
+}
+
+// #72 (SPEC §9): the same content-addressed name under its owner, so one
+// object belongs to exactly one account — identical bytes from two accounts
+// are two objects, and everything an account owns is one prefix to list or
+// delete (#34). The user id is a UUID: URL-safe like the rest.
+export function ownerKey(
+  userId: string,
+  hash: string,
+  ext: string,
+  prefix = "",
+): string {
+  return `${prefix}u/${userId}/${hash}.${ext}`;
 }
 
 // SPEC §4: dev and PR environments scope their keys (`devski/`, `pr-7/`);

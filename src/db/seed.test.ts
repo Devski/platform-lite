@@ -30,6 +30,14 @@ import {
 const BASE_URL = "http://localhost:3000";
 const PREFIX = "devski/";
 const HANDLES = SEED_PROFILES.map((profile) => profile.handle);
+// #72: every second profile carries a generated cover — three more rows and
+// objects per covered profile, on top of the avatar's three.
+const COVERED = SEED_PROFILES.filter((profile) => profile.cover).map(
+  (profile) => profile.handle,
+);
+const IMAGE_ROWS = HANDLES.length * 3 + COVERED.length * 3;
+const withCover = (handle: string, ...added: string[]) =>
+  `resumed  ${handle}  ${[...added, ...(COVERED.includes(handle) ? ["cover"] : [])].join(", ")} added`;
 const SCRYPT_HASH_RE = /^[0-9a-f]+:[0-9a-f]+$/;
 
 let testDb: TestDb;
@@ -97,6 +105,8 @@ describe("SEED_PROFILES (the data)", () => {
     expect(SEED_PROFILES.some((p) => p.locations.includes("cała Polska"))).toBe(
       true,
     );
+    expect(COVERED.length).toBeGreaterThan(0);
+    expect(COVERED.length).toBeLessThan(SEED_PROFILES.length);
   });
 
   it("exercises the diacritic folding of handleBaseFrom", () => {
@@ -139,7 +149,7 @@ describe("seedProfiles", () => {
     const profileRows = await testDb.db.select().from(profiles);
     expect(profileRows).toHaveLength(14);
     const fileRows = await testDb.db.select().from(files);
-    expect(fileRows).toHaveLength(14 * 3);
+    expect(fileRows).toHaveLength(IMAGE_ROWS);
 
     for (const seed of SEED_PROFILES) {
       const user = userRows.find((row) => row.email === seed.email);
@@ -158,34 +168,55 @@ describe("seedProfiles", () => {
       expect(profile?.headline).toBe(seed.headline);
       expect(profile?.locations).toEqual(seed.locations);
       expect(profile?.bio).toBe(seed.bio);
-      expect(profile?.coverFileId).toBeNull();
-
       const own = fileRows.filter((row) => row.userId === user!.id);
-      expect(own.map((row) => row.kind).sort()).toEqual([
-        "avatar-128",
-        "avatar-512",
-        "avatar-original",
-      ]);
+      expect(own.map((row) => row.kind).sort()).toEqual(
+        seed.cover
+          ? [
+              "avatar-128",
+              "avatar-512",
+              "avatar-original",
+              "cover-1600",
+              "cover-480",
+              "cover-original",
+            ]
+          : ["avatar-128", "avatar-512", "avatar-original"],
+      );
+      // #72: the cover, for the profiles that get one, through setCover.
+      if (seed.cover) {
+        const cover = own.find((row) => row.kind === "cover-original")!;
+        expect(profile?.coverFileId).toBe(cover.id);
+        expect(
+          memory.objects.has(
+            `${PREFIX}u/${user!.id}/${cover.sha256}-1600.webp`,
+          ),
+        ).toBe(true);
+      } else {
+        expect(profile?.coverFileId).toBeNull();
+      }
       const original = own.find((row) => row.kind === "avatar-original")!;
       expect(original.ext).toBe("png");
       expect(profile?.avatarFileId).toBe(original.id);
       // The published objects, named by the original's hash (G2).
-      expect(memory.objects.has(`${PREFIX}a/${original.sha256}.png`)).toBe(
-        true,
-      );
-      expect(memory.objects.has(`${PREFIX}a/${original.sha256}-512.webp`)).toBe(
-        true,
-      );
-      expect(memory.objects.has(`${PREFIX}a/${original.sha256}-128.webp`)).toBe(
-        true,
-      );
+      expect(
+        memory.objects.has(`${PREFIX}u/${user!.id}/${original.sha256}.png`),
+      ).toBe(true);
+      expect(
+        memory.objects.has(
+          `${PREFIX}u/${user!.id}/${original.sha256}-512.webp`,
+        ),
+      ).toBe(true);
+      expect(
+        memory.objects.has(
+          `${PREFIX}u/${user!.id}/${original.sha256}-128.webp`,
+        ),
+      ).toBe(true);
     }
 
     // Nothing but the 42 published objects: every staging copy was removed
     // by the pipeline, and nothing was written outside the prefix.
-    expect(memory.objects.size).toBe(14 * 3);
+    expect(memory.objects.size).toBe(IMAGE_ROWS);
     for (const key of memory.objects.keys()) {
-      expect(key.startsWith(`${PREFIX}a/`)).toBe(true);
+      expect(key.startsWith(`${PREFIX}u/`)).toBe(true);
     }
   }, 60_000);
 
@@ -254,7 +285,7 @@ describe("seedProfiles", () => {
     const { summary: second } = await run(memory.storage);
     expect(second).toEqual({ created: [], skipped: HANDLES, photos: [] });
     expect(await rowCounts()).toEqual(before);
-    expect(memory.objects.size).toBe(14 * 3);
+    expect(memory.objects.size).toBe(IMAGE_ROWS);
   }, 60_000);
 
   it("resumes photos: a run with storage after one without adds every missing photo, once", async () => {
@@ -263,23 +294,27 @@ describe("seedProfiles", () => {
 
     const { summary: second, lines } = await run(memory.storage);
     expect(second).toEqual({ created: [], skipped: [], photos: HANDLES });
-    expect(lines).toEqual(
-      HANDLES.map((handle) => `resumed  ${handle}  photo added`),
-    );
+    expect(lines).toEqual(HANDLES.map((handle) => withCover(handle, "photo")));
     expect(await rowCounts()).toEqual({
       users: 14,
       accounts: 14,
       profiles: 14,
-      files: 14 * 3,
+      files: IMAGE_ROWS,
     });
-    expect(memory.objects.size).toBe(14 * 3);
+    expect(memory.objects.size).toBe(IMAGE_ROWS);
     const profileRows = await testDb.db.select().from(profiles);
     expect(profileRows.every((row) => row.avatarFileId !== null)).toBe(true);
+    expect(
+      profileRows
+        .filter((row) => row.coverFileId !== null)
+        .map((row) => row.handle)
+        .sort(),
+    ).toEqual([...COVERED].sort());
 
     // Every profile has one now: nothing left to add.
     const { summary: third } = await run(memory.storage);
     expect(third).toEqual({ created: [], skipped: HANDLES, photos: [] });
-    expect(memory.objects.size).toBe(14 * 3);
+    expect(memory.objects.size).toBe(IMAGE_ROWS);
   }, 90_000);
 
   it("resumes sections: accounts seeded before #72 get headline, places and bio on the next run", async () => {
@@ -315,7 +350,7 @@ describe("seedProfiles", () => {
     const { summary: third, lines: thirdLines } = await run(memory.storage);
     expect(third).toEqual({ created: [], skipped: [], photos: HANDLES });
     expect(thirdLines).toEqual(
-      HANDLES.map((handle) => `resumed  ${handle}  sections, photo added`),
+      HANDLES.map((handle) => withCover(handle, "sections", "photo")),
     );
     // Nothing left: the next run skips everything.
     expect((await run(memory.storage)).summary).toEqual({
@@ -398,7 +433,8 @@ describe("seedProfiles", () => {
       users: 14,
       accounts: 13,
       profiles: 14,
-      files: 13 * 3,
+      // The skipped profile leaves neither its avatar set nor its cover.
+      files: IMAGE_ROWS - (first.cover ? 6 : 3),
     });
   }, 60_000);
 });

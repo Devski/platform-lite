@@ -5,14 +5,14 @@ import {
   rejectCrossSite,
   sessionUserId,
 } from "@/lib/api-route";
-import { presignAvatarSchema, presignAvatarUpload } from "@/lib/avatar";
+import { confirmImageSchema, confirmImageUpload } from "@/lib/image-upload";
 import { getDb } from "@/db/client";
 import { getStorage, keyPrefix } from "@/lib/storage";
-import { respondWithAvatarResult } from "../respond";
+import { respondWithUploadResult } from "../respond";
 
-// Step one of the #12 avatar flow: authenticate, validate the A4 edge, hand
-// back a short-lived staging upload URL. Thin by design — the logic lives in
-// lib/avatar.ts, tested against the memory fake.
+// Step two of the image flow: verify the staged bytes server-side and
+// publish the original plus the purpose's WebP variants under the owner's
+// content-addressed keys.
 
 export async function POST(request: Request) {
   const userId = await sessionUserId();
@@ -21,19 +21,20 @@ export async function POST(request: Request) {
   }
   const crossSite = rejectCrossSite(request);
   if (crossSite) return crossSite;
+  // Tighter than presign: each confirm decodes and re-encodes up to 10 MB.
   if (
-    !checkRateLimit(`avatar-presign:${userId}`, { windowSeconds: 60, max: 10 })
+    !checkRateLimit(`upload-confirm:${userId}`, { windowSeconds: 60, max: 5 })
   ) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
 
-  const input = await parseJsonBody(request, presignAvatarSchema);
+  const input = await parseJsonBody(request, confirmImageSchema);
   if (!input) {
     return NextResponse.json({ error: "invalid_request" }, { status: 400 });
   }
 
-  return respondWithAvatarResult(() =>
-    presignAvatarUpload(
+  return respondWithUploadResult(() =>
+    confirmImageUpload(
       { storage: getStorage(), db: getDb(), prefix: keyPrefix(), userId },
       input,
     ),

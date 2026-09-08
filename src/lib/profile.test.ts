@@ -5,10 +5,12 @@ import { files, profiles, users } from "@/db/schema";
 import { insertTestAccount } from "@/db/test-account";
 import { createTestDb, type TestDb } from "@/db/test-db";
 import { confirmAvatarUpload, presignAvatarUpload } from "./avatar";
+import { confirmImageUpload, presignImageUpload } from "./image-upload";
 import {
   getProfile,
   ProfileError,
   setAvatar,
+  setCover,
   updateDisplayName,
   updateProfileSections,
 } from "./profile";
@@ -138,6 +140,7 @@ describe("updateProfileSections (A12)", () => {
     expect(await getProfile(d.deps)).toEqual({
       displayName: null,
       avatar: null,
+      cover: null,
       headline: null,
       locations: [],
       bio: null,
@@ -160,6 +163,116 @@ describe("updateProfileSections (A12)", () => {
         },
       ),
     ).rejects.toBeInstanceOf(ProfileError);
+  });
+});
+
+describe("setCover (#72 / A12)", () => {
+  async function uploadCover(d: ReturnType<typeof makeDeps>, seed: number) {
+    const image = await sharp({
+      create: {
+        width: 1200,
+        height: 400,
+        channels: 3,
+        background: { r: seed % 255, g: 60, b: 30 },
+      },
+    })
+      .png()
+      .toBuffer();
+    const { stagingKey } = await presignImageUpload(d.deps, {
+      sizeBytes: image.length,
+      contentType: "image/png",
+    });
+    await d.deps.storage.putObject(stagingKey, image, "image/png");
+    return confirmImageUpload(d.deps, { stagingKey, purpose: "cover" });
+  }
+
+  beforeEach(async () => {
+    await updateDisplayName({ db: testDb.db, userId }, "Pracownia Testowa");
+    await updateDisplayName(
+      { db: testDb.db, userId: otherUserId },
+      "Inna Pracownia",
+    );
+  });
+
+  it("points the profile at a confirmed cover and serves its two widths", async () => {
+    const d = makeDeps();
+    const uploaded = await uploadCover(d, 1);
+    await setCover(d.deps, uploaded.original.fileId);
+    const view = await getProfile(d.deps);
+    expect(view.cover).toEqual({
+      fileId: uploaded.original.fileId,
+      url1600: `memory://${PREFIX}u/${userId}/${uploaded.original.sha256}-1600.webp`,
+      url480: `memory://${PREFIX}u/${userId}/${uploaded.original.sha256}-480.webp`,
+    });
+    // The avatar slot is untouched by the cover.
+    expect(view.avatar).toBeNull();
+  });
+
+  it("refuses another user's file and a file of the wrong kind", async () => {
+    const d = makeDeps();
+    const theirs = await uploadCover(makeDeps(otherUserId), 2);
+    await expect(
+      setCover(d.deps, theirs.original.fileId),
+    ).rejects.toMatchObject({ code: "invalid_cover" });
+    const avatar = await uploadAvatar(d, 3);
+    await expect(
+      setCover(d.deps, avatar.original.fileId),
+    ).rejects.toMatchObject({ code: "invalid_cover" });
+    expect((await getProfile(d.deps)).cover).toBeNull();
+  });
+
+  it("replacing the cover frees the old set; taking it down (null) frees it too", async () => {
+    const d = makeDeps();
+    const first = await uploadCover(d, 4);
+    await setCover(d.deps, first.original.fileId);
+    const second = await uploadCover(d, 5);
+    await setCover(d.deps, second.original.fileId);
+    expect(d.objects.has(first.original.key)).toBe(false);
+    expect(d.objects.has(first.variants[0].key)).toBe(false);
+    expect(d.objects.has(second.variants[0].key)).toBe(true);
+    expect(await testDb.db.select().from(files)).toHaveLength(3);
+
+    await setCover(d.deps, null);
+    expect((await getProfile(d.deps)).cover).toBeNull();
+    expect(d.objects.size).toBe(0);
+    expect(await testDb.db.select().from(files)).toHaveLength(0);
+  });
+
+  it("leaves the shared 1600 object when a work photo with the same bytes still names it", async () => {
+    const d = makeDeps();
+    const cover = await uploadCover(d, 6);
+    await setCover(d.deps, cover.original.fileId);
+    // The same bytes as a work photo: a different original, the same keys.
+    const [original] = await testDb.db
+      .select()
+      .from(files)
+      .where(eq(files.id, cover.original.fileId));
+    const [work] = await testDb.db
+      .insert(files)
+      .values({
+        userId,
+        sha256: original.sha256,
+        sizeBytes: original.sizeBytes,
+        kind: "work-original",
+        ext: original.ext,
+        objectKey: original.objectKey,
+      })
+      .returning({ id: files.id });
+    await testDb.db.insert(files).values({
+      userId,
+      sha256: "variant-of-the-work",
+      sizeBytes: 10,
+      kind: "work-1600",
+      ext: "webp",
+      objectKey: cover.variants[0].key,
+      parentFileId: work.id,
+    });
+
+    await setCover(d.deps, null);
+    expect(d.objects.has(cover.original.key)).toBe(true);
+    expect(d.objects.has(cover.variants[0].key)).toBe(true);
+    // The 480 variant was the cover's alone.
+    expect(d.objects.has(cover.variants[1].key)).toBe(false);
   });
 });
 
@@ -242,15 +355,17 @@ describe("setAvatar + getProfile (A4, G2)", () => {
     const view = await getProfile(preview);
 
     expect(view.avatar?.url512).toBe(
-      `memory://${PREFIX}a/${uploaded.original.sha256}-512.webp`,
+      `memory://${PREFIX}u/${userId}/${uploaded.original.sha256}-512.webp`,
     );
     expect(view.avatar?.url128).toBe(
-      `memory://${PREFIX}a/${uploaded.original.sha256}-128.webp`,
+      `memory://${PREFIX}u/${userId}/${uploaded.original.sha256}-128.webp`,
     );
     // And the object really is there under that address, so this is not two
     // derivations agreeing with each other.
     expect(
-      d.objects.has(`${PREFIX}a/${uploaded.original.sha256}-512.webp`),
+      d.objects.has(
+        `${PREFIX}u/${userId}/${uploaded.original.sha256}-512.webp`,
+      ),
     ).toBe(true);
   });
 
@@ -265,10 +380,10 @@ describe("setAvatar + getProfile (A4, G2)", () => {
     expect(view.displayName).toBe("Pracownia Testowa");
     expect(view.avatar?.fileId).toBe(uploaded.original.fileId);
     expect(view.avatar?.url512).toBe(
-      `memory://${PREFIX}a/${uploaded.original.sha256}-512.webp`,
+      `memory://${PREFIX}u/${userId}/${uploaded.original.sha256}-512.webp`,
     );
     expect(view.avatar?.url128).toBe(
-      `memory://${PREFIX}a/${uploaded.original.sha256}-128.webp`,
+      `memory://${PREFIX}u/${userId}/${uploaded.original.sha256}-128.webp`,
     );
   });
 
@@ -312,9 +427,9 @@ describe("setAvatar + getProfile (A4, G2)", () => {
 
     // The first set's objects are gone; the second's remain.
     expect(d.objects.has(first.original.key)).toBe(false);
-    expect(d.objects.has(`${PREFIX}a/${first.original.sha256}-512.webp`)).toBe(
-      false,
-    );
+    expect(
+      d.objects.has(`${PREFIX}u/${userId}/${first.original.sha256}-512.webp`),
+    ).toBe(false);
     expect(d.objects.has(second.original.key)).toBe(true);
   });
 
@@ -331,12 +446,12 @@ describe("setAvatar + getProfile (A4, G2)", () => {
     await setAvatar({ ...d.deps, prefix: "pr-49/" }, second.original.fileId);
 
     expect(d.objects.has(first.original.key)).toBe(false);
-    expect(d.objects.has(`${PREFIX}a/${first.original.sha256}-512.webp`)).toBe(
-      false,
-    );
-    expect(d.objects.has(`${PREFIX}a/${first.original.sha256}-128.webp`)).toBe(
-      false,
-    );
+    expect(
+      d.objects.has(`${PREFIX}u/${userId}/${first.original.sha256}-512.webp`),
+    ).toBe(false);
+    expect(
+      d.objects.has(`${PREFIX}u/${userId}/${first.original.sha256}-128.webp`),
+    ).toBe(false);
   });
 
   // Rows written before object_key existed carry none, and until
@@ -351,23 +466,26 @@ describe("setAvatar + getProfile (A4, G2)", () => {
 
     const view = await getProfile(d.deps);
     expect(view.avatar?.url512).toBe(
+      // The pre-#72 layout: that is where a row without a key was written.
       `memory://${PREFIX}a/${uploaded.original.sha256}-512.webp`,
     );
   });
 
-  it("keeps shared objects when another user's avatar has the same bytes", async () => {
+  it("another user's avatar with the same bytes keeps its own object (#72: one owner per key)", async () => {
     const d = makeDeps();
     // Identical pixels for both users -> identical content keys.
     const mine = await uploadAvatar(d, 6);
     const theirs = await uploadAvatar(d, 6, otherUserId);
-    expect(theirs.original.key).toBe(mine.original.key);
+    // #72: one object per owner — the same bytes are two keys now.
+    expect(theirs.original.key).not.toBe(mine.original.key);
     await setAvatar(d.deps, mine.original.fileId);
 
     const replacement = await uploadAvatar(d, 7);
     await setAvatar(d.deps, replacement.original.fileId);
 
-    // My old rows are gone, but the shared objects survive for the other user.
-    expect(d.objects.has(mine.original.key)).toBe(true);
+    // My old rows and objects are gone; the other user's objects are theirs.
+    expect(d.objects.has(mine.original.key)).toBe(false);
+    expect(d.objects.has(theirs.original.key)).toBe(true);
     const remaining = await testDb.db.select().from(files);
     expect(remaining.filter((row) => row.userId === otherUserId)).toHaveLength(
       3,
@@ -399,9 +517,9 @@ describe("setAvatar + getProfile (A4, G2)", () => {
     // The original's object still serves the cover; only the avatar-suffixed
     // variants, which nothing else names, are gone.
     expect(d.objects.has(mine.original.key)).toBe(true);
-    expect(d.objects.has(`${PREFIX}a/${mine.original.sha256}-512.webp`)).toBe(
-      false,
-    );
+    expect(
+      d.objects.has(`${PREFIX}u/${userId}/${mine.original.sha256}-512.webp`),
+    ).toBe(false);
     const remaining = await testDb.db.select().from(files);
     expect(remaining.map((row) => row.kind).sort()).toEqual([
       "avatar-128",
@@ -446,6 +564,37 @@ describe("setAvatar + getProfile (A4, G2)", () => {
         .set({ locations: ["Warszawa", "x".repeat(700)] })
         .where(eq(profiles.userId, userId)),
     ).rejects.toSatisfy(violates("profiles_locations_total_length"));
+  });
+
+  it("keeps a pre-#49 set's objects while another account's keyless set with the same bytes names them", async () => {
+    // Two accounts, identical bytes, both sets written before keys existed:
+    // one `a/` object per hash and size, shared. Simulated by uploading
+    // (owner keys), forgetting every key, and parking the bytes under the
+    // legacy names the fallback derives.
+    const d = makeDeps();
+    const mine = await uploadAvatar(d, 6);
+    await setAvatar(d.deps, mine.original.fileId);
+    await uploadAvatar(d, 6, otherUserId);
+    await testDb.db.update(files).set({ objectKey: null });
+    const legacyKeys = [
+      `${PREFIX}a/${mine.original.sha256}.png`,
+      `${PREFIX}a/${mine.original.sha256}-512.webp`,
+      `${PREFIX}a/${mine.original.sha256}-128.webp`,
+    ];
+    for (const key of legacyKeys) {
+      await d.deps.storage.putObject(key, Buffer.from("legacy"), "image/png");
+    }
+
+    const replacement = await uploadAvatar(d, 7);
+    await setAvatar(d.deps, replacement.original.fileId);
+
+    for (const key of legacyKeys) {
+      expect(d.objects.has(key), key).toBe(true);
+    }
+    const remaining = await testDb.db.select().from(files);
+    expect(remaining.filter((row) => row.userId === otherUserId)).toHaveLength(
+      3,
+    );
   });
 
   it("setting the same avatar again is a no-op", async () => {
@@ -502,9 +651,9 @@ describe("setAvatar + getProfile (A4, G2)", () => {
       second.original.fileId,
     );
     expect(d.objects.has(second.original.key)).toBe(true);
-    expect(d.objects.has(`${PREFIX}a/${second.original.sha256}-512.webp`)).toBe(
-      true,
-    );
+    expect(
+      d.objects.has(`${PREFIX}u/${userId}/${second.original.sha256}-512.webp`),
+    ).toBe(true);
   });
 
   it("an account past onboarding but with no photo shows the name alone", async () => {
@@ -512,6 +661,7 @@ describe("setAvatar + getProfile (A4, G2)", () => {
     expect(await getProfile(d.deps)).toEqual({
       displayName: "Pracownia Testowa",
       avatar: null,
+      cover: null,
       headline: null,
       locations: [],
       bio: null,

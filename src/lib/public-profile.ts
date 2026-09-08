@@ -17,7 +17,9 @@ export interface PublicProfile {
   /** profiles.display_name — a live handle always has a row (setHandle seeds it). */
   displayName: string;
   avatar: { url512: string; url128: string } | null;
-  // #72 / A12: the sections, as stored — null and [] mean "none".
+  // #72 / A12: the cover's two widths, and the sections as stored — null
+  // and [] mean "none".
+  cover: { url1600: string; url480: string } | null;
   headline: string | null;
   locations: string[];
   bio: string | null;
@@ -73,6 +75,9 @@ export async function loadPublicProfile(
       displayName: view.displayName,
       avatar: view.avatar
         ? { url512: view.avatar.url512, url128: view.avatar.url128 }
+        : null,
+      cover: view.cover
+        ? { url1600: view.cover.url1600, url480: view.cover.url480 }
         : null,
       headline: view.headline,
       locations: view.locations,

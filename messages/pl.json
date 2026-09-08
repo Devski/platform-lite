@@ -206,18 +206,9 @@
         }
       },
       "avatar": {
-        "uploading": "Wysyłanie i przetwarzanie…",
+        "change": "Zmień zdjęcie profilowe",
         "errors": {
-          "file_type": "Ten format nie jest obsługiwany — wybierz JPEG, PNG lub WebP.",
-          "file_size": "Plik musi mieć od 1 bajta do 10 MB.",
-          "upload_failed": "Wysyłka pliku nie powiodła się. Spróbuj ponownie.",
-          "quota_exceeded": "Brak miejsca: to zdjęcie przekroczyłoby Twój limit 1 GB.",
-          "too_large": "Zdjęcie jest za duże (limit 10 MB i 64 megapiksele).",
-          "not_an_image": "Ten plik nie wygląda na poprawny obraz.",
-          "unsupported_format": "Ten format nie jest obsługiwany — wybierz JPEG, PNG lub WebP.",
-          "invalid_avatar": "Nie udało się ustawić tego zdjęcia. Wgraj je ponownie.",
-          "rate_limited": "Zbyt wiele prób. Odczekaj chwilę i spróbuj ponownie.",
-          "generic": "Coś poszło nie tak. Spróbuj ponownie."
+          "invalid_avatar": "Nie udało się ustawić tego zdjęcia. Wgraj je ponownie."
         }
       },
       "handle": {
@@ -253,6 +244,29 @@
           "invalid": "Tekst jest za długi albo zawiera niedozwolone znaki.",
           "rateLimited": "Zbyt wiele zapisów. Odczekaj chwilę i spróbuj ponownie.",
           "generic": "Zapis nie powiódł się. Spróbuj ponownie."
+        }
+      },
+      "upload": {
+        "uploading": "Wysyłanie i przetwarzanie…",
+        "errors": {
+          "file_type": "Ten format nie jest obsługiwany — wybierz JPEG, PNG lub WebP.",
+          "file_size": "Plik musi mieć od 1 bajta do 10 MB.",
+          "upload_failed": "Wysyłka pliku nie powiodła się. Spróbuj ponownie.",
+          "quota_exceeded": "Brak miejsca: to zdjęcie przekroczyłoby Twój limit 1 GB.",
+          "too_large": "Zdjęcie jest za duże (limit 10 MB i 64 megapiksele).",
+          "not_an_image": "Ten plik nie wygląda na poprawny obraz.",
+          "unsupported_format": "Ten format nie jest obsługiwany — wybierz JPEG, PNG lub WebP.",
+          "rate_limited": "Zbyt wiele prób. Odczekaj chwilę i spróbuj ponownie.",
+          "generic": "Coś poszło nie tak. Spróbuj ponownie."
+        }
+      },
+      "cover": {
+        "change": "Zmień zdjęcie w tle",
+        "add": "Dodaj zdjęcie w tle",
+        "remove": "Usuń tło",
+        "removing": "Usuwanie tła…",
+        "errors": {
+          "invalid_cover": "Nie udało się ustawić tego tła. Wgraj je ponownie."
         }
       }
     }
@@ -392,7 +406,7 @@
     "description": "Profil {name} na {brand}",
     "avatarAlt": "Zdjęcie profilowe {name}",
     "scopeBadge": "Zakres",
-    "scopeNote": "Profil zawiera zdjęcie, nazwę, adres, nagłówek, siedzibę i sekcję o nas. Galerie realizacji dojdą wkrótce.",
+    "scopeNote": "Profil zawiera zdjęcie, tło, nazwę, adres, nagłówek, siedzibę i sekcję o nas. Galerie realizacji dojdą wkrótce.",
     "editProfile": "Edytuj profil",
     "ownerScopeNote": "Kliknij „Edytuj profil”, aby zmieniać dane bezpośrednio na profilu. Każde pole zapisuje się, gdy je opuścisz.",
     "emptyStateTitle": "Projekty nie są jeszcze częścią produktu",
@@ -400,7 +414,8 @@
     "saveProfile": "Zapisz",
     "savedProfile": "Zapisano profil",
     "locationsHeading": "Siedziba i obszar działania",
-    "bioHeading": "O nas"
+    "bioHeading": "O nas",
+    "coverAlt": "Zdjęcie w tle profilu {name}"
   },
   "AccountMenu": {
     "menuLabel": "Menu konta",

@@ -200,14 +200,17 @@ export interface FileStorage {
 }
 
 // G2: content-addressed name → served with max-age=31536000, immutable.
-// Today's body (until #72 step 3):
-export function contentKey(hash: string, ext: string, prefix = ""): string {
-  return `${prefix}a/${hash}.${ext}`;
+// Since #72 the name sits under its owner — one object belongs to exactly
+// one account (§9); rows written before keep the `a/` key they record (#49),
+// which contentKey() still derives for them and nothing else.
+export function ownerKey(
+  userId: string,
+  hash: string,
+  ext: string,
+  prefix = "",
+): string {
+  return `${prefix}u/${userId}/${hash}.${ext}`;
 }
-// From #72 step 3 the name sits under its owner — one object belongs to
-// exactly one account (§9); rows written before keep the `a/` key they
-// record (#49):
-//   contentKey(userId, hash, ext, prefix) → `${prefix}u/${userId}/${hash}.${ext}`
 ```
 
 ---

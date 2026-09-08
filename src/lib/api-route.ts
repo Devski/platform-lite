@@ -109,7 +109,8 @@ function forbidden(): NextResponse {
 
 // Fixed-window limiter for the authenticated /api routes, keyed per user —
 // the Better Auth limiter guards only its own /api/auth/* handler, so routes
-// like /api/avatar/* had none at all (#12 review). User-keyed on purpose:
+// like the upload routes (/api/uploads/*, once /api/avatar/*) had none at
+// all (#12 review). User-keyed on purpose:
 // these endpoints sit behind a session, and a user key survives NAT and IP
 // rotation. In-memory like better-auth's own store — a single app instance
 // is the deliberate SPEC §8/§10 deployment shape.
