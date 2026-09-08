@@ -15,7 +15,13 @@ import {
   profileMetadata,
   type PublicProfileLookup,
 } from "@/lib/public-profile";
-import { getStorage, keyPrefix } from "@/lib/storage";
+import { getStorage, isStorageConfigured, keyPrefix } from "@/lib/storage";
+
+// Addresses for stored photos, resolved on first use. Without a bucket
+// configured (a database-only environment: CI, a fresh checkout) a page
+// whose rows name photos still renders — with blank addresses, not a 500.
+const publicUrl = (key: string) =>
+  isStorageConfigured() ? getStorage().publicUrl(key) : "";
 import { listWorks } from "@/lib/works";
 import { Avatar } from "@/components/ui/avatar";
 import { ButtonLink } from "@/components/ui/button";
@@ -75,10 +81,7 @@ const lookup = cache(async (handle: string): Promise<PublicProfileLookup> => {
     return await loadPublicProfile(
       {
         db: getDb(),
-        // Resolved on first use, as the settings page does: the bucket is
-        // needed only to address an existing avatar, so a profile without one
-        // renders with no S3_* configured at all.
-        storage: { publicUrl: (key) => getStorage().publicUrl(key) },
+        storage: { publicUrl },
         prefix: keyPrefix(),
       },
       handle,
@@ -193,7 +196,7 @@ export default async function PublicProfilePage({
           profile={profile}
           works={await listWorks({
             db: getDb(),
-            storage: { publicUrl: (key) => getStorage().publicUrl(key) },
+            storage: { publicUrl },
             prefix: keyPrefix(),
             userId: profile.userId,
           })}

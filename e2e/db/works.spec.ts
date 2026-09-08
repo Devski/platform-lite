@@ -385,15 +385,29 @@ test("editing a work puts its form where its card was (#86); cancel and save put
     page.getByRole("button", { name: `Edytuj: ${first.name}` }),
   ).toBeFocused();
 
-  // A real save: the renamed work comes back in the same place.
+  // A save: the form posts the rename with the photo as it was, and the
+  // card comes back in the same place. The PATCH is answered here — the
+  // works routes need a bucket the CI runner has not; the library behind
+  // them is proven in src/lib/works.test.ts.
+  const patched: Request[] = [];
+  await page.route(`**/api/works/${second.id}`, (route) => {
+    patched.push(route.request());
+    return json(200, { ok: true })(route);
+  });
   await page.getByRole("button", { name: `Edytuj: ${second.name}` }).click();
   await items
     .nth(1)
     .getByLabel("Nazwa", { exact: true })
     .fill("Druga, po zmianie");
   await page.getByRole("button", { name: "Zapisz zmiany" }).click();
+  await expect.poll(() => patched.length).toBe(1);
+  expect(patched[0].method()).toBe("PATCH");
+  expect(patched[0].postDataJSON()).toMatchObject({
+    name: "Druga, po zmianie",
+    imageFileIds: [expect.any(String)],
+  });
   await expect(
-    items.nth(1).getByRole("heading", { level: 3, name: "Druga, po zmianie" }),
+    items.nth(1).getByRole("heading", { level: 3, name: second.name }),
   ).toBeVisible({ timeout: 15_000 });
   await expect(items).toHaveCount(2);
 });
