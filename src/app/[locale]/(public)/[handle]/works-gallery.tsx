@@ -32,6 +32,12 @@ export interface GalleryWork {
   r360?: { fileId: string; sizeBytes: number } | null;
 }
 
+const LIGHTBOX = "__lightbox";
+
+function isLightboxState(state: unknown): boolean {
+  return typeof state === "object" && state !== null && LIGHTBOX in state;
+}
+
 interface Lightbox {
   work: GalleryWork;
   index: number;
@@ -57,6 +63,50 @@ export function WorksGallery({
 }) {
   const t = useTranslations("Works");
   const [lightbox, setLightbox] = useState<Lightbox | null>(null);
+  // #84: on a phone, back is the gesture for "close this picture", and it
+  // used to leave the site. Opening pushes a history entry marked as the
+  // lightbox's; back pops it and closes the picture, the page stays.
+  // Closing by the button or Escape pops that entry itself, so the next
+  // back goes where it always went. Stepping between photos adds nothing.
+  // The editing guard (#83) ignores this pop: the entry it lands on still
+  // carries its own marker, which rides along in the pushed state.
+  const lightboxRef = useRef<Lightbox | null>(null);
+  const pushed = useRef(false);
+  function commitLightbox(next: Lightbox | null) {
+    lightboxRef.current = next;
+    setLightbox(next);
+  }
+  function openLightbox(next: Lightbox) {
+    commitLightbox(next);
+    if (!pushed.current) {
+      window.history.pushState(
+        { ...(window.history.state as object | null), [LIGHTBOX]: true },
+        "",
+      );
+      pushed.current = true;
+    }
+  }
+  function closeLightbox() {
+    lightboxRef.current?.returnTo?.focus();
+    commitLightbox(null);
+    if (pushed.current) {
+      pushed.current = false;
+      window.history.back();
+    }
+  }
+  useEffect(() => {
+    function onPop(event: PopStateEvent) {
+      // The entry the lightbox pushed was left by back: close, without a
+      // back of our own.
+      if (pushed.current && !isLightboxState(event.state)) {
+        pushed.current = false;
+        lightboxRef.current?.returnTo?.focus();
+        commitLightbox(null);
+      }
+    }
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   return (
     <>
@@ -72,7 +122,7 @@ export function WorksGallery({
                 work={work}
                 owner={owner}
                 onOpen={(index, returnTo) =>
-                  setLightbox({ work, index, returnTo })
+                  openLightbox({ work, index, returnTo })
                 }
                 onEdit={onEdit}
                 onDelete={onDelete}
@@ -85,11 +135,8 @@ export function WorksGallery({
         <LightboxOverlay
           work={lightbox.work}
           index={lightbox.index}
-          onStep={(index) => setLightbox({ ...lightbox, index })}
-          onClose={() => {
-            lightbox.returnTo?.focus();
-            setLightbox(null);
-          }}
+          onStep={(index) => commitLightbox({ ...lightbox, index })}
+          onClose={closeLightbox}
           label={t("lightbox.label")}
         />
       )}
