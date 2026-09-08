@@ -184,11 +184,33 @@ test("a new work: the photo goes through the upload chain as a work, then the fo
 });
 
 test("several at once (#79): the picker takes what fits and says so, replace keeps the tile's place", async () => {
+  // Uploads run in parallel, so the id is pinned to the upload at presign
+  // (the presigns leave in pick order, synchronously) and confirm reads it
+  // back from the staging key — whichever confirm lands first.
   let uploads = 0;
   const discarded: Request[] = [];
   const created: Request[] = [];
-  await page.route("**/api/uploads/confirm", (route) =>
-    json(200, { original: { fileId: fileIdAt(++uploads) } })(route),
+  await page.route("**/api/uploads/presign", (route) =>
+    json(200, {
+      stagingKey: `staging/someone/${String(++uploads).repeat(32)}`,
+      uploadUrl: UPLOAD_URL,
+    })(route),
+  );
+  await page.route("**/api/uploads/confirm", (route) => {
+    const n = Number(String(route.request().postDataJSON().stagingKey).at(-1));
+    return json(200, {
+      original: { fileId: fileIdAt(n) },
+      variants: [{ kind: "work-480", url: `/__stub-storage/thumb-${n}.webp` }],
+    })(route);
+  });
+  // The tile switches to the server's 480 px variant once confirmed: serve
+  // one so the switch can be seen, not just the request for it.
+  await page.route("**/__stub-storage/thumb-*", async (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "image/png",
+      body: await pngBytes(7),
+    }),
   );
   await page.route("**/api/uploads/discard", (route) => {
     discarded.push(route.request());
@@ -209,6 +231,10 @@ test("several at once (#79): the picker takes what fits and says so, replace kee
   await expect(removeButtons).toHaveCount(2);
   await expect(page.getByText("2 / 3")).toBeVisible();
   expect(uploads).toBe(2);
+  await expect(page.locator("form img").first()).toHaveAttribute(
+    "src",
+    "/__stub-storage/thumb-1.webp",
+  );
 
   // Three more when one fits: one goes up, the owner is told, and the
   // "+" tile is gone once the work is full.

@@ -35,6 +35,9 @@ interface Slot {
   /** What the tile shows: the 480 px variant for a photo the work has or
    * the server has just confirmed, a local object URL while it uploads. */
   previewUrl: string;
+  /** The local object URL of a photo picked in this form: the fallback if
+   * the server's variant does not load. Revoked on unmount. */
+  localUrl?: string;
   uploading: boolean;
   /** The preview did not decode (seen on a phone, #79): a neutral tile
    * instead of the browser's broken-image icon. */
@@ -95,7 +98,7 @@ export function WorkForm({
   const [name, setName] = useState(work?.name ?? "");
   const [investor, setInvestor] = useState(work?.investor ?? "");
   const [developer, setDeveloper] = useState(work?.developer ?? "");
-  const [slots, setSlots] = useState<Slot[]>(
+  const [slots, setSlots] = useState<Slot[]>(() =>
     (work?.images ?? [])
       .filter(
         (image): image is typeof image & { fileId: string } => !!image.fileId,
@@ -106,6 +109,15 @@ export function WorkForm({
         uploading: false,
       })),
   );
+  // The tiles as they are right now, readable between renders: several
+  // uploads finish in the same turn, and a decision (a duplicate, the cap,
+  // what to restore) must see the tiles the previous one left, not the
+  // last render's (#79 review). Every change goes through commitSlots.
+  const slotsRef = useRef(slots);
+  function commitSlots(next: (current: Slot[]) => Slot[]) {
+    slotsRef.current = next(slotsRef.current);
+    setSlots(slotsRef.current);
+  }
   // #72 step 5: the R360 archive — one per work, upload only.
   const [archive, setArchive] = useState<{
     fileId: string;
@@ -178,7 +190,7 @@ export function WorkForm({
     input.value = "";
     setError(null);
     setNotice(null);
-    const room = Math.max(0, WORK_PHOTOS_MAX - slots.length);
+    const room = Math.max(0, WORK_PHOTOS_MAX - slotsRef.current.length);
     const taken = files.slice(0, room);
     if (files.length > room) {
       setNotice(
@@ -208,11 +220,21 @@ export function WorkForm({
     const pending: Slot = {
       fileId: pendingId,
       previewUrl: localUrl,
+      localUrl,
       uploading: true,
     };
-    setSlots((current) =>
+    // The cap holds where the tiles change, not only in the picker's
+    // arithmetic: a tile past the third is never made.
+    if (!replacing && slotsRef.current.length >= WORK_PHOTOS_MAX) {
+      previews.current.delete(localUrl);
+      URL.revokeObjectURL(localUrl);
+      return;
+    }
+    commitSlots((current) =>
       replacing
-        ? current.map((slot) => (slot === replacing ? pending : slot))
+        ? current.map((slot) =>
+            slot.fileId === replacing.fileId ? pending : slot,
+          )
         : [...current, pending],
     );
     const restore = (current: Slot[]) =>
@@ -227,23 +249,24 @@ export function WorkForm({
       return;
     }
     if (!result.ok) {
-      setSlots(restore);
+      commitSlots(restore);
       uploadFail(result.failure);
       return;
     }
     // Identical bytes confirm to the same file (the pipeline dedupes by
     // content), so a photo picked twice is one photo, not two tiles — and
-    // replacing a photo with itself changes nothing.
-    let duplicate = false;
-    setSlots((current) => {
-      const elsewhere = current.some(
-        (slot) => slot.fileId === result.fileId && slot.fileId !== pendingId,
-      );
-      if (elsewhere || replacing?.fileId === result.fileId) {
-        duplicate = elsewhere;
-        return restore(current);
-      }
-      return current.map((slot) =>
+    // replacing a photo with itself changes nothing. Either way the id was
+    // on a tile already, so it is not this form's orphan to discard.
+    const elsewhere = slotsRef.current.some(
+      (slot) => slot.fileId === result.fileId && slot.fileId !== pendingId,
+    );
+    if (elsewhere || replacing?.fileId === result.fileId) {
+      commitSlots(restore);
+      if (elsewhere) fail("duplicatePhoto");
+      return;
+    }
+    commitSlots((current) =>
+      current.map((slot) =>
         slot.fileId === pendingId
           ? {
               ...slot,
@@ -255,22 +278,22 @@ export function WorkForm({
               broken: false,
             }
           : slot,
-      );
-    });
-    if (duplicate) {
-      fail("duplicatePhoto");
-      return;
-    }
-    if (replacing && replacing.fileId !== result.fileId) {
-      void discard(replacing.fileId);
-    }
+      ),
+    );
+    if (replacing) void discard(replacing.fileId);
     unsaved.current.add(result.fileId);
   }
 
+  // The preview did not decode: the local file if there is one and it is
+  // not what just failed, else a neutral tile.
   function markBroken(fileId: string) {
-    setSlots((current) =>
+    commitSlots((current) =>
       current.map((slot) =>
-        slot.fileId === fileId ? { ...slot, broken: true } : slot,
+        slot.fileId !== fileId
+          ? slot
+          : slot.localUrl && slot.previewUrl !== slot.localUrl
+            ? { ...slot, previewUrl: slot.localUrl }
+            : { ...slot, broken: true },
       ),
     );
   }
@@ -334,12 +357,13 @@ export function WorkForm({
   }
 
   function removePhoto(fileId: string) {
-    setSlots((current) => current.filter((slot) => slot.fileId !== fileId));
+    setNotice(null);
+    commitSlots((current) => current.filter((slot) => slot.fileId !== fileId));
     void discard(fileId);
   }
 
   function setMain(fileId: string) {
-    setSlots((current) => {
+    commitSlots((current) => {
       const chosen = current.find((slot) => slot.fileId === fileId);
       if (!chosen) return current;
       return [chosen, ...current.filter((slot) => slot !== chosen)];
