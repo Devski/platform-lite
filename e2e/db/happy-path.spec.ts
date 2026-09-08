@@ -168,7 +168,7 @@ test("a new user goes from the landing page to a live public profile", async ({
       // work image, and the card appears on the page once saved.
       await page.getByRole("button", { name: "Dodaj realizację" }).click();
       await page.getByLabel("Nazwa", { exact: true }).fill(WORK_NAME);
-      await page.getByTestId("work-photo-0").setInputFiles({
+      await page.getByTestId("work-photos").setInputFiles({
         name: "render.png",
         mimeType: "image/png",
         buffer: await solidPng({ r: 180, g: 83, b: 9 }),

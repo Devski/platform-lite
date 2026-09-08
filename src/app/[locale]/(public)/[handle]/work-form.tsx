@@ -32,11 +32,20 @@ import type { GalleryWork } from "./works-gallery";
 
 interface Slot {
   fileId: string;
-  /** What the slot shows: the 480 px variant for a photo the work already
-   * has, a local object URL for one picked in this form. */
+  /** What the tile shows: the 480 px variant for a photo the work has or
+   * the server has just confirmed, a local object URL while it uploads. */
   previewUrl: string;
+  /** The local object URL of a photo picked in this form: the fallback if
+   * the server's variant does not load. Revoked on unmount. */
+  localUrl?: string;
   uploading: boolean;
+  /** The preview did not decode (seen on a phone, #79): a neutral tile
+   * instead of the browser's broken-image icon. */
+  broken?: boolean;
 }
+
+const TILE_ACTION_CLASS =
+  "flex h-6 w-6 items-center justify-center rounded-full bg-(--n-950)/70 text-white hover:bg-(--n-950) focus-visible:outline-none focus-visible:shadow-[var(--ring-focus)] focus-within:shadow-[var(--ring-focus)]";
 
 // Best-effort: an orphan set is the quota's problem, not the owner's, and
 // the route answers a file a work names with a no-op.
@@ -89,7 +98,7 @@ export function WorkForm({
   const [name, setName] = useState(work?.name ?? "");
   const [investor, setInvestor] = useState(work?.investor ?? "");
   const [developer, setDeveloper] = useState(work?.developer ?? "");
-  const [slots, setSlots] = useState<Slot[]>(
+  const [slots, setSlots] = useState<Slot[]>(() =>
     (work?.images ?? [])
       .filter(
         (image): image is typeof image & { fileId: string } => !!image.fileId,
@@ -100,6 +109,15 @@ export function WorkForm({
         uploading: false,
       })),
   );
+  // The tiles as they are right now, readable between renders: several
+  // uploads finish in the same turn, and a decision (a duplicate, the cap,
+  // what to restore) must see the tiles the previous one left, not the
+  // last render's (#79 review). Every change goes through commitSlots.
+  const slotsRef = useRef(slots);
+  function commitSlots(next: (current: Slot[]) => Slot[]) {
+    slotsRef.current = next(slotsRef.current);
+    setSlots(slotsRef.current);
+  }
   // #72 step 5: the R360 archive — one per work, upload only.
   const [archive, setArchive] = useState<{
     fileId: string;
@@ -122,6 +140,8 @@ export function WorkForm({
   const archiveAbort = useRef<AbortController | null>(null);
   const format = useFormatter();
   const [error, setError] = useState<string | null>(null);
+  // Not an error: what happened to a pick that did not fit (#79).
+  const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   // Photos this form uploaded and has not saved onto the work: discarded if
   // the form closes without saving, or when the owner removes one.
@@ -164,16 +184,64 @@ export function WorkForm({
     setError(tUpload(`errors.${failure}`));
   }
 
-  async function pickPhoto(file: File, input: HTMLInputElement) {
+  // One picker for several files (#79): the first ones that fit go up in
+  // parallel; the owner is told how many did not.
+  async function pickPhotos(files: File[], input: HTMLInputElement) {
     input.value = "";
     setError(null);
-    const previewUrl = URL.createObjectURL(file);
-    previews.current.add(previewUrl);
-    const pendingId = `pending:${previewUrl}`;
-    setSlots((current) => [
-      ...current,
-      { fileId: pendingId, previewUrl, uploading: true },
-    ]);
+    setNotice(null);
+    const room = Math.max(0, WORK_PHOTOS_MAX - slotsRef.current.length);
+    const taken = files.slice(0, room);
+    if (files.length > room) {
+      setNotice(
+        t("photos.overflow", {
+          taken: taken.length,
+          offered: files.length,
+          max: WORK_PHOTOS_MAX,
+        }),
+      );
+    }
+    await Promise.all(taken.map((file) => addPhoto(file)));
+  }
+
+  // The new photo takes the old tile's place, so a replaced main photo is
+  // still the main one; the old photo comes back if the upload fails.
+  async function replacePhoto(old: Slot, file: File, input: HTMLInputElement) {
+    input.value = "";
+    setError(null);
+    setNotice(null);
+    await addPhoto(file, old);
+  }
+
+  async function addPhoto(file: File, replacing?: Slot) {
+    const localUrl = URL.createObjectURL(file);
+    previews.current.add(localUrl);
+    const pendingId = `pending:${localUrl}`;
+    const pending: Slot = {
+      fileId: pendingId,
+      previewUrl: localUrl,
+      localUrl,
+      uploading: true,
+    };
+    // The cap holds where the tiles change, not only in the picker's
+    // arithmetic: a tile past the third is never made.
+    if (!replacing && slotsRef.current.length >= WORK_PHOTOS_MAX) {
+      previews.current.delete(localUrl);
+      URL.revokeObjectURL(localUrl);
+      return;
+    }
+    commitSlots((current) =>
+      replacing
+        ? current.map((slot) =>
+            slot.fileId === replacing.fileId ? pending : slot,
+          )
+        : [...current, pending],
+    );
+    const restore = (current: Slot[]) =>
+      replacing
+        ? current.map((slot) => (slot.fileId === pendingId ? replacing : slot))
+        : current.filter((slot) => slot.fileId !== pendingId);
+
     const result = await uploadImage(file, "work");
     if (result.ok && closed.current) {
       // The form closed while this was uploading: nothing to attach it to.
@@ -181,31 +249,53 @@ export function WorkForm({
       return;
     }
     if (!result.ok) {
-      setSlots((current) =>
-        current.filter((slot) => slot.fileId !== pendingId),
-      );
+      commitSlots(restore);
       uploadFail(result.failure);
       return;
     }
     // Identical bytes confirm to the same file (the pipeline dedupes by
-    // content), so a photo picked twice is one photo, not two slots.
-    let duplicate = false;
-    setSlots((current) => {
-      if (current.some((slot) => slot.fileId === result.fileId)) {
-        duplicate = true;
-        return current.filter((slot) => slot.fileId !== pendingId);
-      }
-      return current.map((slot) =>
-        slot.fileId === pendingId
-          ? { ...slot, fileId: result.fileId, uploading: false }
-          : slot,
-      );
-    });
-    if (duplicate) {
-      fail("duplicatePhoto");
+    // content), so a photo picked twice is one photo, not two tiles — and
+    // replacing a photo with itself changes nothing. Either way the id was
+    // on a tile already, so it is not this form's orphan to discard.
+    const elsewhere = slotsRef.current.some(
+      (slot) => slot.fileId === result.fileId && slot.fileId !== pendingId,
+    );
+    if (elsewhere || replacing?.fileId === result.fileId) {
+      commitSlots(restore);
+      if (elsewhere) fail("duplicatePhoto");
       return;
     }
+    commitSlots((current) =>
+      current.map((slot) =>
+        slot.fileId === pendingId
+          ? {
+              ...slot,
+              fileId: result.fileId,
+              // The variant the card shows, from now on: it is what the
+              // visitor will see, and it loads where a local preview may not.
+              previewUrl: result.thumbnailUrl ?? slot.previewUrl,
+              uploading: false,
+              broken: false,
+            }
+          : slot,
+      ),
+    );
+    if (replacing) void discard(replacing.fileId);
     unsaved.current.add(result.fileId);
+  }
+
+  // The preview did not decode: the local file if there is one and it is
+  // not what just failed, else a neutral tile.
+  function markBroken(fileId: string) {
+    commitSlots((current) =>
+      current.map((slot) =>
+        slot.fileId !== fileId
+          ? slot
+          : slot.localUrl && slot.previewUrl !== slot.localUrl
+            ? { ...slot, previewUrl: slot.localUrl }
+            : { ...slot, broken: true },
+      ),
+    );
   }
 
   async function discard(fileId: string) {
@@ -267,12 +357,13 @@ export function WorkForm({
   }
 
   function removePhoto(fileId: string) {
-    setSlots((current) => current.filter((slot) => slot.fileId !== fileId));
+    setNotice(null);
+    commitSlots((current) => current.filter((slot) => slot.fileId !== fileId));
     void discard(fileId);
   }
 
   function setMain(fileId: string) {
-    setSlots((current) => {
+    commitSlots((current) => {
       const chosen = current.find((slot) => slot.fileId === fileId);
       if (!chosen) return current;
       return [chosen, ...current.filter((slot) => slot !== chosen)];
@@ -390,101 +481,131 @@ export function WorkForm({
       </div>
 
       <div className="flex flex-col gap-(--sp-2)">
-        <p className="type-label text-(--text-body)">
-          {t("photos.label")}{" "}
-          <span className="font-normal text-(--text-muted)">
-            {"· "}
-            {t("photos.rule")}
+        <p className="flex items-baseline gap-(--sp-2) type-label text-(--text-body)">
+          <span>
+            {t("photos.label")}{" "}
+            <span className="font-normal text-(--text-muted)">
+              {"· "}
+              {t("photos.rule")}
+            </span>
+          </span>
+          <span className="ml-auto shrink-0 font-normal whitespace-nowrap tabular-nums text-(--text-muted)">
+            {t("photos.count", { count: slots.length, max: WORK_PHOTOS_MAX })}
           </span>
         </p>
-        <div className="grid grid-cols-3 gap-(--sp-3)">
-          {Array.from({ length: WORK_PHOTOS_MAX }, (_, index) => {
-            const slot = slots[index];
-            if (slot) {
-              return (
-                <div
-                  key={slot.fileId}
-                  className={`relative aspect-[4/3] overflow-hidden rounded-sm border bg-(--surface-sunken) ${
-                    index === 0
-                      ? "border-2 border-(--action-solid)"
-                      : "border-(--border-hairline)"
-                  }`}
+        <div className="grid grid-cols-2 gap-(--sp-3) sm:grid-cols-3">
+          {slots.map((slot, index) => (
+            <div
+              key={slot.fileId}
+              className={`relative aspect-[4/3] overflow-hidden rounded-sm border bg-(--surface-sunken) ${
+                index === 0
+                  ? "border-2 border-(--action-solid)"
+                  : "border-(--border-hairline)"
+              }`}
+            >
+              {slot.broken ? (
+                <span className="flex h-full w-full flex-col items-center justify-center gap-1 px-2 text-center type-eyebrow text-(--text-muted)">
+                  <Icon name="camera" size={20} />
+                  {t("photos.noPreview")}
+                </span>
+              ) : (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  src={slot.previewUrl}
+                  alt=""
+                  className={`h-full w-full object-cover ${slot.uploading ? "opacity-50" : ""}`}
+                  onError={() => markBroken(slot.fileId)}
+                />
+              )}
+              {index === 0 ? (
+                <span className="absolute top-1.5 left-1.5 rounded-full bg-(--n-950) px-2 py-0.5 type-eyebrow text-white">
+                  {t("photos.main")}
+                </span>
+              ) : (
+                !slot.uploading && (
+                  <button
+                    type="button"
+                    onClick={() => setMain(slot.fileId)}
+                    className="absolute right-1.5 bottom-1.5 left-1.5 h-7 rounded-sm bg-white/90 type-eyebrow text-(--text-strong) hover:bg-white focus-visible:outline-none focus-visible:shadow-[var(--ring-focus)]"
+                  >
+                    {t("photos.setMain")}
+                  </button>
+                )
+              )}
+              {slot.uploading ? (
+                <span
+                  className="absolute right-1.5 bottom-1.5 rounded-full bg-(--n-950)/80 px-2 py-0.5 type-eyebrow text-white"
+                  role="status"
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={slot.previewUrl}
-                    alt=""
-                    className={`h-full w-full object-cover ${slot.uploading ? "opacity-50" : ""}`}
-                  />
-                  {index === 0 ? (
-                    <span className="absolute top-1.5 left-1.5 rounded-full bg-(--n-950) px-2 py-0.5 type-eyebrow text-white">
-                      {t("photos.main")}
-                    </span>
-                  ) : (
-                    !slot.uploading && (
-                      <button
-                        type="button"
-                        onClick={() => setMain(slot.fileId)}
-                        className="absolute right-1.5 bottom-1.5 left-1.5 h-7 rounded-sm bg-white/90 type-eyebrow text-(--text-strong) hover:bg-white focus-visible:outline-none focus-visible:shadow-[var(--ring-focus)]"
-                      >
-                        {t("photos.setMain")}
-                      </button>
-                    )
-                  )}
-                  {slot.uploading ? (
-                    <span
-                      className="absolute right-1.5 bottom-1.5 rounded-full bg-(--n-950)/80 px-2 py-0.5 type-eyebrow text-white"
-                      role="status"
-                    >
-                      {t("photos.uploading")}
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => removePhoto(slot.fileId)}
-                      aria-label={t("photos.remove")}
-                      title={t("photos.remove")}
-                      className="absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-(--n-950)/70 text-white hover:bg-(--n-950) focus-visible:outline-none focus-visible:shadow-[var(--ring-focus)]"
-                    >
-                      <Icon name="x" size={12} />
-                    </button>
-                  )}
-                </div>
-              );
-            }
-            const next = index === slots.length;
-            return (
-              <label
-                key={`empty-${index}`}
-                className={`relative flex aspect-[4/3] items-center justify-center rounded-sm border border-dashed border-(--border-strong) bg-(--surface-sunken) text-center type-sm text-(--text-muted) ${
-                  next
-                    ? "cursor-pointer hover:border-(--action-solid) focus-within:shadow-[var(--ring-focus)]"
-                    : "opacity-50"
-                }`}
-              >
-                {index === 0 ? t("photos.add") : t("photos.addAnother")}
-                {index === 0 && (
-                  <span className="absolute top-1.5 left-2 type-eyebrow text-(--text-muted)">
-                    {t("photos.required")}
-                  </span>
-                )}
-                {next && (
-                  <input
-                    type="file"
-                    accept={IMAGE_CONTENT_TYPES.join(",")}
-                    className="sr-only"
-                    data-testid={`work-photo-${index}`}
-                    onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      if (file) void pickPhoto(file, event.target);
-                    }}
-                  />
-                )}
-              </label>
-            );
-          })}
+                  {t("photos.uploading")}
+                </span>
+              ) : (
+                <span className="absolute top-1.5 right-1.5 flex gap-1">
+                  {/* Replace: a picker for one file that takes this tile's
+                      place, so a replaced main photo stays main. */}
+                  <label
+                    title={t("photos.replace")}
+                    className={`${TILE_ACTION_CLASS} cursor-pointer`}
+                  >
+                    <Icon name="upload" size={12} />
+                    <span className="sr-only">{t("photos.replace")}</span>
+                    <input
+                      type="file"
+                      accept={IMAGE_CONTENT_TYPES.join(",")}
+                      className="sr-only"
+                      data-testid={`work-photo-replace-${index}`}
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (file) void replacePhoto(slot, file, event.target);
+                      }}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => removePhoto(slot.fileId)}
+                    aria-label={t("photos.remove")}
+                    title={t("photos.remove")}
+                    className={TILE_ACTION_CLASS}
+                  >
+                    <Icon name="x" size={12} />
+                  </button>
+                </span>
+              )}
+            </div>
+          ))}
+          {slots.length < WORK_PHOTOS_MAX && (
+            <label className="relative flex aspect-[4/3] cursor-pointer flex-col items-center justify-center gap-1 rounded-sm border border-dashed border-(--border-strong) bg-(--surface-sunken) text-center type-sm text-(--text-muted) hover:border-(--action-solid) focus-within:shadow-[var(--ring-focus)]">
+              <Icon name="plus" size={20} />
+              {slots.length === 0 ? t("photos.add") : t("photos.addMore")}
+              {slots.length === 0 && (
+                <span className="absolute top-1.5 left-2 type-eyebrow text-(--text-muted)">
+                  {t("photos.required")}
+                </span>
+              )}
+              <input
+                type="file"
+                multiple
+                accept={IMAGE_CONTENT_TYPES.join(",")}
+                className="sr-only"
+                data-testid="work-photos"
+                onChange={(event) => {
+                  const files = Array.from(event.target.files ?? []);
+                  if (files.length > 0) void pickPhotos(files, event.target);
+                }}
+              />
+            </label>
+          )}
         </div>
-        <p className="type-sm text-(--text-muted)">{t("photos.hint")}</p>
+        <p className="type-sm text-(--text-muted)">
+          {slots.length < WORK_PHOTOS_MAX
+            ? t("photos.hint")
+            : t("photos.full", { max: WORK_PHOTOS_MAX })}
+        </p>
+        {notice && (
+          <p role="status" className="type-sm text-(--text-body)">
+            {notice}
+          </p>
+        )}
       </div>
 
       <div className="flex flex-col gap-(--sp-2)">

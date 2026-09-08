@@ -23,7 +23,7 @@ export async function POST(request: Request) {
   if (crossSite) return crossSite;
   // Tighter than presign: each confirm decodes and re-encodes up to 10 MB.
   if (
-    !checkRateLimit(`upload-confirm:${userId}`, { windowSeconds: 60, max: 5 })
+    !checkRateLimit(`upload-confirm:${userId}`, { windowSeconds: 60, max: 15 })
   ) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }

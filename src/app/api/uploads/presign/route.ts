@@ -23,7 +23,7 @@ export async function POST(request: Request) {
   const crossSite = rejectCrossSite(request);
   if (crossSite) return crossSite;
   if (
-    !checkRateLimit(`upload-presign:${userId}`, { windowSeconds: 60, max: 10 })
+    !checkRateLimit(`upload-presign:${userId}`, { windowSeconds: 60, max: 20 })
   ) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
