@@ -69,6 +69,7 @@ export type UploadResult =
 export async function uploadImage(
   file: File,
   purpose: ImagePurpose,
+  options: UploadOptions = {},
 ): Promise<UploadResult> {
   if (!(IMAGE_CONTENT_TYPES as readonly string[]).includes(file.type)) {
     return { ok: false, failure: "file_type" };
@@ -91,23 +92,25 @@ export async function uploadImage(
         failure: serverFailure(presign.data.error, presign.status),
       };
     }
-    // Its own try: a PUT the browser cannot even send (CORS, a dropped
-    // connection) is an upload failure, not "something went wrong".
-    let uploaded = false;
-    try {
-      const upload = await fetch(presign.data.uploadUrl, {
-        method: "PUT",
-        headers: {
-          "content-type": file.type,
-          "cache-control": IMMUTABLE_CACHE_CONTROL,
-        },
-        body: file,
-      });
-      uploaded = upload.ok;
-    } catch {
-      uploaded = false;
+    // The bytes go the archive's way (#80): progress reported, a cancel
+    // honoured, and a PUT that fails or is cut off abandons the staged
+    // bytes so the reservation is released now, not at the window's end.
+    const put = await putWithProgress(
+      presign.data.uploadUrl,
+      file,
+      file.type,
+      options,
+    );
+    if (put !== "ok") {
+      await abandon(presign.data.stagingKey);
+      return {
+        ok: false,
+        failure: put === "aborted" ? "aborted" : "upload_failed",
+      };
     }
-    if (!uploaded) return { ok: false, failure: "upload_failed" };
+    // The bytes have landed; what follows is the server's decode and
+    // publish, shown as "processing" from here on.
+    options.onProgress?.(1);
     const confirm = await postJson<{
       error?: string;
       original?: { fileId: string };
@@ -142,7 +145,7 @@ export type ArchiveUploadResult =
   | { ok: true; fileId: string; sizeBytes: number }
   | { ok: false; failure: UploadFailure };
 
-export interface ArchiveUploadOptions {
+export interface UploadOptions {
   /** 0..1, as the bytes leave the browser. */
   onProgress?: (fraction: number) => void;
   /** Aborts the transfer; the staged bytes are then abandoned server-side. */
@@ -157,7 +160,7 @@ function putWithProgress(
   url: string,
   file: File,
   type: string,
-  options: ArchiveUploadOptions,
+  options: UploadOptions,
 ): Promise<"ok" | "failed" | "aborted"> {
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
@@ -194,7 +197,7 @@ function abandon(stagingKey: string): Promise<unknown> {
 
 export async function uploadArchive(
   file: File,
-  options: ArchiveUploadOptions = {},
+  options: UploadOptions = {},
 ): Promise<ArchiveUploadResult> {
   const type =
     file.type ||

@@ -94,6 +94,56 @@ describe("uploadImage", () => {
     expect(calls).toHaveLength(0);
   });
 
+  it("reports progress, then 1 while the server processes; a cancel or a failed PUT abandons the staged bytes (#80)", async () => {
+    const progress: number[] = [];
+    let calls = stubFetch(({ url }) => {
+      if (url.endsWith("/api/uploads/presign")) {
+        return {
+          status: 200,
+          body: { stagingKey: "s/9", uploadUrl: "https://bucket/put" },
+        };
+      }
+      if (url === "https://bucket/put") return { status: 200 };
+      return { status: 200, body: { original: { fileId: "f-9" } } };
+    });
+    expect(
+      await uploadImage(png, "work", { onProgress: (f) => progress.push(f) }),
+    ).toEqual({ ok: true, fileId: "f-9" });
+    // The PUT's own report, then the "bytes landed" 1 before confirm.
+    expect(progress).toEqual([1, 1]);
+    expect(calls.map((call) => call.url)).not.toContain("/api/uploads/abandon");
+
+    calls = stubFetch(({ url }) =>
+      url === "https://bucket/put"
+        ? { status: 500 }
+        : {
+            status: 200,
+            body: { stagingKey: "s/9", uploadUrl: "https://bucket/put" },
+          },
+    );
+    expect(await uploadImage(png, "work")).toEqual({
+      ok: false,
+      failure: "upload_failed",
+    });
+    expect(
+      JSON.parse(
+        String(calls.find((c) => c.url === "/api/uploads/abandon")?.init?.body),
+      ),
+    ).toEqual({ stagingKey: "s/9" });
+
+    const controller = new AbortController();
+    controller.abort();
+    calls = stubFetch(() => ({
+      status: 200,
+      body: { stagingKey: "s/9", uploadUrl: "https://bucket/put" },
+    }));
+    expect(
+      await uploadImage(png, "work", { signal: controller.signal }),
+    ).toEqual({ ok: false, failure: "aborted" });
+    expect(calls.map((call) => call.url)).toContain("/api/uploads/abandon");
+    expect(calls.map((call) => call.url)).not.toContain("/api/uploads/confirm");
+  });
+
   it("hands back the 480 px variant's URL when confirm names the variants (#79)", async () => {
     stubFetch(({ url }) => {
       if (url.endsWith("/api/uploads/presign")) {

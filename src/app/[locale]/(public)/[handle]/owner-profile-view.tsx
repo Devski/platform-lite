@@ -14,6 +14,7 @@ import { LogoMark } from "@/components/ui/logo-mark";
 import { Plaque } from "@/components/ui/plaque";
 import { Textarea } from "@/components/ui/textarea";
 import { TopBar } from "@/components/ui/top-bar";
+import { UploadProgress } from "@/components/ui/upload-progress";
 import { postJson } from "@/lib/api-client";
 import { IMAGE_CONTENT_TYPES } from "@/lib/image-upload-shared";
 import {
@@ -158,6 +159,14 @@ export function OwnerProfileView({
   const [locationsError, setLocationsError] = useState<string | null>(null);
 
   const [avatarBusy, setAvatarBusy] = useState(false);
+  // #80: the bytes on their way, 0..1, then 1 while the server processes;
+  // null when nothing is uploading. One controller per slot to cancel.
+  const [avatarProgress, setAvatarProgress] = useState<number | null>(null);
+  const [coverProgress, setCoverProgress] = useState<number | null>(null);
+  const uploadAborts = useRef<{
+    avatar: AbortController | null;
+    cover: AbortController | null;
+  }>({ avatar: null, cover: null });
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [coverBusy, setCoverBusy] = useState(false);
@@ -325,10 +334,20 @@ export function OwnerProfileView({
     setError(null);
     if (input) input.value = "";
     setBusy(true);
+    const setProgress =
+      slot === "avatar" ? setAvatarProgress : setCoverProgress;
+    const abort = new AbortController();
+    uploadAborts.current[slot] = abort;
+    setProgress(0);
     try {
-      const result = await uploadImage(file, slot);
+      const result = await uploadImage(file, slot, {
+        signal: abort.signal,
+        onProgress: setProgress,
+      });
       if (!result.ok) {
-        setError(uploadErrorCopy(result.failure));
+        if (result.failure !== "aborted") {
+          setError(uploadErrorCopy(result.failure));
+        }
         return;
       }
       const assign = await postJson<{ error?: string }>(
@@ -343,6 +362,8 @@ export function OwnerProfileView({
     } catch {
       setError(tUpload("errors.generic"));
     } finally {
+      uploadAborts.current[slot] = null;
+      setProgress(null);
       setBusy(false);
       if (input) input.value = "";
     }
@@ -633,10 +654,17 @@ export function OwnerProfileView({
                 ) : (
                   <HeadlineView headline={fields.headline || null} />
                 )}
-                {(avatarBusy || coverBusy) && (
-                  <p className="type-sm text-(--text-muted)" role="status">
-                    {tUpload("uploading")}
-                  </p>
+                {avatarProgress !== null && (
+                  <UploadProgress
+                    fraction={avatarProgress}
+                    onCancel={() => uploadAborts.current.avatar?.abort()}
+                  />
+                )}
+                {coverProgress !== null && (
+                  <UploadProgress
+                    fraction={coverProgress}
+                    onCancel={() => uploadAborts.current.cover?.abort()}
+                  />
                 )}
                 {savedNotice && (
                   <p className="type-sm text-(--state-success)" role="status">

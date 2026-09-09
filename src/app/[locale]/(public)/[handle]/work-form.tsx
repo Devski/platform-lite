@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
+import { UploadProgress } from "@/components/ui/upload-progress";
 import { postJson } from "@/lib/api-client";
 import { IMAGE_CONTENT_TYPES } from "@/lib/image-upload-shared";
 import {
@@ -56,6 +57,10 @@ interface Slot {
    * the server's variant does not load. Revoked on unmount. */
   localUrl?: string;
   uploading: boolean;
+  /** 0..1 while uploading; 1 while the server processes (#80). */
+  progress?: number;
+  /** Stops the transfer while the bytes are still moving. */
+  abort?: AbortController;
   /** The preview did not decode (seen on a phone, #79): a neutral tile
    * instead of the browser's broken-image icon. */
   broken?: boolean;
@@ -254,11 +259,14 @@ export function WorkForm({
     const localUrl = URL.createObjectURL(file);
     previews.current.add(localUrl);
     const pendingId = `pending:${localUrl}`;
+    const abort = new AbortController();
     const pending: Slot = {
       fileId: pendingId,
       previewUrl: localUrl,
       localUrl,
       uploading: true,
+      progress: 0,
+      abort,
     };
     // The cap holds where the tiles change, not only in the picker's
     // arithmetic: a tile past the third is never made.
@@ -279,7 +287,15 @@ export function WorkForm({
         ? current.map((slot) => (slot.fileId === pendingId ? replacing : slot))
         : current.filter((slot) => slot.fileId !== pendingId);
 
-    const result = await uploadImage(file, "work");
+    const result = await uploadImage(file, "work", {
+      signal: abort.signal,
+      onProgress: (fraction) =>
+        commitSlots((current) =>
+          current.map((slot) =>
+            slot.fileId === pendingId ? { ...slot, progress: fraction } : slot,
+          ),
+        ),
+    });
     if (result.ok && closed.current) {
       // The form closed while this was uploading: nothing to attach it to.
       void discardFile(result.fileId);
@@ -287,7 +303,7 @@ export function WorkForm({
     }
     if (!result.ok) {
       commitSlots(restore);
-      uploadFail(result.failure);
+      if (result.failure !== "aborted") uploadFail(result.failure);
       return;
     }
     // Identical bytes confirm to the same file (the pipeline dedupes by
@@ -312,6 +328,8 @@ export function WorkForm({
               // visitor will see, and it loads where a local preview may not.
               previewUrl: result.thumbnailUrl ?? slot.previewUrl,
               uploading: false,
+              progress: undefined,
+              abort: undefined,
               broken: false,
             }
           : slot,
@@ -646,12 +664,12 @@ export function WorkForm({
                 )
               )}
               {slot.uploading ? (
-                <span
-                  className="absolute right-1.5 bottom-1.5 rounded-full bg-(--n-950)/80 px-2 py-0.5 type-eyebrow text-white"
-                  role="status"
-                >
-                  {t("photos.uploading")}
-                </span>
+                <UploadProgress
+                  compact
+                  fraction={slot.progress ?? 0}
+                  onCancel={() => slot.abort?.abort()}
+                  className="absolute right-1.5 bottom-1.5 left-1.5 rounded-sm bg-(--n-950)/70 px-2 py-1"
+                />
               ) : (
                 <span className="absolute top-1 right-1 flex gap-2">
                   {/* Replace: a picker for one file that takes this tile's
@@ -733,28 +751,30 @@ export function WorkForm({
         </p>
         {archive ? (
           <div className="flex flex-wrap items-center gap-(--sp-4) rounded-sm border border-(--border-hairline) bg-(--surface-card) px-(--sp-5) py-(--sp-4)">
-            <span
-              className={`inline-flex items-center rounded-full px-(--sp-3) py-(--sp-1) type-eyebrow ${
-                archive.uploading
-                  ? "bg-(--state-warning-bg) text-(--state-warning)"
-                  : "bg-(--state-success-bg) text-(--state-success)"
-              }`}
-              role="status"
-            >
-              {archive.uploading
-                ? t("r360.uploadingPercent", {
-                    percent: Math.round((archive.progress ?? 0) * 100),
-                  })
-                : t("r360.uploaded")}
-            </span>
+            {!archive.uploading && (
+              <span
+                className="inline-flex items-center rounded-full bg-(--state-success-bg) px-(--sp-3) py-(--sp-1) type-eyebrow text-(--state-success)"
+                role="status"
+              >
+                {t("r360.uploaded")}
+              </span>
+            )}
             <span className="min-w-0 flex-1 truncate font-mono type-sm text-(--text-body)">
               {archive.name || t("r360.attached")}
               {" · "}
               {formatBytes(archive.sizeBytes, format)}
             </span>
-            <Button variant="quiet" onClick={removeArchive} disabled={saving}>
-              {archive.uploading ? t("r360.cancel") : t("r360.remove")}
-            </Button>
+            {archive.uploading ? (
+              <UploadProgress
+                fraction={archive.progress ?? 0}
+                onCancel={removeArchive}
+                className="basis-full sm:basis-auto sm:min-w-56"
+              />
+            ) : (
+              <Button variant="quiet" onClick={removeArchive} disabled={saving}>
+                {t("r360.remove")}
+              </Button>
+            )}
           </div>
         ) : (
           <label className="relative flex cursor-pointer items-center gap-(--sp-4) rounded-sm border border-dashed border-(--border-strong) bg-(--surface-sunken) px-(--sp-5) py-(--sp-4) type-sm text-(--text-muted) hover:border-(--action-solid) focus-within:shadow-[var(--ring-focus)]">

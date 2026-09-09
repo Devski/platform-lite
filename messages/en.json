@@ -253,7 +253,9 @@
         }
       },
       "upload": {
-        "uploading": "Uploading and processing…",
+        "progress": "Uploading {percent}%",
+        "processing": "Processing…",
+        "cancel": "Cancel the upload",
         "errors": {
           "file_type": "That format is not supported — choose JPEG, PNG or WebP.",
           "file_size": "The file needs to be between 1 byte and 10 MB.",
@@ -522,7 +524,6 @@
         "uploaded": "Uploaded",
         "attached": "R360 archive",
         "remove": "Remove",
-        "uploadingPercent": "Uploading… {percent}%",
         "cancel": "Cancel"
       }
     },

@@ -253,7 +253,9 @@
         }
       },
       "upload": {
-        "uploading": "Wysyłanie i przetwarzanie…",
+        "progress": "Wysyłanie {percent}%",
+        "processing": "Przetwarzanie…",
+        "cancel": "Przerwij wysyłanie",
         "errors": {
           "file_type": "Ten format nie jest obsługiwany — wybierz JPEG, PNG lub WebP.",
           "file_size": "Plik musi mieć od 1 bajta do 10 MB.",
@@ -522,7 +524,6 @@
         "uploaded": "Wgrany",
         "attached": "Archiwum R360",
         "remove": "Usuń",
-        "uploadingPercent": "Wysyłanie… {percent}%",
         "cancel": "Przerwij"
       }
     },
