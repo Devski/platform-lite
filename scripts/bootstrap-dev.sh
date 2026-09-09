@@ -190,15 +190,23 @@ fi
 # dev bucket can accept any origin — developer machines, PR previews and
 # phones on the LAN all differ, and CORS is not the access control here.
 # Production (#24) should still narrow this to its own domain.
-echo "==> CORS on $BUCKET: browser PUT to presigned URLs (G4)"
+#
+# GET with a Range header, and Content-Range exposed, is for R360 (#101,
+# A13): the owner's browser reads single frames out of an archive that
+# already reached the bucket, through a presigned GET, without downloading
+# the whole of it. Range is not a header the browser sends unasked, so it
+# has to be allowed for the preflight, and Content-Range has to be exposed
+# or the script never learns the archive's size.
+echo "==> CORS on $BUCKET: browser PUT to presigned URLs (G4), ranged GET (A13)"
 CORS_JSON="$(mktemp)"
 cat >"$CORS_JSON" <<JSON
 {
   "CORSRules": [
     {
       "AllowedOrigins": ["*"],
-      "AllowedMethods": ["PUT"],
-      "AllowedHeaders": ["content-type", "cache-control", "content-length"],
+      "AllowedMethods": ["PUT", "GET"],
+      "AllowedHeaders": ["content-type", "cache-control", "content-length", "range"],
+      "ExposeHeaders": ["Content-Range", "Accept-Ranges", "Content-Length", "ETag"],
       "MaxAgeSeconds": 3000
     }
   ]
