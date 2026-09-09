@@ -5,14 +5,17 @@ import { insertTestAccount } from "@/db/test-account";
 import { createTestDb, type TestDb } from "@/db/test-db";
 import { sweepExpiredUploads } from "@/lib/image-upload";
 import { QUOTA_BYTES, quotaUsageBytes } from "@/lib/quota";
-import { createMemoryStorage } from "@/lib/storage";
+import { createMemoryStorage, ObjectNotFoundError } from "@/lib/storage";
 import { updateDisplayName } from "@/lib/profile";
 import { uploadTestArchive, uploadTestPhoto } from "@/lib/test-uploads";
 import { createWork, deleteWork, listWorks, updateWork } from "@/lib/works";
 import sharp from "sharp";
 import {
+  CopyFailed,
+  copyFrameSet,
   FrameSetError,
   frameSetReservationSeconds,
+  isStagingGone,
   frameSetUrlSeconds,
   isWebpHeader,
   presignFrameSet,
@@ -454,6 +457,40 @@ describe("a frame set on a work", () => {
     await expect(
       createWork(d.deps, { ...input, name: "Trzy" }),
     ).rejects.toMatchObject({ code: "invalid_set" });
+    expect(await d.deps.storage.listObjects(finalPrefix)).toHaveLength(4);
+  });
+
+  it("a copy whose staging vanished under it — the other save settled — is told apart, and the winner's frames stay", async () => {
+    const d = makeDeps();
+    const photo = await uploadPhoto(d);
+    const archive = await uploadArchive(d, "one");
+    const set = await stageSet(d, 2);
+    const verified = await verifyFrameSet(d.deps, {
+      setId: set.setId,
+      frameCount: 2,
+    });
+    const { id } = await createWork(d.deps, {
+      name: "Zwycięzca",
+      imageFileIds: [photo.original.fileId],
+      r360FileId: archive.fileId,
+      r360SetId: set.setId,
+      r360Params: defaultR360Params(2),
+    });
+    expect(id).toBeTruthy();
+    // The loser verified before the winner settled, and copies now: the
+    // staging is gone. What it copied before that is the winner's.
+    let failure: unknown;
+    try {
+      await copyFrameSet(d.deps.storage, verified);
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(CopyFailed);
+    expect(isStagingGone(failure)).toBe(true);
+    expect((failure as CopyFailed).cause).toBeInstanceOf(ObjectNotFoundError);
+    expect((failure as CopyFailed).copied).toEqual([]);
+    expect(isStagingGone(new CopyFailed(new Error("503"), []))).toBe(false);
+    const finalPrefix = frameSetPrefix(PREFIX, userId, set.setId);
     expect(await d.deps.storage.listObjects(finalPrefix)).toHaveLength(4);
   });
 

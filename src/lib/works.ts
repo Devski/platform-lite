@@ -12,7 +12,11 @@ import {
 import {
   assertNotRecorded,
   copyFrameSet,
+  CopyFailed,
+  FrameSetError,
   insertFrameRows,
+  isRecorded,
+  isStagingGone,
   removeFrameSetRows,
   settleFrameSet,
   takeBackCopies,
@@ -227,13 +231,26 @@ async function withFrameSet<T>(
     setId: set.r360SetId,
     frameCount: set.r360Params.frameCount,
   });
-  const copied = await copyFrameSet(deps.storage, verified);
+  let copied: string[];
+  try {
+    copied = await copyFrameSet(deps.storage, verified);
+  } catch (error) {
+    if (!(error instanceof CopyFailed)) throw error;
+    // Only the copies no row names by now: a second save of the same set
+    // that lost the race must not delete the winner's frames.
+    await takeBackCopies(deps, error.copied);
+    if (
+      isStagingGone(error) &&
+      (await isRecorded(deps.db, deps.userId, verified.setId))
+    ) {
+      throw new FrameSetError("invalid_set");
+    }
+    throw error.cause;
+  }
   let result: T;
   try {
     result = await run(verified);
   } catch (error) {
-    // Only the copies no row names by now: a second save of the same set
-    // that lost the race must not delete the winner's frames.
     await takeBackCopies(deps, copied);
     throw error;
   }

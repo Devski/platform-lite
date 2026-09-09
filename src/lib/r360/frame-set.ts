@@ -9,7 +9,7 @@ import {
   type ImageUploadDeps,
 } from "@/lib/image-upload";
 import { quotaAllows, reservePendingUpload } from "@/lib/quota";
-import type { FileStorage } from "@/lib/storage";
+import { ObjectNotFoundError, type FileStorage } from "@/lib/storage";
 import {
   frameKey,
   frameSetBytesCeiling,
@@ -269,11 +269,24 @@ export function isWebpHeader(bytes: Uint8Array, sizeBytes?: number): boolean {
   return true;
 }
 
+/** A copy that failed midway, with what it wrote so far. */
+export class CopyFailed extends Error {
+  constructor(
+    readonly cause: unknown,
+    readonly copied: string[],
+  ) {
+    super("frame set copy failed");
+    this.name = "CopyFailed";
+  }
+}
+
 /**
  * The verified frames copied under the set's final keys — server-side
  * copies, several at a time, public like every served variant (G3). A copy
- * that fails midway takes back what it wrote: a public object nothing
- * names would be beyond every sweep.
+ * that fails midway reports what it wrote, for the caller to take back
+ * (minus what a row names by then: a second save of the same set that
+ * lost the race — the winner's settle took the staging away under this
+ * copy — must not delete the winner's frames; #103 CI).
  */
 export async function copyFrameSet(
   storage: FileStorage,
@@ -291,10 +304,16 @@ export async function copyFrameSet(
       copied.push(frame.finalKey);
     });
   } catch (error) {
-    await deleteFrameObjects(storage, copied);
-    throw error;
+    throw new CopyFailed(error, copied);
   }
   return copied;
+}
+
+/** A staged frame gone before the copy: the set was saved by another request. */
+export function isStagingGone(error: unknown): boolean {
+  return (
+    error instanceof CopyFailed && error.cause instanceof ObjectNotFoundError
+  );
 }
 
 /**
