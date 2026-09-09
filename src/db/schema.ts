@@ -3,11 +3,13 @@ import {
   bigint,
   boolean,
   check,
+  date,
   index,
   integer,
   pgEnum,
   pgTable,
   primaryKey,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
@@ -356,6 +358,51 @@ export const handleRedirects = pgTable(
 // parent; every other value is a variant hanging off its original by
 // parent_file_id. Appended in place (ALTER TYPE ... ADD VALUE): an enum
 // value can be added but never removed, so the list only grows.
+// #87 / A12: every locality in Poland, from the GUS TERYT registers, for
+// the place suggestions — reference data the import script owns
+// (scripts/import-teryt.ts) and the app only reads. Searched by the folded
+// name's prefix, hence the text_pattern_ops index; ranked so a whole place
+// comes before a part of one (see PLACE_RANK in lib/places).
+export const placeKind = pgEnum("place_kind", [
+  "voivodeship",
+  "county",
+  "commune",
+  "city",
+  "village",
+  "settlement",
+  "part",
+]);
+
+export const places = pgTable(
+  "places",
+  {
+    /** TERYT-derived: w<woj>, p<woj><pow>, g<woj><pow><gmi><rodz>, s<sym>. */
+    code: text("code").primaryKey(),
+    kind: placeKind("kind").notNull(),
+    rank: smallint("rank").notNull(),
+    name: text("name").notNull(),
+    nameFolded: text("name_folded").notNull(),
+    commune: text("commune"),
+    county: text("county"),
+    countyKind: text("county_kind").$type<"county" | "cityCounty">(),
+    voivodeship: text("voivodeship"),
+    /** The register's "stan na" date the row came from. */
+    asOf: date("as_of").notNull(),
+  },
+  (table) => [
+    check("places_name_not_blank", sql`length(btrim(${table.name})) > 0`),
+    check("places_rank_range", sql`${table.rank} BETWEEN 0 AND 9`),
+    check(
+      "places_county_kind_known",
+      sql`${table.countyKind} IS NULL OR ${table.countyKind} IN ('county', 'cityCounty')`,
+    ),
+    index("places_name_folded_prefix_idx").on(
+      table.nameFolded.op("text_pattern_ops"),
+    ),
+    index("places_kind_idx").on(table.kind),
+  ],
+);
+
 export const fileKind = pgEnum("file_kind", [
   "avatar-original",
   "avatar-512",

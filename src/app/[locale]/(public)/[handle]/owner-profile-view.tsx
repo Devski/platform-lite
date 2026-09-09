@@ -28,7 +28,7 @@ import {
   LOCATIONS_MAX,
   locationsSchema,
 } from "@/lib/profile-schemas";
-import type { Place, searchPlaces } from "@/lib/teryt";
+import type { Place } from "@/lib/places";
 import { uploadImage, type UploadFailure } from "@/lib/upload-client";
 import { WORKS_MAX } from "@/lib/work-schemas";
 import { LeaveDialog } from "./leave-dialog";
@@ -928,14 +928,43 @@ function TextSectionField({
   );
 }
 
-type SearchPlaces = typeof searchPlaces;
-
 // The place field: an input with TERYT suggestions underneath. A suggestion
 // is chosen with a click or the arrow keys and Enter; Enter on the input
 // itself adds what was typed, list or no list (A12: free text is allowed).
-// The list itself — 16 voivodeships and every city, 39 KB — is fetched the
-// first time the field is focused, so neither a visitor nor an owner who
-// never edits their places pays for it.
+// The suggestions come from the server (#87): every locality in Poland is
+// in the database, and the field asks /api/places for the ten that match
+// what was typed, a moment after the typing pauses.
+const PLACE_SEARCH_DEBOUNCE_MS = 250;
+
+// "wieś, gm. Kęty, pow. oświęcimski" — what tells one Nowa Wieś from the
+// next. A unit names its own level; a locality names where it lies.
+function placeDetail(
+  place: Place,
+  t: ReturnType<typeof useTranslations<"Settings.profile.sections">>,
+): string {
+  const kind = t(`locations.kind.${place.kind}`);
+  if (place.kind === "voivodeship") return kind;
+  if (place.kind === "county") {
+    return `${place.countyKind === "cityCounty" ? t("locations.kind.cityCounty") : kind}, ${place.voivodeship ?? ""}`;
+  }
+  const where: string[] = [];
+  if (place.countyKind === "cityCounty" && place.county) {
+    // In a city county the commune is the city itself: one name, not
+    // three. The city as a place names its voivodeship instead.
+    if (place.name !== place.county) {
+      where.push(t("locations.inCityCounty", { county: place.county }));
+    }
+  } else {
+    if (place.commune && place.kind !== "commune") {
+      where.push(t("locations.inCommune", { commune: place.commune }));
+    }
+    if (place.county) {
+      where.push(t("locations.inCounty", { county: place.county }));
+    }
+  }
+  if (where.length === 0 && place.voivodeship) where.push(place.voivodeship);
+  return [kind, ...where].join(", ");
+}
 function PlaceCombobox({
   id,
   exclude,
@@ -953,20 +982,48 @@ function PlaceCombobox({
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
-  const [search, setSearch] = useState<SearchPlaces | null>(null);
+  const [found, setFound] = useState<{ query: string; places: Place[] }>({
+    query: "",
+    places: [],
+  });
   const listId = `${id}-suggestions`;
-  const hits: Place[] = open && search ? search(query, { exclude }) : [];
+  // What the server answered for the current text; nothing while it is
+  // still on its way, so a stale list never sits under new letters.
+  const hits: Place[] = open && found.query === query ? found.places : [];
 
-  function loadList() {
-    if (search) return;
-    void import("@/lib/teryt").then((module) =>
-      setSearch(() => module.searchPlaces),
-    );
-  }
+  const excludeKey = exclude.join("\u0000");
+  useEffect(() => {
+    const text = query.trim();
+    if (text.length < 2) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      const params = new URLSearchParams({ q: text });
+      for (const name of excludeKey.split("\u0000")) {
+        if (name) params.append("exclude", name);
+      }
+      fetch(`/api/places?${params}`, {
+        signal: controller.signal,
+        cache: "no-store",
+      })
+        .then(async (response) => {
+          // A refusal (the rate limit, say) keeps the last list rather than
+          // leaving the owner with none.
+          if (!response.ok) return;
+          const data = (await response.json()) as { places?: Place[] };
+          setFound({ query, places: data.places ?? [] });
+        })
+        .catch(() => undefined);
+    }, PLACE_SEARCH_DEBOUNCE_MS);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [query, excludeKey]);
 
   function choose(place: string) {
     onAdd(place);
     setQuery("");
+    setFound({ query: "", places: [] });
     setOpen(false);
     setActiveIndex(-1);
   }
@@ -998,10 +1055,7 @@ function PlaceCombobox({
             setOpen(true);
             setActiveIndex(-1);
           }}
-          onFocus={() => {
-            loadList();
-            setOpen(true);
-          }}
+          onFocus={() => setOpen(true)}
           onBlur={() => {
             // Let a click on a suggestion land before the list goes away.
             setTimeout(() => setOpen(false), 120);
@@ -1035,7 +1089,7 @@ function PlaceCombobox({
           >
             {hits.map((place, index) => (
               <li
-                key={`${place.kind}:${place.name}:${place.voivodeship ?? ""}`}
+                key={`${place.kind}:${place.name}:${place.commune ?? ""}:${place.county ?? ""}:${place.voivodeship ?? ""}`}
                 id={`${listId}-${index}`}
                 role="option"
                 aria-selected={index === activeIndex}
@@ -1052,11 +1106,9 @@ function PlaceCombobox({
                     : "text-(--text-body)"
                 }`}
               >
-                <span>{place.name}</span>
-                <span className="type-eyebrow text-(--text-muted)">
-                  {place.kind === "voivodeship"
-                    ? tSections("locations.kindVoivodeship")
-                    : (place.voivodeship ?? tSections("locations.kindCity"))}
+                <span className="shrink-0">{place.name}</span>
+                <span className="min-w-0 truncate text-right type-eyebrow text-(--text-muted)">
+                  {placeDetail(place, tSections)}
                 </span>
               </li>
             ))}

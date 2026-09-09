@@ -6,6 +6,7 @@ import {
   registerAndVerify,
   type Identity,
 } from "./account";
+import { seedPlaces } from "./seed-places";
 
 // #72 / A12, step 2: the headline, the places and the bio, edited in place
 // on the owner's page and read back on the visitor's. The avatar suite
@@ -40,6 +41,8 @@ test.beforeAll(async ({ browser }) => {
   await registerAndVerify(page, identity);
   await logIn(page, identity);
   await completeOnboarding(page, identity);
+  // The suggestions come from the database (#87): a few real rows.
+  await seedPlaces();
 });
 
 test.afterAll(async () => {
@@ -57,14 +60,37 @@ test("the owner fills the headline, a place from the list, a typed place and the
   await headline.blur();
 
   // A TERYT suggestion: typing without diacritics finds the city; choosing
-  // it adds the chip and clears the field for the next one.
+  // it adds the chip and clears the field for the next one. The list is
+  // the server's (#87): the city county and the city share the name, and
+  // each says what it is.
   const place = page.getByRole("combobox", { name: "Dodaj miejsce" });
   await place.fill("warsz");
-  const suggestion = page.getByRole("option", { name: /^Warszawa/ });
+  const suggestion = page.getByRole("option", {
+    name: /^Warszawa miasto, mazowieckie/,
+  });
   await expect(suggestion).toBeVisible();
+  await expect(
+    page.getByRole("option", { name: /^Warszawa miasto na prawach powiatu/ }),
+  ).toBeVisible();
   await suggestion.click();
   await expect(page.getByText("Warszawa", { exact: true })).toBeVisible();
   await expect(place).toHaveValue("");
+
+  // Two villages of one name, told apart by where they lie (the city county
+  // sorts first); the part of
+  // one comes last. Choosing a village keeps the short name as the chip.
+  await place.fill("nowa w");
+  const villages = page.getByRole("option");
+  await expect(villages).toHaveCount(3);
+  await expect(villages.nth(0)).toHaveText(/Nowa Wieś.*wieś, m\. Kraków/);
+  await expect(villages.nth(1)).toHaveText(
+    /Nowa Wieś.*wieś, gm\. Kęty, pow\. oświęcimski/,
+  );
+  await expect(villages.nth(2)).toHaveText(
+    /Nowa Wieś Górna.*część miejscowości/,
+  );
+  await villages.nth(0).click();
+  await expect(page.getByText("Nowa Wieś", { exact: true })).toBeVisible();
 
   // Free text, which the list does not know: Enter adds it as typed.
   await place.fill("cała Polska");

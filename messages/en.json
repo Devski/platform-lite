@@ -234,8 +234,19 @@
           "hint": "Suggestions come from the TERYT register. Enter adds your own text, e.g. “all of Poland” or “Berlin”.",
           "remove": "Remove {place}",
           "suggestions": "Suggestions",
-          "kindVoivodeship": "voivodeship",
-          "kindCity": "city",
+          "kind": {
+            "voivodeship": "voivodeship",
+            "county": "county",
+            "cityCounty": "city county",
+            "commune": "commune",
+            "city": "city",
+            "village": "village",
+            "settlement": "settlement",
+            "part": "part of a locality"
+          },
+          "inCommune": "commune {commune}",
+          "inCounty": "county {county}",
+          "inCityCounty": "city {county}",
           "duplicate": "That place is already on the list.",
           "tooMany": "At most {max} places.",
           "empty": "No place given."
