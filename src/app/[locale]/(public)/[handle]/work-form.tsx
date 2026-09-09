@@ -10,7 +10,7 @@ import {
   useState,
   type Ref,
 } from "react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonClassName } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
@@ -65,12 +65,6 @@ interface Slot {
    * instead of the browser's broken-image icon. */
   broken?: boolean;
 }
-
-// 36 px targets with a clear gap: two 24 px ones side by side in a tile's
-// corner were too close for a thumb — Android Chrome answers an ambiguous
-// tap with nothing (Dawid, 08.09.2026).
-const TILE_ACTION_CLASS =
-  "flex h-9 w-9 touch-manipulation items-center justify-center rounded-full bg-(--n-950)/70 text-white hover:bg-(--n-950) focus-visible:outline-none focus-visible:shadow-[var(--ring-focus)] focus-within:shadow-[var(--ring-focus)]";
 
 // Best-effort: an orphan set is the quota's problem, not the owner's, and
 // the route answers a file a work names with a no-op.
@@ -628,84 +622,96 @@ export function WorkForm({
         </p>
         <div className="grid grid-cols-2 gap-(--sp-3) sm:grid-cols-3">
           {slots.map((slot, index) => (
-            <div
-              key={slot.fileId}
-              className={`relative aspect-[4/3] overflow-hidden rounded-sm border bg-(--surface-sunken) ${
-                index === 0
-                  ? "border-2 border-(--action-solid)"
-                  : "border-(--border-hairline)"
-              }`}
-            >
-              {slot.broken ? (
-                <span className="flex h-full w-full flex-col items-center justify-center gap-1 px-2 text-center type-eyebrow text-(--text-muted)">
-                  <Icon name="camera" size={20} />
-                  {t("photos.noPreview")}
-                </span>
-              ) : (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img
-                  src={slot.previewUrl}
-                  alt=""
-                  className={`h-full w-full object-cover ${slot.uploading ? "opacity-50" : ""}`}
-                  onError={() => markBroken(slot.fileId)}
-                />
-              )}
-              {index === 0 ? (
-                <span className="absolute top-1.5 left-1.5 rounded-full bg-(--n-950) px-2 py-0.5 type-eyebrow text-white">
-                  {t("photos.main")}
-                </span>
-              ) : (
-                !slot.uploading && (
-                  <button
-                    type="button"
-                    onClick={() => setMain(slot.fileId)}
-                    className="absolute right-1.5 bottom-1.5 left-1.5 h-7 rounded-sm bg-white/90 type-eyebrow text-(--text-strong) hover:bg-white focus-visible:outline-none focus-visible:shadow-[var(--ring-focus)]"
-                  >
-                    {t("photos.setMain")}
-                  </button>
-                )
-              )}
-              {slot.uploading ? (
-                <UploadProgress
-                  compact
-                  label={t("photos.label")}
-                  fraction={slot.progress ?? 0}
-                  onCancel={() => slot.abort?.abort()}
-                  className="absolute right-1.5 bottom-1.5 left-1.5 rounded-sm bg-(--n-950)/70 px-2 py-1"
-                />
-              ) : (
-                <span className="absolute top-1 right-1 flex gap-2">
-                  {/* Replace: a picker for one file that takes this tile's
-                      place, so a replaced main photo stays main. */}
-                  <label
-                    title={t("photos.replace")}
-                    className={`${TILE_ACTION_CLASS} cursor-pointer`}
-                  >
-                    <Icon name="upload" size={16} />
-                    <span className="sr-only">{t("photos.replace")}</span>
-                    <input
-                      type="file"
-                      accept={IMAGE_CONTENT_TYPES.join(",")}
-                      className="sr-only"
-                      data-testid={`work-photo-replace-${index}`}
-                      onChange={(event) => {
-                        const file = event.target.files?.[0];
-                        if (file) {
-                          void track(replacePhoto(slot, file, event.target));
-                        }
-                      }}
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => removePhoto(slot.fileId)}
-                    aria-label={t("photos.remove")}
-                    title={t("photos.remove")}
-                    className={TILE_ACTION_CLASS}
-                  >
-                    <Icon name="x" size={16} />
-                  </button>
-                </span>
+            <div key={slot.fileId} className="flex flex-col gap-(--sp-2)">
+              {/* The picture, and only the picture (#95): its controls sit
+                  below it on the card's own ground, where they can be seen
+                  on any photograph. The upload bar is a state of the
+                  picture and stays on it, on a dark strip. */}
+              <div
+                className={`relative aspect-[4/3] overflow-hidden rounded-sm border bg-(--surface-sunken) ${
+                  index === 0
+                    ? "border-2 border-(--action-solid)"
+                    : "border-(--border-hairline)"
+                }`}
+              >
+                {slot.broken ? (
+                  <span className="flex h-full w-full flex-col items-center justify-center gap-1 px-2 text-center type-eyebrow text-(--text-muted)">
+                    <Icon name="camera" size={20} />
+                    {t("photos.noPreview")}
+                  </span>
+                ) : (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img
+                    src={slot.previewUrl}
+                    alt=""
+                    className={`h-full w-full object-cover ${slot.uploading ? "opacity-50" : ""}`}
+                    onError={() => markBroken(slot.fileId)}
+                  />
+                )}
+                {slot.uploading && (
+                  <UploadProgress
+                    compact
+                    label={t("photos.label")}
+                    fraction={slot.progress ?? 0}
+                    onCancel={() => slot.abort?.abort()}
+                    className="absolute right-0 bottom-0 left-0 bg-n-950/80 px-2 py-1.5"
+                  />
+                )}
+              </div>
+              {!slot.uploading && (
+                <div className="flex flex-col gap-(--sp-2)">
+                  {index === 0 ? (
+                    <span className="inline-flex h-(--control-h) items-center justify-center rounded-sm bg-n-950 px-(--sp-3) type-eyebrow text-white">
+                      {t("photos.main")}
+                    </span>
+                  ) : (
+                    <Button
+                      variant="quiet"
+                      onClick={() => setMain(slot.fileId)}
+                      className="w-full"
+                    >
+                      {t("photos.setMain")}
+                    </Button>
+                  )}
+                  {/* Room for one more here: the second channel (#95 asks
+                      for the row to hold four). */}
+                  {/* Side by side where they fit, one under the other on a
+                      narrow phone: no control shrinks below its word. */}
+                  <div className="flex flex-wrap gap-(--sp-2)">
+                    {/* Replace: a picker for one file that takes this tile's
+                        place, so a replaced main photo stays main. */}
+                    <label
+                      className={buttonClassName(
+                        "quiet",
+                        "md",
+                        "flex-1 cursor-pointer focus-within:shadow-[var(--ring-focus)]",
+                      )}
+                    >
+                      {t("photos.replaceShort")}
+                      <input
+                        type="file"
+                        aria-label={t("photos.replace")}
+                        accept={IMAGE_CONTENT_TYPES.join(",")}
+                        className="sr-only"
+                        data-testid={`work-photo-replace-${index}`}
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          if (file) {
+                            void track(replacePhoto(slot, file, event.target));
+                          }
+                        }}
+                      />
+                    </label>
+                    <Button
+                      variant="quiet"
+                      onClick={() => removePhoto(slot.fileId)}
+                      aria-label={t("photos.remove")}
+                      className="flex-1"
+                    >
+                      {t("photos.removeShort")}
+                    </Button>
+                  </div>
+                </div>
               )}
             </div>
           ))}

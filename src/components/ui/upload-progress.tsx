@@ -73,7 +73,7 @@ export function UploadProgress({
           title={t("cancel")}
           className={`flex shrink-0 items-center justify-center rounded-full focus-visible:outline-none focus-visible:shadow-[var(--ring-focus)] ${
             compact
-              ? "h-7 w-7 bg-(--n-950)/70 text-white hover:bg-(--n-950)"
+              ? "h-7 w-7 bg-n-950/70 text-white hover:bg-n-950"
               : "h-8 w-8 text-(--text-muted) hover:bg-(--surface-sunken) hover:text-(--text-strong)"
           }`}
         >

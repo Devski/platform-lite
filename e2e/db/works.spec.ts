@@ -274,8 +274,10 @@ test("several at once (#79, #93): a pick that does not fit is refused, replace k
   await expect(removeButtons).toHaveCount(3);
 
   // Replace the main photo: the new one is main, the old one discarded.
+  // Found by its name, so the wiring of the label is on the record.
   await page
-    .getByTestId("work-photo-replace-0")
+    .getByLabel("Wymień zdjęcie")
+    .first()
     .setInputFiles(await pngFile("f.png", 6));
   await expect.poll(() => uploads).toBe(5);
   await expect.poll(() => discarded.length).toBe(2);

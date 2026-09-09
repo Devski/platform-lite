@@ -493,7 +493,9 @@
         "main": "Główne",
         "setMain": "Ustaw jako główne",
         "replace": "Wymień zdjęcie",
+        "replaceShort": "Wymień",
         "remove": "Usuń zdjęcie",
+        "removeShort": "Usuń",
         "noPreview": "Bez podglądu"
       },
       "save": "Zapisz realizację",

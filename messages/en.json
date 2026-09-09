@@ -493,7 +493,9 @@
         "main": "Main",
         "setMain": "Set as main",
         "replace": "Replace photo",
+        "replaceShort": "Replace",
         "remove": "Remove photo",
+        "removeShort": "Remove",
         "noPreview": "No preview"
       },
       "save": "Save work",
