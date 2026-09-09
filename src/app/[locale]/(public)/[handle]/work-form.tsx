@@ -27,7 +27,7 @@ import { orderFrames } from "@/lib/r360/frame-names";
 import { produceFrameSet } from "@/lib/r360/frame-pipeline";
 import {
   defaultR360Params,
-  frameUrl,
+  frameUrls,
   R360_WIDTHS,
   type R360Params,
 } from "@/lib/r360/frame-set-shared";
@@ -135,9 +135,7 @@ function savedFrames(
   set: { params: R360Params; frameBase: string } | null,
 ): (string | null)[] {
   if (!set) return [];
-  return Array.from({ length: set.params.frameCount }, (_, i) =>
-    frameUrl(set.frameBase, R360_WIDTHS[1], i + 1),
-  );
+  return frameUrls(set.frameBase, R360_WIDTHS[1], set.params.frameCount);
 }
 
 /** Frees the preview's object URLs; a saved set's public addresses stay. */

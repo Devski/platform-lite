@@ -43,7 +43,7 @@ export function OrbitViewer({
   alt,
   label,
   orbit: given,
-  loaded: given_loaded,
+  loaded: decoded,
   poster,
   imageClassName = "",
   className = "",
@@ -56,9 +56,9 @@ export function OrbitViewer({
     () => new Set(frames.flatMap((url, index) => (url ? [index + 1] : []))),
     [frames],
   );
-  const loaded = given_loaded ?? withAddress;
-  const shown = nearestLoaded(orbit.frame, loaded, params) ?? poster ?? null;
-  const src = shown === null ? null : frames[shown - 1];
+  const loaded = decoded ?? withAddress;
+  const shown = nearestLoaded(orbit.frame, loaded, params) ?? poster;
+  const src = shown ? frames[shown - 1] : null;
 
   return (
     <div

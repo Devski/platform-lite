@@ -4,8 +4,7 @@ import { normalizeHandle } from "@/lib/handle";
 import { getProfile, type ProfileReadDeps } from "@/lib/profile";
 import { MONOGRAM_CARD } from "@/lib/monogram";
 import { resolveHandle } from "@/lib/profile-handle";
-import type { R360Params } from "@/lib/r360/frame-set-shared";
-import { listWorks } from "@/lib/works";
+import { listWorks, type WorkOrbitView } from "@/lib/works";
 
 // The public face of a profile (#18): what /[handle] renders for an
 // anonymous visitor and what its <head> says. Read-only composition — the
@@ -42,7 +41,7 @@ export interface PublicWork {
     secondary?: { url1600: string; url480: string };
   }[];
   /** #104: the parameters and the address of the frames, or none. */
-  orbit: { params: R360Params; frameBase: string } | null;
+  orbit: WorkOrbitView | null;
 }
 
 export type PublicProfileLookup =

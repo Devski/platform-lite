@@ -9,7 +9,11 @@ import { ChannelReveal } from "@/components/ui/channel-reveal";
 import { Icon } from "@/components/ui/icon";
 import { OrbitViewer } from "@/components/ui/orbit-viewer";
 import { useFrameLoader } from "@/components/ui/use-frame-loader";
-import { frameUrls, type R360Params } from "@/lib/r360/frame-set-shared";
+import {
+  frameUrls,
+  type R360Params,
+  type R360Width,
+} from "@/lib/r360/frame-set-shared";
 
 // #72 / A12: a profile's works as cards — the main photo dominant (two
 // thirds of the width and both rows, the other one or two beside it), the
@@ -49,6 +53,24 @@ export interface GalleryWork {
     sizeBytes: number;
     set?: { id: string; params: R360Params; frameBase: string } | null;
   } | null;
+}
+
+// #104: what the card shows and the lightbox steps through — the orbit
+// first, when the work has one, then the photos, numbered from one among
+// themselves. Both count the same way because both count this list.
+type Picture =
+  | { kind: "orbit"; orbit: GalleryOrbit }
+  | { kind: "photo"; image: GalleryImage; number: number };
+
+function picturesOf(work: GalleryWork): Picture[] {
+  return [
+    ...(work.orbit ? [{ kind: "orbit" as const, orbit: work.orbit }] : []),
+    ...work.images.map((image, i) => ({
+      kind: "photo" as const,
+      image,
+      number: i + 1,
+    })),
+  ];
 }
 
 const LIGHTBOX = "__lightbox";
@@ -189,18 +211,8 @@ function WorkCard({
   useEffect(() => {
     if (confirming) confirmRef.current?.focus();
   }, [confirming]);
-  // #104: the orbit is the first picture when the work has one; the
-  // photos come after it, and the lightbox counts the same way.
-  const offset = work.orbit ? 1 : 0;
-  const count = work.images.length + offset;
-  const tileClass = (index: number) =>
-    index === 0
-      ? count === 1
-        ? "aspect-[16/9]"
-        : "row-span-2 aspect-[4/3]"
-      : count === 2
-        ? "row-span-2"
-        : "aspect-[4/3]";
+  const pictures = picturesOf(work);
+  const count = pictures.length;
 
   return (
     <Card
@@ -223,16 +235,27 @@ function WorkCard({
             {t("card.orbit")}
           </div>
         )}
-        {work.orbit && (
-          <OrbitTile
-            work={work}
-            orbit={work.orbit}
-            className={tileClass(0)}
-            onOpen={(returnTo) => onOpen(0, returnTo)}
-          />
-        )}
-        {work.images.map((image, photo) => {
-          const index = photo + offset;
+        {pictures.map((picture, index) => {
+          const tile =
+            index === 0
+              ? count === 1
+                ? "aspect-[16/9]"
+                : "row-span-2 aspect-[4/3]"
+              : count === 2
+                ? "row-span-2"
+                : "aspect-[4/3]";
+          if (picture.kind === "orbit") {
+            return (
+              <OrbitTile
+                key="orbit"
+                name={work.name}
+                orbit={picture.orbit}
+                className={tile}
+                onOpen={(returnTo) => onOpen(index, returnTo)}
+              />
+            );
+          }
+          const { image, number } = picture;
           return (
             <button
               key={image.url1600}
@@ -245,7 +268,7 @@ function WorkCard({
                 count,
                 name: work.name,
               })}${image.secondary ? `, ${t("reveal.badge")}` : ""}`}
-              className={`relative block min-h-0 cursor-zoom-in overflow-hidden bg-n-200 focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_3px_var(--surface-card),inset_0_0_0_5px_var(--focus-ring)] ${tileClass(index)}`}
+              className={`relative block min-h-0 cursor-zoom-in overflow-hidden bg-n-200 focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_3px_var(--surface-card),inset_0_0_0_5px_var(--focus-ring)] ${tile}`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -254,7 +277,7 @@ function WorkCard({
                 sizes={
                   index === 0 ? "(max-width: 640px) 100vw, 30rem" : "12rem"
                 }
-                alt={t("photoAlt", { name: work.name, index: photo + 1 })}
+                alt={t("photoAlt", { name: work.name, index: number })}
                 className="h-full w-full object-cover"
                 loading="lazy"
               />
@@ -385,10 +408,8 @@ function LightboxOverlay({
   const t = useTranslations("Works");
   const closeRef = useRef<HTMLButtonElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
-  // #104: the orbit, when there is one, is the first picture here as on
-  // the card; the photos follow, numbered from one among themselves.
-  const offset = work.orbit ? 1 : 0;
-  const count = work.images.length + offset;
+  const pictures = picturesOf(work);
+  const count = pictures.length;
   const step = (delta: number) => onStep((index + delta + count) % count);
 
   // Focus goes to Close once, when the overlay opens — not on every step,
@@ -445,8 +466,7 @@ function LightboxOverlay({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [index, count]);
 
-  const image = index < offset ? null : work.images[index - offset];
-  const photoNumber = index - offset + 1;
+  const picture: Picture | undefined = pictures[index];
   const control =
     "absolute flex h-11 w-11 items-center justify-center rounded-full border border-white/30 bg-white/10 text-white hover:bg-white/20 focus-visible:outline-none focus-visible:shadow-[0_0_0_2px_rgba(12,17,22,.6),0_0_0_4px_#fff]";
 
@@ -490,29 +510,32 @@ function LightboxOverlay({
           </button>
         </>
       )}
-      {!image && work.orbit ? (
-        <OrbitFull work={work} orbit={work.orbit} />
-      ) : !image ? null : image.secondary ? (
+      {picture?.kind === "orbit" ? (
+        <OrbitFull name={work.name} orbit={picture.orbit} />
+      ) : picture?.kind !== "photo" ? null : picture.image.secondary ? (
         // #100: two channels — the second revealed under the first by the
         // slider, along the picture or across it.
         <ChannelReveal
-          key={image.url1600}
+          key={picture.image.url1600}
           first={{
-            src: image.url1600,
-            alt: t("photoAlt", { name: work.name, index: photoNumber }),
+            src: picture.image.url1600,
+            alt: t("photoAlt", { name: work.name, index: picture.number }),
           }}
           second={{
-            src: image.secondary.url1600,
-            alt: t("reveal.secondAlt", { name: work.name, index: photoNumber }),
+            src: picture.image.secondary.url1600,
+            alt: t("reveal.secondAlt", {
+              name: work.name,
+              index: picture.number,
+            }),
           }}
-          label={t("reveal.label", { name: work.name, index: photoNumber })}
+          label={t("reveal.label", { name: work.name, index: picture.number })}
           imageClassName="max-h-[calc(100vh-180px)] max-w-[min(96vw,1600px)] object-contain"
         />
       ) : (
         /* eslint-disable-next-line @next/next/no-img-element */
         <img
-          src={image.url1600}
-          alt={t("photoAlt", { name: work.name, index: photoNumber })}
+          src={picture.image.url1600}
+          alt={t("photoAlt", { name: work.name, index: picture.number })}
           className="max-h-[calc(100vh-140px)] max-w-[min(96vw,1600px)] object-contain"
         />
       )}
@@ -526,37 +549,68 @@ function LightboxOverlay({
     </div>
   );
 }
-// #104: the orbit on the card — the start frame server-rendered as the
-// poster (a plain <img>, so the page works without JavaScript and for
-// crawlers), the frames loading coarse to fine once the script runs, a
-// drag across the picture turning it. The picture is the control, so the
-// way into the lightbox is a button of its own beside the 360° mark.
+
+// #104: the visitor's orbit at one width — the frames loading coarse to
+// fine from the start frame, which the server renders as the poster (a
+// plain <img>, so the page has a picture without JavaScript and for
+// crawlers). The card and the lightbox both stand on this.
+function PublicOrbit({
+  name,
+  orbit,
+  width,
+  label,
+  className,
+  imageClassName,
+}: {
+  name: string;
+  orbit: GalleryOrbit;
+  width: R360Width;
+  label: string;
+  className: string;
+  imageClassName: string;
+}) {
+  const t = useTranslations("Works");
+  const urls = useMemo(
+    () => frameUrls(orbit.frameBase, width, orbit.params.frameCount),
+    [orbit.frameBase, width, orbit.params.frameCount],
+  );
+  const { loaded } = useFrameLoader(urls, orbit.params.startFrame);
+  return (
+    <OrbitViewer
+      frames={urls}
+      loaded={loaded}
+      poster={orbit.params.startFrame}
+      params={orbit.params}
+      alt={t("orbit.frameAlt", { name })}
+      label={label}
+      className={className}
+      imageClassName={imageClassName}
+    />
+  );
+}
+
+// The orbit on the card, a drag across the picture turning it. The
+// picture is the control, so the way into the lightbox is a button of
+// its own beside the 360° mark.
 function OrbitTile({
-  work,
+  name,
   orbit,
   className,
   onOpen,
 }: {
-  work: GalleryWork;
+  name: string;
   orbit: GalleryOrbit;
   className: string;
   onOpen: (returnTo: HTMLElement | null) => void;
 }) {
   const t = useTranslations("Works");
-  const urls = useMemo(
-    () => frameUrls(orbit.frameBase, 800, orbit.params.frameCount),
-    [orbit.frameBase, orbit.params.frameCount],
-  );
-  const loader = useFrameLoader(urls, orbit.params.startFrame);
   return (
     <div className={`relative min-h-0 overflow-hidden bg-n-200 ${className}`}>
-      <OrbitViewer
-        frames={urls}
-        loaded={loader.loaded}
-        poster={orbit.params.startFrame}
-        params={orbit.params}
-        alt={t("orbit.frameAlt", { name: work.name })}
-        label={t("orbit.cardLabel", { name: work.name })}
+      <PublicOrbit
+        name={name}
+        orbit={orbit}
+        width={800}
+        label={t("orbit.cardLabel", { name })}
         className="h-full w-full"
         imageClassName="object-cover"
       />
@@ -569,8 +623,8 @@ function OrbitTile({
       <button
         type="button"
         onClick={(event) => onOpen(event.currentTarget)}
-        aria-label={t("orbit.enlarge", { name: work.name })}
-        title={t("orbit.enlarge", { name: work.name })}
+        aria-label={t("orbit.enlarge", { name })}
+        title={t("orbit.enlarge", { name })}
         className="absolute right-1.5 bottom-1.5 flex h-9 w-9 items-center justify-center rounded-full bg-n-950/80 text-white hover:bg-n-950 focus-visible:outline-none focus-visible:shadow-[0_0_0_2px_var(--surface-card),0_0_0_4px_var(--focus-ring)]"
       >
         <Icon name="plus" size={16} />
@@ -580,32 +634,18 @@ function OrbitTile({
 }
 
 // The orbit at its largest in the lightbox: the 1600 px set on a wide
-// screen, the 800 px one on a phone, loading coarse to fine from the
-// start frame.
-function OrbitFull({
-  work,
-  orbit,
-}: {
-  work: GalleryWork;
-  orbit: GalleryOrbit;
-}) {
+// screen, the 800 px one on a phone.
+function OrbitFull({ name, orbit }: { name: string; orbit: GalleryOrbit }) {
   const t = useTranslations("Works");
-  const [width] = useState<800 | 1600>(() =>
+  const [width] = useState<R360Width>(() =>
     typeof window !== "undefined" && window.innerWidth > 900 ? 1600 : 800,
   );
-  const urls = useMemo(
-    () => frameUrls(orbit.frameBase, width, orbit.params.frameCount),
-    [orbit.frameBase, orbit.params.frameCount, width],
-  );
-  const loader = useFrameLoader(urls, orbit.params.startFrame);
   return (
-    <OrbitViewer
-      frames={urls}
-      loaded={loader.loaded}
-      poster={orbit.params.startFrame}
-      params={orbit.params}
-      alt={t("orbit.frameAlt", { name: work.name })}
-      label={t("orbit.lightboxLabel", { name: work.name })}
+    <PublicOrbit
+      name={name}
+      orbit={orbit}
+      width={width}
+      label={t("orbit.lightboxLabel", { name })}
       className="flex max-h-[calc(100vh-140px)] w-[min(96vw,1600px)] items-center justify-center"
       imageClassName="max-h-[calc(100vh-140px)] object-contain"
     />

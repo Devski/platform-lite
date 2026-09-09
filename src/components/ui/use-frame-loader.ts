@@ -16,6 +16,10 @@ export interface FrameLoader {
   urls: string[];
 }
 
+/**
+ * `urls` is the set's identity: a new array starts the loading over, so
+ * the caller memoizes it for as long as the set is the same.
+ */
 export function useFrameLoader(
   urls: string[],
   startFrame: number,
@@ -23,12 +27,10 @@ export function useFrameLoader(
 ): FrameLoader {
   const { concurrency = 4, enabled = true } = options;
   const [loaded, setLoaded] = useState<ReadonlySet<number>>(() => new Set());
-  const key = urls.join("\n");
+  const frameCount = urls.length;
   const order = useMemo(
-    () => (urls.length > 0 ? loadingOrder(urls.length, startFrame) : []),
-    // The order depends on the addresses only through their count.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [key, startFrame],
+    () => loadingOrder(frameCount, startFrame),
+    [frameCount, startFrame],
   );
 
   useEffect(() => {
@@ -57,8 +59,7 @@ export function useFrameLoader(
     return () => {
       stopped = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, order, enabled, concurrency]);
+  }, [urls, order, enabled, concurrency]);
 
   return { loaded, urls };
 }
