@@ -65,15 +65,13 @@ export function travelPath(
 ): number[] {
   const { frameCount, direction } = params;
   const turn = shortestTurn(from, to, frameCount);
-  const forward = (((to - from) % frameCount) + frameCount) % frameCount;
-  // A tie: shortestTurn goes forward; the work's direction decides here.
-  const signed = forward * 2 === frameCount ? direction * forward : turn;
-  const path: number[] = [];
+  // A tie — half the orbit either way — comes back from shortestTurn as +;
+  // the work's direction decides it here.
+  const signed = Math.abs(turn) * 2 === frameCount ? direction * turn : turn;
   const step = Math.sign(signed);
-  for (let i = 1; i <= Math.abs(signed); i++) {
-    path.push(wrapFrame(from + step * i, frameCount));
-  }
-  return path;
+  return Array.from({ length: Math.abs(signed) }, (_, i) =>
+    wrapFrame(from + step * (i + 1), frameCount),
+  );
 }
 
 /** The ring's vertical radius for a horizontal one, at a flattening. */

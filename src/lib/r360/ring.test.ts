@@ -84,6 +84,11 @@ describe("travelPath", () => {
   it("breaks a tie the work's way", () => {
     expect(travelPath(1, 6, params(10, 1))).toEqual([2, 3, 4, 5, 6]);
     expect(travelPath(1, 6, params(10, -1))).toEqual([10, 9, 8, 7, 6]);
+    // The same tie seen from the far side, and one that crosses the wrap.
+    expect(travelPath(6, 1, params(10, 1))).toEqual([7, 8, 9, 10, 1]);
+    expect(travelPath(6, 1, params(10, -1))).toEqual([5, 4, 3, 2, 1]);
+    expect(travelPath(7, 3, params(8, 1))).toEqual([8, 1, 2, 3]);
+    expect(travelPath(7, 3, params(8, -1))).toEqual([6, 5, 4, 3]);
   });
 });
 

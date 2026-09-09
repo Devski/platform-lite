@@ -25,7 +25,26 @@ import type { Orbit } from "./use-orbit";
 // so it is hidden from assistive technology rather than announced twice.
 
 const WIDTH = 200;
+/** Room past the arc for the dot (radius 6 plus its 2-wide stroke). */
+const PADDING = 8;
+/** Half a tick: the tick straddles the arc by this much either side. */
+const TICK = 3;
 const TRAVEL_MS_PER_FRAME = 28;
+
+// The ring's two grounds: over a picture (the gallery overlay) or on the
+// page (the owner's preview) — the strokes and the counter chip differ.
+const TONES = {
+  dark: {
+    stroke: "#fff",
+    dotRim: "#fff",
+    counter: "rounded-full bg-n-950 px-2 text-white",
+  },
+  light: {
+    stroke: "var(--text-strong)",
+    dotRim: "var(--surface-card)",
+    counter: "text-(--text-muted)",
+  },
+} as const;
 
 export function OrbitRing({
   orbit,
@@ -46,68 +65,57 @@ export function OrbitRing({
   tone?: "dark" | "light";
 }) {
   const t = useTranslations("Works.orbit");
-  const { radiusX, radiusY } = ringRadii(WIDTH - 16, flattening);
-  const height = radiusY * 2 + 16;
-  const centre = { x: WIDTH / 2, y: height / 2 };
-  const svg = useRef<SVGSVGElement>(null);
+  const look = TONES[tone];
+  const { radiusX, radiusY } = ringRadii(WIDTH - 2 * PADDING, flattening);
+  const height = 2 * (radiusY + PADDING);
   const [grabbing, setGrabbing] = useState(false);
 
-  // The travel in flight: one frame per tick along the path, cancelled
-  // by a grab, a new click, or the component going away.
-  const travel = useRef<{ path: number[]; at: number; timer: number } | null>(
-    null,
+  // The travel in flight is one pending timer: each step schedules the
+  // next, so clearing the pending one stops the whole travel — on a grab,
+  // a new click, or the component going away.
+  const travelTimer = useRef<number | undefined>(undefined);
+  const cancelTravel = useCallback(
+    () => window.clearTimeout(travelTimer.current),
+    [],
   );
-  const cancelTravel = useCallback(() => {
-    if (travel.current) window.clearTimeout(travel.current.timer);
-    travel.current = null;
-  }, []);
   useEffect(() => cancelTravel, [cancelTravel]);
 
-  const travelTo = useCallback(
-    (to: number) => {
-      cancelTravel();
-      const path = travelPath(orbit.frame, to, params);
-      if (path.length === 0) return;
-      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-        orbit.setFrame(to);
-        return;
+  const travelTo = (to: number) => {
+    cancelTravel();
+    const path = travelPath(orbit.frame, to, params);
+    if (path.length === 0) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      orbit.setFrame(to);
+      return;
+    }
+    const step = (at: number) => {
+      orbit.setFrame(path[at]);
+      if (at + 1 < path.length) {
+        travelTimer.current = window.setTimeout(
+          () => step(at + 1),
+          TRAVEL_MS_PER_FRAME,
+        );
       }
-      const tick = () => {
-        const current = travel.current;
-        if (!current) return;
-        orbit.setFrame(current.path[current.at]);
-        current.at += 1;
-        if (current.at >= current.path.length) {
-          travel.current = null;
-          return;
-        }
-        current.timer = window.setTimeout(tick, TRAVEL_MS_PER_FRAME);
-      };
-      travel.current = {
-        path,
-        at: 0,
-        timer: window.setTimeout(tick, TRAVEL_MS_PER_FRAME),
-      };
-    },
-    [cancelTravel, orbit, params],
-  );
+    };
+    travelTimer.current = window.setTimeout(() => step(0), TRAVEL_MS_PER_FRAME);
+  };
 
-  /** The frame under a pointer, by its angle around the ring's centre. */
-  const frameUnder = useCallback(
-    (event: React.PointerEvent<SVGSVGElement>): number => {
-      const box = event.currentTarget.getBoundingClientRect();
-      const scale = box.width / WIDTH;
-      const x = (event.clientX - box.left) / scale - centre.x;
-      const y = (event.clientY - box.top) / scale - centre.y;
-      return frameAtAngle(angleOfPoint(x, y, radiusX, radiusY), params);
-    },
-    [centre.x, centre.y, radiusX, radiusY, params],
-  );
+  /**
+   * The frame under a pointer, by its angle around the ring's centre. The
+   * angle needs only the pointer's direction from the centre of the box
+   * — which the SVG keeps at the ring's centre — not its distance, so the
+   * client pixels go in as they are.
+   */
+  const frameUnder = (event: React.PointerEvent<SVGSVGElement>): number => {
+    const box = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX - (box.left + box.width / 2);
+    const y = event.clientY - (box.top + box.height / 2);
+    return frameAtAngle(angleOfPoint(x, y, radiusX, radiusY), params);
+  };
 
   const onPointerDown = (event: React.PointerEvent<SVGSVGElement>) => {
     if (event.button !== 0 && event.pointerType === "mouse") return;
     event.preventDefault();
-    cancelTravel();
     event.currentTarget.setPointerCapture(event.pointerId);
     setGrabbing(true);
     // A click travels; a drag that follows takes over from the first move.
@@ -127,7 +135,6 @@ export function OrbitRing({
   };
 
   const dot = ringPoint(angleOfFrame(orbit.frame, params), radiusX, radiusY);
-  const stroke = tone === "dark" ? "#fff" : "var(--text-strong)";
 
   return (
     <div
@@ -137,9 +144,10 @@ export function OrbitRing({
       data-testid="orbit-ring"
       data-frame={orbit.frame}
     >
+      {/* The view box has its origin at the ring's centre: every point on
+          the ring is drawn as ringPoint gives it. */}
       <svg
-        ref={svg}
-        viewBox={`0 0 ${WIDTH} ${height}`}
+        viewBox={`${-WIDTH / 2} ${-height / 2} ${WIDTH} ${height}`}
         className={`h-auto w-full ${grabbing ? "cursor-grabbing" : "cursor-pointer"}`}
         style={{ touchAction: "none" }}
         onPointerDown={onPointerDown}
@@ -149,44 +157,44 @@ export function OrbitRing({
         onLostPointerCapture={release}
       >
         <ellipse
-          cx={centre.x}
-          cy={centre.y}
+          cx={0}
+          cy={0}
           rx={radiusX}
           ry={radiusY}
           fill="none"
-          stroke={stroke}
+          stroke={look.stroke}
           strokeOpacity={0.3}
           strokeWidth={2}
         />
         {/* Each loaded frame a solid tick on the arc; the centre stays free. */}
         {[...loaded].map((frame) => {
           const angle = angleOfFrame(frame, params);
-          const inner = ringPoint(angle, radiusX - 3, radiusY - 3);
-          const outer = ringPoint(angle, radiusX + 3, radiusY + 3);
+          const inner = ringPoint(angle, radiusX - TICK, radiusY - TICK);
+          const outer = ringPoint(angle, radiusX + TICK, radiusY + TICK);
           return (
             <line
               key={frame}
-              x1={centre.x + inner.x}
-              y1={centre.y + inner.y}
-              x2={centre.x + outer.x}
-              y2={centre.y + outer.y}
-              stroke={stroke}
+              x1={inner.x}
+              y1={inner.y}
+              x2={outer.x}
+              y2={outer.y}
+              stroke={look.stroke}
               strokeWidth={2}
               strokeLinecap="round"
             />
           );
         })}
         <circle
-          cx={centre.x + dot.x}
-          cy={centre.y + dot.y}
+          cx={dot.x}
+          cy={dot.y}
           r={6}
           fill="var(--action-solid)"
-          stroke={tone === "dark" ? "#fff" : "var(--surface-card)"}
+          stroke={look.dotRim}
           strokeWidth={2}
         />
       </svg>
       <span
-        className={`font-mono type-eyebrow tabular-nums ${tone === "dark" ? "rounded-full bg-n-950 px-2 text-white" : "text-(--text-muted)"}`}
+        className={`font-mono type-eyebrow tabular-nums ${look.counter}`}
         data-testid="orbit-counter"
       >
         {t("counter", { frame: orbit.frame, total: params.frameCount })}
