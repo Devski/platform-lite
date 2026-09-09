@@ -616,8 +616,10 @@ function PublicOrbit({
       className={
         ring === "overlay"
           ? "absolute bottom-1 left-1/2 w-[38%] max-w-40 -translate-x-1/2"
-          : "mt-(--sp-3) w-56"
+          : "mt-(--sp-3) w-40"
       }
+      // In the lightbox the caption counts the pictures right under it.
+      counter={ring === "overlay"}
     />
   );
   return (
@@ -760,8 +762,10 @@ function OrbitFull({ name, orbit }: { name: string; orbit: GalleryOrbit }) {
       orbit={orbit}
       width={width}
       label={t("orbit.lightboxLabel", { name })}
-      className="flex max-h-[calc(100vh-140px)] w-[min(96vw,1600px)] items-center justify-center"
-      imageClassName="max-h-[calc(100vh-140px)] object-contain"
+      // The ring under the picture takes its band out of the height, or
+      // the dialog would overflow with nowhere to scroll (#106 review).
+      className="flex max-h-[calc(100vh-140px-12rem)] w-[min(96vw,1600px)] items-center justify-center"
+      imageClassName="max-h-[calc(100vh-140px-12rem)] object-contain"
       enabled
       tier={tier}
       // The card's 800 px start frame is in the cache already: painted at

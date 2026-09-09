@@ -604,6 +604,7 @@
     },
     "orbit": {
       "frameOf": "Frame {frame} of {total}",
+      "frameOfShowing": "Frame {frame} of {total}, showing frame {shown} while it loads",
       "loading": "Loading frames…",
       "mark": "360°",
       "frameAlt": "{name}, 360° view",

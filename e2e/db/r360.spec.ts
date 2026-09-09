@@ -111,6 +111,31 @@ test("a drag by half the width at k = 2 turns one frame; past the last frame it 
   await expectNoAxeViolations(visitor, test.info(), "public-r360-card");
 });
 
+test("a tap on the ring's centre falls through to the picture, and a reduced-motion visitor jumps rather than travels (#106)", async () => {
+  const still = await visitor.context().browser()!.newContext({
+    locale: "pl-PL",
+    reducedMotion: "reduce",
+  });
+  const page = await still.newPage();
+  await page.goto(`/${identity.handle}`);
+  const viewer = page.getByTestId("orbit-viewer").first();
+  const ring = page.getByTestId("orbit-ring").first().locator("svg");
+  await ring.scrollIntoViewIfNeeded();
+  const box = await ring.boundingBox();
+  if (!box) throw new Error("no ring box");
+  // The centre is not the ring's: a press there is the picture's drag,
+  // which without movement changes nothing.
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(viewer).toHaveAttribute("data-frame", "3");
+  // On the band, opposite the dot: a jump, no frames on the way.
+  await page.mouse.click(
+    box.x + (box.width * (100 + 92)) / 200,
+    box.y + box.height / 2,
+  );
+  await expect(viewer).toHaveAttribute("data-frame", "2");
+  await still.close();
+});
+
 test("a click on the ring travels the shorter arc to the frame at that angle (#106)", async () => {
   await visitor.goto(`/${identity.handle}`);
   const viewer = visitor.getByTestId("orbit-viewer").first();

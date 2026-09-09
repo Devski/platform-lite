@@ -604,6 +604,7 @@
     },
     "orbit": {
       "frameOf": "Klatka {frame} z {total}",
+      "frameOfShowing": "Klatka {frame} z {total}, w trakcie wczytywania pokazana klatka {shown}",
       "loading": "Wczytywanie klatek…",
       "mark": "360°",
       "frameAlt": "{name}, widok 360°",

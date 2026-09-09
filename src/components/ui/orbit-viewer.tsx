@@ -77,7 +77,7 @@ export function OrbitViewer({
 
   return (
     <div
-      className={`relative select-none focus-visible:outline-none focus-visible:shadow-[var(--ring-focus)] ${orbit.dragging ? "cursor-grabbing" : "cursor-grab"} ${className}`}
+      className={`relative select-none focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_3px_var(--surface-card),inset_0_0_0_5px_var(--focus-ring)] ${orbit.dragging ? "cursor-grabbing" : "cursor-grab"} ${className}`}
       style={{ touchAction: "pan-y" }}
       role="slider"
       tabIndex={0}
@@ -85,10 +85,15 @@ export function OrbitViewer({
       aria-valuemin={1}
       aria-valuemax={params.frameCount}
       aria-valuenow={orbit.frame}
-      aria-valuetext={t("frameOf", {
-        frame: orbit.frame,
-        total: params.frameCount,
-      })}
+      aria-valuetext={
+        shown && shown !== orbit.frame
+          ? t("frameOfShowing", {
+              frame: orbit.frame,
+              total: params.frameCount,
+              shown,
+            })
+          : t("frameOf", { frame: orbit.frame, total: params.frameCount })
+      }
       aria-orientation="horizontal"
       data-testid="orbit-viewer"
       data-frame={orbit.frame}
