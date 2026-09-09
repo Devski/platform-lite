@@ -78,6 +78,10 @@ in under 5 minutes (manual walkthrough); e2e green.
 21. [#21](https://github.com/Devski/platform-lite/issues/21) Dockerfile (standalone) + deploy on push to the dev instance, G9 (`infra`)
 
 - ~~[#31](https://github.com/Devski/platform-lite/issues/31) PR preview deployments on the dev instance~~ — **done 05.09.2026**: `pr-<n>.dev.architektow3d.pl`, named sites over HTTP-01 (no wildcard certificate, so no DNS plugin), shared dev database and a `pr-<n>/` key prefix. Two at a time — the instance has one core and no swap. Previews never send e-mail.
+- [#113](https://github.com/Devski/platform-lite/issues/113) PR previews: a database cloned
+  from dev per preview, not the shared one (`deployment`). Filed 09.09.2026 when the preview
+  of #112 answered with a server error: it ran the pull request's image against dev's
+  schema, and previews never migrate. Sequenced after the R360 trial on dev.
 
 22. ~~[#22](https://github.com/Devski/platform-lite/issues/22) Scaleway TEM + SPF/DKIM/DMARC + switch email.ts to TEM~~ — **done 05.09.2026**: sending from `kontakt@dev.architektow3d.pl`, all four DNS records verified, replies routed to `kontakt@architektow3d.pl`. A registration on dev delivered a real verification e-mail (SMTP 250). Unblocks #23.
 23. ~~[#23](https://github.com/Devski/platform-lite/issues/23) Deliverability test: Gmail / Onet / WP / Interia~~ — **done 05.09.2026**: all eight message types reach the Gmail inbox, none filtered. Scope cut to Gmail by decision; the reasoning and the method for the other three are in `docs/email-deliverability.md`.
@@ -126,24 +130,25 @@ the owner's browser — the server never reads the archive, the one core never d
 frame, no queue and no worker. The decisions, the five parameters and the ordered step
 list live on [#68](https://github.com/Devski/platform-lite/issues/68); the frame contract
 shared with the export instructions on #64. One step, one PR; the order and the
-dependencies are as on #68 (#105 waits on #101 and #103 only).
+dependencies are as on #68 (#105 waits on #101 and #103 only). All six steps landed on
+`main` in one pull request (#112, 09.09.2026); the trial on dev, laptop and phone, closes #68.
 
-- [#101](https://github.com/Devski/platform-lite/issues/101) Zip reader in the browser:
+- ~~[#101](https://github.com/Devski/platform-lite/issues/101) Zip reader in the browser:
   the table of contents, single frames by byte range, frame names parsed and validated —
-  the technical bet, first and without UI.
-- [#102](https://github.com/Devski/platform-lite/issues/102) Frame pipeline: frames reduced
+  the technical bet, first and without UI.~~ — **done 09.09.2026**: the dev bucket still needs the CORS rule that allows GET and exposes `Content-Range` (`infra`; the JSON is in `scripts/bootstrap-dev.sh`) — the issue stays open for that.
+- ~~[#102](https://github.com/Devski/platform-lite/issues/102) Frame pipeline: frames reduced
   in the owner's browser, uploaded under one set prefix, verified and recorded on save,
-  cleaned up on replace and delete.
-- [#103](https://github.com/Devski/platform-lite/issues/103) Edit mode: pick the archive,
+  cleaned up on replace and delete.~~ — **done 09.09.2026**: open decision on the issue: a presigned POST policy with `content-length-range` (a new dependency); until then SPEC §10 carries the unsigned length.
+- ~~[#103](https://github.com/Devski/platform-lite/issues/103) Edit mode: pick the archive,
   see the frame count, the five parameters, one composite progress bar, a drag-only
-  preview (`ux`).
-- [#104](https://github.com/Devski/platform-lite/issues/104) The public work: drag to
-  orbit, frames loaded coarse to fine, the start frame as the poster (`ux`).
-- [#105](https://github.com/Devski/platform-lite/issues/105) Resume: derive the frames
+  preview (`ux`).~~ — **done 09.09.2026**.
+- ~~[#104](https://github.com/Devski/platform-lite/issues/104) The public work: drag to
+  orbit, frames loaded coarse to fine, the start frame as the poster (`ux`).~~ — **done 09.09.2026**.
+- ~~[#105](https://github.com/Devski/platform-lite/issues/105) Resume: derive the frames
   again from an archive that already reached the bucket (`ux`). Depends on #101 and #103,
-  not on #104; listed here in filing order.
-- [#106](https://github.com/Devski/platform-lite/issues/106) The ring: the ellipse dial
-  that shows where you are, travels on click, fills as frames load (`ux`).
+  not on #104; listed here in filing order.~~ — **done 09.09.2026**: needs the CORS rule from #101 on dev; open decision on the issue: the seven-day ceiling on a claimed archive.
+- ~~[#106](https://github.com/Devski/platform-lite/issues/106) The ring: the ellipse dial
+  that shows where you are, travels on click, fills as frames load (`ux`).~~ — **done 09.09.2026**.
 
 After the milestone: [#107](https://github.com/Devski/platform-lite/issues/107) cue points —
 labelled frames on the ring (`ux`), deliberately outside the first cut.
