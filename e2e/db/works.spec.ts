@@ -340,6 +340,12 @@ test("the page's Zapisz waits for the archive, then saves the open form (#85)", 
     buffer: Buffer.from("PK\u0003"),
   });
 
+  // The bytes on their way: the shared bar (#80), with a cancel.
+  await expect(page.getByRole("progressbar")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Przerwij wysyłanie" }),
+  ).toBeVisible();
+
   // Zapisz in the top bar: waits, says so, posts nothing yet.
   const save = page.getByRole("button", { name: "Zapisywanie…" });
   await page.getByRole("button", { name: "Zapisz", exact: true }).click();

@@ -253,7 +253,9 @@
         }
       },
       "upload": {
-        "uploading": "Wysyłanie i przetwarzanie…",
+        "progress": "Wysyłanie {percent}%",
+        "processing": "Przetwarzanie…",
+        "cancel": "Przerwij wysyłanie",
         "errors": {
           "file_type": "Ten format nie jest obsługiwany — wybierz JPEG, PNG lub WebP.",
           "file_size": "Plik musi mieć od 1 bajta do 10 MB.",
@@ -492,8 +494,7 @@
         "setMain": "Ustaw jako główne",
         "replace": "Wymień zdjęcie",
         "remove": "Usuń zdjęcie",
-        "noPreview": "Bez podglądu",
-        "uploading": "Wysyłanie…"
+        "noPreview": "Bez podglądu"
       },
       "save": "Zapisz realizację",
       "saveChanges": "Zapisz zmiany",
@@ -518,12 +519,9 @@
         "rule": "archiwum zip z klatkami orbity, bez limitu rozmiaru",
         "hint": "Widoczny tylko dla Ciebie. Przeglądarka 360 dla gości powstanie w osobnym kroku.",
         "add": "Dodaj zip R360",
-        "uploading": "Wysyłanie…",
         "uploaded": "Wgrany",
         "attached": "Archiwum R360",
-        "remove": "Usuń",
-        "uploadingPercent": "Wysyłanie… {percent}%",
-        "cancel": "Przerwij"
+        "remove": "Usuń"
       }
     },
     "lightbox": {
