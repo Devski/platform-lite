@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import { buildZip, rangeFetch } from "./test-zip";
 import {
   fileSource,
+  MAX_DIRECTORY_BYTES,
+  MAX_ENTRY_BYTES,
   openZip,
   urlSource,
   ZipError,
   type ByteSource,
   type ZipEntry,
 } from "./zip-reader";
+import { deflateRawSync } from "node:zlib";
 
 // #101: the archive is never unpacked — its table of contents comes from
 // the tail, each frame from its own byte range, through a local File or a
@@ -107,6 +110,47 @@ describe("openZip", () => {
     }
   });
 
+  it("reads a ZIP64 entry that marks only its offset, behind a foreign extra field", async () => {
+    const bytes = buildZip(
+      [
+        { name: "f1.png", data: frame(1), foreignExtra: true },
+        { name: "f2.png", data: frame(2), method: 8, foreignExtra: true },
+      ],
+      { zip64: "offset-only" },
+    );
+    const { archive, out } = await readAll(local(bytes));
+    expect(archive.entries[1].localHeaderOffset).toBeGreaterThan(0);
+    expect(archive.entries[1].uncompressedSize).toBe(frame(2).length);
+    expect(out["f2.png"]).toBe(decode(frame(2)));
+  });
+
+  it("calls a ZIP64 marker without its field corrupt, and a truncated extra field too", async () => {
+    const marked = buildZip([{ name: "a.png", data: text("A") }], {
+      zip64: "offset-only",
+    });
+    // The one ZIP64 field in the directory: id 0x0001, length 8.
+    const fieldAt = marked.findIndex(
+      (_, i) =>
+        marked[i] === 0x01 &&
+        marked[i + 1] === 0x00 &&
+        marked[i + 2] === 0x08 &&
+        marked[i + 3] === 0x00,
+    );
+    expect(fieldAt).toBeGreaterThan(0);
+    // The marker stays, but the field says it carries nothing.
+    const empty = marked.slice();
+    empty.set([0x00, 0x00], fieldAt + 2);
+    expect(await refusal(openZip(local(empty)))).toBe("corrupt");
+    // The field claims more bytes than the extra area holds.
+    const overlong = marked.slice();
+    overlong.set([0xff, 0x00], fieldAt + 2);
+    expect(await refusal(openZip(local(overlong)))).toBe("corrupt");
+    // No ZIP64 field at all behind the marker.
+    const foreign = marked.slice();
+    foreign.set([0x55, 0x54], fieldAt);
+    expect(await refusal(openZip(local(foreign)))).toBe("corrupt");
+  });
+
   it("takes the sizes from the directory when the local header defers to a data descriptor", async () => {
     const bytes = buildZip([
       { name: "f1.png", data: frame(1), method: 8, flags: 0x0008 },
@@ -135,6 +179,17 @@ describe("openZip", () => {
     );
     // Two reads per entry here; one when the lengths agree.
     expect(remote.calls.length - before).toBe(4);
+  });
+
+  it("tops the read up when the first read ends inside the local header itself", async () => {
+    const bytes = buildZip([
+      { name: "f1.png", data: text("abc"), localExtraPadding: 100 },
+    ]);
+    const remote = rangeFetch(bytes);
+    const archive = await openZip(
+      urlSource("https://bucket.test/orbit.zip", remote.fetch),
+    );
+    expect(decode(await archive.readEntry(archive.entries[0]))).toBe("abc");
   });
 
   it("reads a frame in one request when the local header agrees with the directory", async () => {
@@ -198,6 +253,76 @@ describe("openZip", () => {
     expect(await refusal(archive.readEntry(truncated))).toBe("corrupt");
   });
 
+  it("refuses to allocate what the archive merely claims", async () => {
+    const bytes = buildZip([
+      { name: "a.png", data: text("A") },
+      { name: "b.png", data: frame(2), method: 8 },
+    ]);
+    const archive = await openZip(local(bytes));
+    const [stored, deflated] = archive.entries;
+    const claims = new Map<string, ZipEntry>([
+      ["a stored entry past the archive", { ...stored, compressedSize: 4000 }],
+      [
+        "a stored entry past the ceiling",
+        { ...stored, compressedSize: MAX_ENTRY_BYTES + 1 },
+      ],
+      [
+        "an inflated size past the ceiling",
+        { ...deflated, uncompressedSize: MAX_ENTRY_BYTES + 1 },
+      ],
+      [
+        "an offset past the end",
+        { ...stored, localHeaderOffset: bytes.length + 10 },
+      ],
+      [
+        "a stored entry whose sizes disagree",
+        { ...stored, uncompressedSize: 2 },
+      ],
+      [
+        "a deflate stream that inflates past its promise",
+        { ...deflated, uncompressedSize: 10 },
+      ],
+      [
+        "a deflate stream that stops short of its promise",
+        { ...deflated, uncompressedSize: frame(2).length + 1 },
+      ],
+    ]);
+    for (const [label, entry] of claims) {
+      expect(await refusal(archive.readEntry(entry)), label).toBe("corrupt");
+    }
+    // The bomb: 64 KiB of zeros inflate from a few dozen bytes; the reader
+    // stops at the promised size instead of finishing the stream.
+    const zeros = new Uint8Array(65536);
+    const bomb = buildZip([{ name: "z.png", data: zeros, method: 8 }]);
+    const bombed = await openZip(local(bomb));
+    expect(new Uint8Array(deflateRawSync(zeros)).length).toBeLessThan(200);
+    expect(
+      await refusal(
+        bombed.readEntry({ ...bombed.entries[0], uncompressedSize: 100 }),
+      ),
+    ).toBe("corrupt");
+    expect((await bombed.readEntry(bombed.entries[0])).length).toBe(65536);
+  });
+
+  it("refuses a central directory past the ceiling before reading it", async () => {
+    const source: ByteSource = {
+      size: async () => MAX_DIRECTORY_BYTES + 1000,
+      async readRange(offset, length) {
+        // A tail whose end record points at a directory of the whole file.
+        const tail = buildZip([]);
+        const view = new DataView(tail.buffer);
+        view.setUint16(10, 1, true);
+        view.setUint32(12, MAX_DIRECTORY_BYTES + 1, true);
+        view.setUint32(16, 0, true);
+        const out = new Uint8Array(length);
+        out.set(tail, length - tail.length);
+        void offset;
+        return out;
+      },
+    };
+    expect(await refusal(openZip(source))).toBe("corrupt");
+  });
+
   it("calls a directory that points past the end corrupt", async () => {
     const bytes = buildZip([{ name: "a.png", data: text("A") }]);
     const view = new DataView(bytes.buffer);
@@ -243,6 +368,35 @@ describe("urlSource", () => {
       rangeFetch(bytes).fetch,
     );
     expect(await working.size()).toBe(bytes.length);
+  });
+
+  it("calls 416 corrupt, a failed request network, and sends nothing of the page", async () => {
+    const remote = rangeFetch(bytes);
+    const source = urlSource("https://bucket.test/orbit.zip", remote.fetch);
+    expect(await refusal(source.readRange(bytes.length + 5, 4))).toBe(
+      "corrupt",
+    );
+    let init: RequestInit | undefined;
+    const failing: typeof fetch = async (_input, options) => {
+      init = options;
+      throw new TypeError("Failed to fetch");
+    };
+    const offline = urlSource("https://bucket.test/orbit.zip", failing);
+    expect(await refusal(offline.size())).toBe("network");
+    expect(init).toMatchObject({
+      redirect: "error",
+      credentials: "omit",
+      cache: "no-store",
+    });
+    const total = "9".repeat(20);
+    const huge = async () =>
+      new Response(new Uint8Array(1), {
+        status: 206,
+        headers: { "Content-Range": `bytes 0-0/${total}` },
+      });
+    expect(
+      await refusal(urlSource("https://bucket.test/orbit.zip", huge).size()),
+    ).toBe("http");
   });
 
   it("calls a short answer corrupt", async () => {

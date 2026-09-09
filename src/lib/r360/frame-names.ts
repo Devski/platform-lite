@@ -53,7 +53,10 @@ export function orderFrames<T extends { name: string }>(
     if (isJunk(entry.name)) continue;
     const { extension } = partsOf(entry.name);
     if (showable.has(extension)) candidates.push(entry);
-    else if (unshowable.has(extension)) refusedByFormat.push(entry.name);
+    else if (unshowable.has(extension) && refusedByFormat.length < 2) {
+      // Two names are enough to say what went wrong, whatever the count.
+      refusedByFormat.push(entry.name);
+    }
   }
   const refuse = (
     reason: FrameRefusalReason,
@@ -138,9 +141,17 @@ function folderClashOf(
   return [candidates[0].name, (elsewhere ?? candidates[1]).name];
 }
 
-/** The runs of digits in the base name, extension excluded. */
+/**
+ * The first and the last run of digits in the base name, extension
+ * excluded — the two the rule uses; nothing in between is kept, so a
+ * name that alternates digits and letters for kilobytes costs nothing.
+ */
 function digitRuns(name: string): string[] {
-  return partsOf(name).stem.match(/\d+/g) ?? [];
+  const { stem } = partsOf(name);
+  const first = /\d+/.exec(stem)?.[0];
+  if (first === undefined) return [];
+  const last = /(\d+)\D*$/.exec(stem)?.[1] ?? first;
+  return [first, last];
 }
 
 type Sequence<T> = { ok: true; frames: T[] } | { ok: false; clash: string[] };

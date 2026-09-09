@@ -15,12 +15,18 @@ export interface FixtureEntry {
   flags?: number;
   /** Extra bytes in the local header only — the directory's stays shorter. */
   localExtraPadding?: number;
+  /** A foreign extra field (extended timestamp) ahead of the ZIP64 one. */
+  foreignExtra?: boolean;
 }
 
 export interface FixtureOptions {
   comment?: string;
-  /** Write the ZIP64 records and mark every 32-bit field as overflowed. */
-  zip64?: boolean;
+  /**
+   * Write the ZIP64 records; mark every 32-bit field of each entry as
+   * overflowed, or only the offset — what a real archive past 4 GB does
+   * for entries whose own sizes still fit.
+   */
+  zip64?: boolean | "offset-only";
   /** The disk number written in the end record: 1 makes it a split archive. */
   disk?: number;
 }
@@ -64,6 +70,7 @@ interface Prepared {
   flags: number;
   descriptor: boolean;
   localExtra: Uint8Array;
+  foreignExtra: boolean;
 }
 
 function prepare(entry: FixtureEntry): Prepared {
@@ -78,6 +85,7 @@ function prepare(entry: FixtureEntry): Prepared {
     flags,
     descriptor: (flags & 0x0008) !== 0,
     localExtra: new Uint8Array(entry.localExtraPadding ?? 0),
+    foreignExtra: entry.foreignExtra ?? false,
   };
 }
 
@@ -139,25 +147,36 @@ function dataDescriptor(entry: Prepared): Uint8Array {
 function centralHeader(
   entry: Prepared,
   offset: number,
-  zip64: boolean,
+  zip64: boolean | "offset-only",
 ): Uint8Array {
   const { name } = entry;
-  const extra = zip64
-    ? new Layout(4 + 24)
-        .u16(0, 0x0001)
-        .u16(2, 24)
-        .u64(4, entry.raw.length)
-        .u64(12, entry.data.length)
-        .u64(20, offset).bytes
+  const sizes64 = zip64 === true;
+  const timestamp = entry.foreignExtra
+    ? new Layout(4 + 5).u16(0, 0x5455).u16(2, 5).bytes
     : new Uint8Array(0);
+  let zip64Extra = new Uint8Array(0);
+  if (zip64 === true) {
+    zip64Extra = new Layout(4 + 24)
+      .u16(0, 0x0001)
+      .u16(2, 24)
+      .u64(4, entry.raw.length)
+      .u64(12, entry.data.length)
+      .u64(20, offset).bytes;
+  } else if (zip64 === "offset-only") {
+    zip64Extra = new Layout(4 + 8)
+      .u16(0, 0x0001)
+      .u16(2, 8)
+      .u64(4, offset).bytes;
+  }
+  const extra = concat([timestamp, zip64Extra]);
   return new Layout(46 + name.length + extra.length)
     .u32(0, 0x02014b50)
     .u16(4, 20)
     .u16(6, 20)
     .u16(8, entry.flags)
     .u16(10, entry.method)
-    .u32(20, zip64 ? MAX_32 : entry.data.length)
-    .u32(24, zip64 ? MAX_32 : entry.raw.length)
+    .u32(20, sizes64 ? MAX_32 : entry.data.length)
+    .u32(24, sizes64 ? MAX_32 : entry.raw.length)
     .u16(28, name.length)
     .u16(30, extra.length)
     .u32(42, zip64 ? MAX_32 : offset)
@@ -193,7 +212,7 @@ function endRecord(
 ): Uint8Array {
   const comment = new TextEncoder().encode(options.comment ?? "");
   const disk = options.disk ?? 0;
-  const zip64 = options.zip64 ?? false;
+  const zip64 = Boolean(options.zip64);
   return new Layout(22 + comment.length)
     .u32(0, 0x06054b50)
     .u16(4, disk)
@@ -219,7 +238,8 @@ export function concat(parts: Uint8Array[]): Uint8Array<ArrayBuffer> {
 
 /**
  * A fetch that serves `bytes` the way a bucket does: 206 with Content-Range
- * for a Range request, 200 with the whole body without one. Counts calls.
+ * for a Range request, 416 for one past the end, 200 with the whole body
+ * without one. Counts calls.
  */
 export function rangeFetch(bytes: Uint8Array): {
   fetch: typeof fetch;
@@ -238,6 +258,8 @@ export function rangeFetch(bytes: Uint8Array): {
     }
     const start = Number(match[1]);
     const end = Math.min(Number(match[2]), bytes.length - 1);
+    // A start past the end is what a bucket answers with 416.
+    if (start >= bytes.length) return new Response(null, { status: 416 });
     return new Response(bytes.slice(start, end + 1), {
       status: 206,
       headers: {

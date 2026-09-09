@@ -191,12 +191,15 @@ fi
 # phones on the LAN all differ, and CORS is not the access control here.
 # Production (#24) should still narrow this to its own domain.
 #
-# GET with a Range header, and Content-Range exposed, is for R360 (#101,
-# A13): the owner's browser reads single frames out of an archive that
-# already reached the bucket, through a presigned GET, without downloading
-# the whole of it. Range is not a header the browser sends unasked, so it
-# has to be allowed for the preflight, and Content-Range has to be exposed
-# or the script never learns the archive's size.
+# GET, and Content-Range exposed, is for R360 (#101, A13): the owner's
+# browser reads single frames out of an archive that already reached the
+# bucket, through a presigned GET with a Range header, without downloading
+# the whole of it. A plain "bytes=N-M" Range is a CORS-safelisted request
+# header, so the GET runs without a preflight; what the rule has to grant
+# is the method itself (or the answer carries no Allow-Origin) and the
+# Content-Range header (not safelisted for responses), or the script never
+# learns the archive's size. "range" in the allowed headers is a belt for
+# browsers that predate the safelisting.
 echo "==> CORS on $BUCKET: browser PUT to presigned URLs (G4), ranged GET (A13)"
 CORS_JSON="$(mktemp)"
 cat >"$CORS_JSON" <<JSON

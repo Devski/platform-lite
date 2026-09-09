@@ -136,7 +136,8 @@ describe("orderFrames", () => {
       ),
     );
     expect(result.reason).toBe("unsupported_format");
-    expect(result.files).toEqual(["f_0001.exr", "f_0002.EXR", "f_0004.tif"]);
+    // Two names say what went wrong; a thousand would only say it louder.
+    expect(result.files).toEqual(["f_0001.exr", "f_0002.EXR"]);
     expect(refused(orderFrames(named("a.tiff", "b.tga"))).files).toEqual([
       "a.tiff",
       "b.tga",
@@ -165,6 +166,13 @@ describe("orderFrames", () => {
         ),
       ),
     ).toHaveLength(360);
+  });
+
+  it("keeps only the first and the last run of digits in mind", () => {
+    const long = "1a".repeat(20000);
+    expect(ordered(orderFrames(named(`${long}2.png`, `${long}1.png`)))).toEqual(
+      [`${long}1.png`, `${long}2.png`],
+    );
   });
 
   it("keeps the entries themselves, so the caller can read them back", () => {

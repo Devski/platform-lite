@@ -14,7 +14,7 @@ export interface ByteSource {
   /** The archive's length in bytes. */
   size(): Promise<number>;
   /** The bytes [offset, offset + length) — exactly that many, or a ZipError. */
-  readRange(offset: number, length: number): Promise<Uint8Array>;
+  readRange(offset: number, length: number): Promise<Uint8Array<ArrayBuffer>>;
 }
 
 export type ZipRefusal =
@@ -31,7 +31,9 @@ export type ZipRefusal =
   /** The server answered a Range request with the whole body. */
   | "range_unsupported"
   /** The server answered anything else than 206. */
-  | "http";
+  | "http"
+  /** No answer at all: the request failed before a status arrived. */
+  | "network";
 
 export class ZipError extends Error {
   constructor(
@@ -60,8 +62,18 @@ export interface ZipEntry {
 export interface ZipArchive {
   entries: ZipEntry[];
   /** The entry's bytes, inflated when the entry is deflated. */
-  readEntry(entry: ZipEntry): Promise<Uint8Array>;
+  readEntry(entry: ZipEntry): Promise<Uint8Array<ArrayBuffer>>;
 }
+
+// Ceilings on what an archive may make the reader allocate. The figures
+// in a zip are the archive's own word: a crafted or damaged one can claim
+// a 4 GB directory or a frame that inflates to gigabytes, and the reader
+// would spend the memory before it could compare lengths. An orbit is at
+// most 360 frames plus junk, and a frame is one picture.
+/** The central directory: 360 entries with fat extra fields are ~100 KB. */
+export const MAX_DIRECTORY_BYTES = 16 * 1024 * 1024;
+/** One entry, stored or inflated. */
+export const MAX_ENTRY_BYTES = 256 * 1024 * 1024;
 
 const EOCD_SIGNATURE = 0x06054b50;
 const EOCD_LENGTH = 22;
@@ -89,9 +101,15 @@ export function fileSource(file: Blob): ByteSource {
   return {
     size: async () => file.size,
     async readRange(offset, length) {
-      const bytes = new Uint8Array(
-        await file.slice(offset, offset + length).arrayBuffer(),
-      );
+      let bytes: Uint8Array<ArrayBuffer>;
+      try {
+        bytes = new Uint8Array(
+          await file.slice(offset, offset + length).arrayBuffer(),
+        );
+      } catch (error) {
+        // The file changed or vanished under the picker's reference.
+        throw new ZipError("network", describe(error));
+      }
       return exactly(bytes, length);
     },
   };
@@ -101,7 +119,7 @@ export function fileSource(file: Blob): ByteSource {
  * A remote archive, read through fetch with a Range header. The size is
  * learned from the first answer's Content-Range — a HEAD would not do,
  * since a presigned URL is signed for one method. Bucket CORS must allow
- * GET with `range` and expose `Content-Range` (docs/dev-environment.md).
+ * GET and expose `Content-Range` (docs/dev-environment.md).
  */
 export function urlSource(
   url: string,
@@ -109,8 +127,24 @@ export function urlSource(
 ): ByteSource {
   let size: Promise<number> | undefined;
   const request = async (range: string): Promise<Response> => {
-    const response = await fetchImpl(url, { headers: { Range: range } });
+    let response: Response;
+    try {
+      response = await fetchImpl(url, {
+        headers: { Range: range },
+        // The bucket never redirects; a presigned URL must not be carried
+        // elsewhere if it ever did. Nothing of the page goes with it, and
+        // partial answers stay out of the cache — a browser would otherwise
+        // stitch 206 pieces of an immutable URL together on its own terms.
+        redirect: "error",
+        credentials: "omit",
+        cache: "no-store",
+      });
+    } catch (error) {
+      throw new ZipError("network", describe(error));
+    }
     if (response.status === 200) throw new ZipError("range_unsupported");
+    // 416: the range starts past the end — an offset the archive lied about.
+    if (response.status === 416) throw new ZipError("corrupt", "range 416");
     if (response.status !== 206) {
       throw new ZipError("http", String(response.status));
     }
@@ -119,8 +153,10 @@ export function urlSource(
   return {
     size() {
       size ??= request("bytes=0-0").then(
-        (response) =>
-          totalFromContentRange(response.headers.get("content-range")),
+        (response) => {
+          void response.body?.cancel();
+          return totalFromContentRange(response.headers.get("content-range"));
+        },
         (error: unknown) => {
           size = undefined;
           throw error;
@@ -131,7 +167,13 @@ export function urlSource(
     async readRange(offset, length) {
       if (length === 0) return new Uint8Array(0);
       const response = await request(`bytes=${offset}-${offset + length - 1}`);
-      return exactly(new Uint8Array(await response.arrayBuffer()), length);
+      let bytes: Uint8Array<ArrayBuffer>;
+      try {
+        bytes = new Uint8Array(await response.arrayBuffer());
+      } catch (error) {
+        throw new ZipError("network", describe(error));
+      }
+      return exactly(bytes, length);
     },
   };
 }
@@ -139,10 +181,15 @@ export function urlSource(
 function totalFromContentRange(header: string | null): number {
   const total = /^bytes \d+-\d+\/(\d+)$/.exec(header ?? "")?.[1];
   if (!total) throw new ZipError("http", "no Content-Range");
-  return Number(total);
+  const size = Number(total);
+  if (!Number.isSafeInteger(size)) throw new ZipError("http", "Content-Range");
+  return size;
 }
 
-function exactly(bytes: Uint8Array, length: number): Uint8Array {
+function exactly(
+  bytes: Uint8Array<ArrayBuffer>,
+  length: number,
+): Uint8Array<ArrayBuffer> {
   if (bytes.length !== length) {
     throw new ZipError(
       "corrupt",
@@ -180,9 +227,15 @@ export async function openZip(source: ByteSource): Promise<ZipArchive> {
   if (directoryOffset + directorySize > size) {
     throw new ZipError("corrupt", "central directory past the end");
   }
+  if (directorySize > MAX_DIRECTORY_BYTES) {
+    throw new ZipError(
+      "corrupt",
+      `central directory of ${directorySize} bytes`,
+    );
+  }
   const directory = await read(directoryOffset, directorySize);
   const entries = parseCentralDirectory(directory, entryCount);
-  return { entries, readEntry: (entry) => readEntry(source, entry) };
+  return { entries, readEntry: (entry) => readEntry(source, size, entry) };
 }
 
 /** The end record's offset inside the tail: the last signature wins. */
@@ -339,7 +392,8 @@ function zip64Fields(extra: Uint8Array, fields: EntryFields): EntryFields {
     const length = view.getUint16(at + 2, true);
     const start = at + 4;
     at = start + length;
-    if (id !== ZIP64_EXTRA_ID || at > extra.length) continue;
+    if (at > extra.length) throw new ZipError("corrupt", "extra field");
+    if (id !== ZIP64_EXTRA_ID) continue;
     const resolved = { ...fields };
     let cursor = start;
     const take64 = () => {
@@ -361,29 +415,55 @@ function zip64Fields(extra: Uint8Array, fields: EntryFields): EntryFields {
     }
     return resolved;
   }
+  // No ZIP64 field: every 32-bit figure has to stand on its own.
+  if (
+    fields.uncompressedSize === MAX_32 ||
+    fields.compressedSize === MAX_32 ||
+    fields.localHeaderOffset === MAX_32 ||
+    fields.disk === MAX_16
+  ) {
+    throw new ZipError("corrupt", "a ZIP64 marker without the field");
+  }
   return fields;
 }
 
 // ---------------------------------------------------------------- entries
 
-/** One entry: refused by method, inflated if deflated, checked by size. */
+/**
+ * One entry: refused by method, bounded before a byte is read, inflated if
+ * deflated, checked by size.
+ */
 async function readEntry(
   source: ByteSource,
+  archiveSize: number,
   entry: ZipEntry,
-): Promise<Uint8Array> {
+): Promise<Uint8Array<ArrayBuffer>> {
   if (entry.method !== METHOD_STORED && entry.method !== METHOD_DEFLATE) {
     throw new ZipError("unsupported_method", `${entry.name}: ${entry.method}`);
   }
-  const data = await readCompressed(source, entry);
-  const bytes =
-    entry.method === METHOD_STORED ? data : await inflateRaw(data, entry.name);
-  if (bytes.length !== entry.uncompressedSize) {
+  if (
+    entry.compressedSize > MAX_ENTRY_BYTES ||
+    entry.uncompressedSize > MAX_ENTRY_BYTES
+  ) {
     throw new ZipError(
       "corrupt",
-      `${entry.name}: ${bytes.length} bytes, expected ${entry.uncompressedSize}`,
+      `${entry.name}: past ${MAX_ENTRY_BYTES} bytes`,
     );
   }
-  return bytes;
+  if (
+    entry.localHeaderOffset + LOCAL_LENGTH + entry.compressedSize >
+    archiveSize
+  ) {
+    throw new ZipError("corrupt", `${entry.name}: data past the end`);
+  }
+  const data = await readCompressed(source, archiveSize, entry);
+  if (entry.method === METHOD_STORED) {
+    if (data.length !== entry.uncompressedSize) {
+      throw new ZipError("corrupt", `${entry.name}: sizes disagree`);
+    }
+    return data;
+  }
+  return inflateRaw(data, entry.uncompressedSize, entry.name);
 }
 
 /**
@@ -394,12 +474,16 @@ async function readEntry(
  */
 async function readCompressed(
   source: ByteSource,
+  archiveSize: number,
   entry: ZipEntry,
-): Promise<Uint8Array> {
+): Promise<Uint8Array<ArrayBuffer>> {
   const guessedHeader = LOCAL_LENGTH + entry.nameLength + entry.extraLength;
   const first = await source.readRange(
     entry.localHeaderOffset,
-    guessedHeader + entry.compressedSize,
+    Math.min(
+      guessedHeader + entry.compressedSize,
+      archiveSize - entry.localHeaderOffset,
+    ),
   );
   const view = dataView(first);
   if (view.getUint32(0, true) !== LOCAL_SIGNATURE) {
@@ -421,15 +505,45 @@ async function readCompressed(
   return data;
 }
 
-async function inflateRaw(data: Uint8Array, name: string): Promise<Uint8Array> {
+/**
+ * Inflates into a buffer of exactly the size the directory promised, and
+ * stops the moment the stream produces more — a deflate stream can grow a
+ * thousandfold, and the promise is the one bound the reader has.
+ */
+async function inflateRaw(
+  data: Uint8Array<ArrayBuffer>,
+  expected: number,
+  name: string,
+): Promise<Uint8Array<ArrayBuffer>> {
+  const out = new Uint8Array(expected);
+  let at = 0;
+  const reader = new ReadableStream<Uint8Array<ArrayBuffer>>({
+    start(controller) {
+      controller.enqueue(data);
+      controller.close();
+    },
+  })
+    .pipeThrough(new DecompressionStream("deflate-raw"))
+    .getReader();
   try {
-    const stream = new Blob([data.slice()])
-      .stream()
-      .pipeThrough(new DecompressionStream("deflate-raw"));
-    return new Uint8Array(await new Response(stream).arrayBuffer());
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (at + value.length > expected) {
+        await reader.cancel();
+        throw new ZipError("corrupt", `${name}: inflates past ${expected}`);
+      }
+      out.set(value, at);
+      at += value.length;
+    }
   } catch (error) {
+    if (error instanceof ZipError) throw error;
     throw new ZipError("corrupt", `${name}: ${describe(error)}`);
   }
+  if (at !== expected) {
+    throw new ZipError("corrupt", `${name}: ${at} bytes, expected ${expected}`);
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------- helpers
