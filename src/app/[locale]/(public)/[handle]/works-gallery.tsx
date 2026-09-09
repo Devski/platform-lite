@@ -20,6 +20,9 @@ export interface GalleryImage {
   fileId?: string;
   url1600: string;
   url480: string;
+  /** #99: the photo's second channel — shown by the reveal slider (#100);
+   * until then the first channel is what the page shows. */
+  secondary?: { fileId?: string; url1600: string; url480: string };
 }
 
 export interface GalleryWork {

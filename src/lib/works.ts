@@ -9,7 +9,12 @@ import {
   type ProfileDeps,
   type ProfileReadDeps,
 } from "@/lib/profile";
-import { WORKS_MAX, workInputSchema, type WorkInput } from "@/lib/work-schemas";
+import {
+  secondariesOf,
+  workInputSchema,
+  WORKS_MAX,
+  type WorkInput,
+} from "@/lib/work-schemas";
 
 // #72 / A12: a profile's works — up to ten, each with one to three photos
 // (position 0 is the main one) and, since step 5, an R360 archive. Photos
@@ -27,7 +32,15 @@ export class WorksError extends Error {
   }
 }
 
+export interface WorkChannelView {
+  fileId: string;
+  url1600: string;
+  url480: string;
+}
+
 export interface WorkImageView {
+  /** #99: the second channel, if the photo has one. */
+  secondary?: WorkChannelView;
   fileId: string;
   url1600: string;
   url480: string;
@@ -68,11 +81,20 @@ export async function listWorks(deps: ProfileReadDeps): Promise<WorkView[]> {
       workId: workImages.workId,
       position: workImages.position,
       fileId: workImages.fileId,
+      secondaryFileId: workImages.secondaryFileId,
     })
     .from(workImages)
     .where(inArray(workImages.workId, workIds))
     .orderBy(asc(workImages.position));
-  const originalIds = [...new Set(imageRows.map((image) => image.fileId))];
+  const originalIds = [
+    ...new Set(
+      imageRows.flatMap((image) =>
+        image.secondaryFileId
+          ? [image.fileId, image.secondaryFileId]
+          : [image.fileId],
+      ),
+    ),
+  ];
   const archiveIds = rows
     .map((row) => row.r360FileId)
     .filter((id): id is string => id !== null);
@@ -104,7 +126,7 @@ export async function listWorks(deps: ProfileReadDeps): Promise<WorkView[]> {
             ),
           );
 
-  const urlsOf = (fileId: string): WorkImageView | null => {
+  const urlsOf = (fileId: string): WorkChannelView | null => {
     const original = fileRows.find((row) => row.id === fileId);
     if (!original) return null;
     const [url1600, url480] = WORK_VARIANTS.map(({ kind, size }) =>
@@ -114,6 +136,17 @@ export async function listWorks(deps: ProfileReadDeps): Promise<WorkView[]> {
       ),
     );
     return { fileId, url1600, url480 };
+  };
+  const imageOf = (image: {
+    fileId: string;
+    secondaryFileId: string | null;
+  }): WorkImageView | null => {
+    const first = urlsOf(image.fileId);
+    if (!first) return null;
+    const secondary = image.secondaryFileId
+      ? urlsOf(image.secondaryFileId)
+      : null;
+    return secondary ? { ...first, secondary } : first;
   };
 
   return rows.map((row) => {
@@ -127,7 +160,7 @@ export async function listWorks(deps: ProfileReadDeps): Promise<WorkView[]> {
       developer: row.developer,
       images: imageRows
         .filter((image) => image.workId === row.id)
-        .map((image) => urlsOf(image.fileId))
+        .map(imageOf)
         .filter((image): image is WorkImageView => image !== null),
       r360: archive
         ? { fileId: archive.id, sizeBytes: archive.sizeBytes }
@@ -163,12 +196,19 @@ async function assertOwnFiles(
 async function assertOwnInput(
   db: Database,
   userId: string,
-  parsed: { imageFileIds: string[]; r360FileId: string | null },
+  parsed: {
+    imageFileIds: string[];
+    secondaryFileIds?: (string | null)[];
+    r360FileId: string | null;
+  },
 ): Promise<void> {
   await assertOwnFiles(
     db,
     userId,
-    parsed.imageFileIds,
+    [
+      ...parsed.imageFileIds,
+      ...secondariesOf(parsed).filter((id): id is string => id !== null),
+    ],
     "work-original",
     "invalid_image",
   );
@@ -213,13 +253,7 @@ export async function createWork(
         r360FileId: parsed.r360FileId,
       })
       .returning({ id: works.id });
-    await tx.insert(workImages).values(
-      parsed.imageFileIds.map((fileId, position) => ({
-        workId: created.id,
-        fileId,
-        position,
-      })),
-    );
+    await tx.insert(workImages).values(imageRowsOf(created.id, parsed));
     return { id: created.id };
   });
 }
@@ -250,17 +284,14 @@ export async function updateWork(
     if (!own) throw new WorksError("not_found");
     await assertOwnInput(tx, userId, parsed);
     const before = await tx
-      .select({ fileId: workImages.fileId })
+      .select({
+        fileId: workImages.fileId,
+        secondaryFileId: workImages.secondaryFileId,
+      })
       .from(workImages)
       .where(eq(workImages.workId, workId));
     await tx.delete(workImages).where(eq(workImages.workId, workId));
-    await tx.insert(workImages).values(
-      parsed.imageFileIds.map((fileId, position) => ({
-        workId,
-        fileId,
-        position,
-      })),
-    );
+    await tx.insert(workImages).values(imageRowsOf(workId, parsed));
     await tx
       .update(works)
       .set({
@@ -271,10 +302,12 @@ export async function updateWork(
         updatedAt: sql`now()`,
       })
       .where(eq(works.id, workId));
+    const kept = new Set([
+      ...parsed.imageFileIds,
+      ...secondariesOf(parsed).filter((id): id is string => id !== null),
+    ]);
     return {
-      images: before
-        .map((row) => row.fileId)
-        .filter((fileId) => !parsed.imageFileIds.includes(fileId)),
+      images: channelsOf(before).filter((fileId) => !kept.has(fileId)),
       archives:
         own.r360FileId && own.r360FileId !== parsed.r360FileId
           ? [own.r360FileId]
@@ -282,6 +315,30 @@ export async function updateWork(
     };
   });
   await freeUnreferenced(deps, dropped);
+}
+
+// The rows of a work's photos as given: position, the photo, its second
+// channel if any (#99).
+function imageRowsOf(
+  workId: string,
+  parsed: { imageFileIds: string[]; secondaryFileIds?: (string | null)[] },
+) {
+  const secondaries = secondariesOf(parsed);
+  return parsed.imageFileIds.map((fileId, position) => ({
+    workId,
+    fileId,
+    secondaryFileId: secondaries[position] ?? null,
+    position,
+  }));
+}
+
+/** Every file the rows name: the photos and their second channels. */
+function channelsOf(
+  rows: { fileId: string; secondaryFileId: string | null }[],
+): string[] {
+  return rows.flatMap((row) =>
+    row.secondaryFileId ? [row.fileId, row.secondaryFileId] : [row.fileId],
+  );
 }
 
 /** Deletes a work and frees the photos and the archive no other work names. */
@@ -299,13 +356,16 @@ export async function deleteWork(
       .for("update");
     if (!own) throw new WorksError("not_found");
     const images = await tx
-      .select({ fileId: workImages.fileId })
+      .select({
+        fileId: workImages.fileId,
+        secondaryFileId: workImages.secondaryFileId,
+      })
       .from(workImages)
       .where(eq(workImages.workId, workId));
     // The image rows go with the work (cascade); the file rows do not.
     await tx.delete(works).where(eq(works.id, workId));
     return {
-      images: images.map((row) => row.fileId),
+      images: channelsOf(images),
       archives: own.r360FileId ? [own.r360FileId] : [],
     };
   });
@@ -356,11 +416,20 @@ async function freeUnreferenced(
     await lockUser(tx, deps.userId);
     const freed: string[] = [];
     if (dropped.images.length > 0) {
+      // Named as a photo or as a second channel: either keeps the file.
       const stillUsed = await tx
-        .select({ fileId: workImages.fileId })
+        .select({
+          fileId: workImages.fileId,
+          secondaryFileId: workImages.secondaryFileId,
+        })
         .from(workImages)
-        .where(inArray(workImages.fileId, dropped.images));
-      const used = new Set(stillUsed.map((row) => row.fileId));
+        .where(
+          or(
+            inArray(workImages.fileId, dropped.images),
+            inArray(workImages.secondaryFileId, dropped.images),
+          ),
+        );
+      const used = new Set(channelsOf(stillUsed));
       const free = [...new Set(dropped.images)].filter((id) => !used.has(id));
       freed.push(
         ...(await removeImageSetRows({ ...deps, db: tx }, free, "work")),

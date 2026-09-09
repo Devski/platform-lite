@@ -33,7 +33,12 @@ export interface PublicWork {
   name: string;
   investor: string | null;
   developer: string | null;
-  images: { url1600: string; url480: string }[];
+  images: {
+    url1600: string;
+    url480: string;
+    /** #99: the second channel, for the reveal slider (#100). */
+    secondary?: { url1600: string; url480: string };
+  }[];
 }
 
 export type PublicProfileLookup =
@@ -99,9 +104,17 @@ export async function loadPublicProfile(
         name: work.name,
         investor: work.investor,
         developer: work.developer,
-        images: work.images.map(({ url1600, url480 }) => ({
+        images: work.images.map(({ url1600, url480, secondary }) => ({
           url1600,
           url480,
+          ...(secondary
+            ? {
+                secondary: {
+                  url1600: secondary.url1600,
+                  url480: secondary.url480,
+                },
+              }
+            : {}),
         })),
       })),
     },

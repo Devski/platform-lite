@@ -20,7 +20,8 @@ type IconName =
   | "plus"
   | "chevron-left"
   | "chevron-right"
-  | "upload";
+  | "upload"
+  | "layers";
 
 const PATHS: Record<IconName, ReactNode> = {
   "map-pin-off": (
@@ -111,6 +112,13 @@ const PATHS: Record<IconName, ReactNode> = {
   // #72: step through a work's photos in the overlay.
   "chevron-left": <polyline points="15 5 8 12 15 19" />,
   "chevron-right": <polyline points="9 5 16 12 9 19" />,
+  // #99: a photo's second channel.
+  layers: (
+    <>
+      <path d="m12 3 9 5-9 5-9-5 9-5Z" />
+      <path d="m3 13 9 5 9-5" />
+    </>
+  ),
   // #72: the R360 archive slot.
   upload: (
     <>

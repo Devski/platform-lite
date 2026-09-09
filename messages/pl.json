@@ -507,7 +507,11 @@
         "replaceShort": "Wymień",
         "remove": "Usuń zdjęcie",
         "removeShort": "Usuń",
-        "noPreview": "Bez podglądu"
+        "noPreview": "Bez podglądu",
+        "channel": "Drugi kanał",
+        "channelAdd": "Dodaj drugi kanał",
+        "channelRemove": "Usuń drugi kanał",
+        "channelBadge": "2 kanały"
       },
       "save": "Zapisz realizację",
       "saveChanges": "Zapisz zmiany",

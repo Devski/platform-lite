@@ -319,10 +319,21 @@ export const workImages = pgTable(
     fileId: uuid("file_id")
       .notNull()
       .references(() => files.id, { onDelete: "restrict" }),
+    /** #99: the photo's second channel — the same view, the other way
+     * (before/after, day/night, render/photograph); none for most. */
+    secondaryFileId: uuid("secondary_file_id").references(() => files.id, {
+      onDelete: "restrict",
+    }),
     position: integer("position").notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.workId, table.position] }),
+    // A channel is another picture, not the same one twice.
+    check(
+      "work_images_secondary_differs",
+      sql`${table.secondaryFileId} IS NULL OR ${table.secondaryFileId} <> ${table.fileId}`,
+    ),
+    index("work_images_secondary_file_id_idx").on(table.secondaryFileId),
     // The same photo twice in one work is a mistake, not a layout.
     uniqueIndex("work_images_work_id_file_id_unique").on(
       table.workId,

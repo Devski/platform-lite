@@ -64,6 +64,16 @@ interface Slot {
   /** The preview did not decode (seen on a phone, #79): a neutral tile
    * instead of the browser's broken-image icon. */
   broken?: boolean;
+  /** #99: the photo's second channel, uploaded like the photo itself. */
+  secondary?: Channel;
+}
+
+interface Channel {
+  fileId: string;
+  previewUrl: string;
+  uploading: boolean;
+  progress?: number;
+  abort?: AbortController;
 }
 
 // Best-effort: an orphan set is the quota's problem, not the owner's, and
@@ -139,6 +149,15 @@ export function WorkForm({
         fileId: image.fileId,
         previewUrl: image.url480,
         uploading: false,
+        ...(image.secondary?.fileId
+          ? {
+              secondary: {
+                fileId: image.secondary.fileId,
+                previewUrl: image.secondary.url480,
+                uploading: false,
+              },
+            }
+          : {}),
       })),
   );
   // The tiles as they are right now, readable between renders: several
@@ -198,7 +217,10 @@ export function WorkForm({
       closed.current = true;
       archiveAbort.current?.abort();
       // Photos still on their way go with the form too (#80 review).
-      for (const slot of slotsRef.current) slot.abort?.abort();
+      for (const slot of slotsRef.current) {
+        slot.abort?.abort();
+        slot.secondary?.abort?.abort();
+      }
       for (const url of urls) URL.revokeObjectURL(url);
       // Whatever this form uploaded and did not save goes back off the
       // quota — however the form went away: cancel, another work's edit,
@@ -263,6 +285,9 @@ export function WorkForm({
       uploading: true,
       progress: 0,
       abort,
+      // A replaced photo keeps its second channel (#99): the channel is
+      // the tile's, not the picture's.
+      secondary: replacing?.secondary,
     };
     // The cap holds where the tiles change, not only in the picker's
     // arithmetic: a tile past the third is never made.
@@ -278,9 +303,15 @@ export function WorkForm({
           )
         : [...current, pending],
     );
+    // Back to the photo as it was — with the channel as it is NOW, since
+    // one may have landed on the tile while the replacement was in flight.
     const restore = (current: Slot[]) =>
       replacing
-        ? current.map((slot) => (slot.fileId === pendingId ? replacing : slot))
+        ? current.map((slot) =>
+            slot.fileId === pendingId
+              ? { ...replacing, secondary: slot.secondary }
+              : slot,
+          )
         : current.filter((slot) => slot.fileId !== pendingId);
 
     const result = await uploadImage(file, "work", {
@@ -337,6 +368,100 @@ export function WorkForm({
 
   // The preview did not decode: the local file if there is one and it is
   // not what just failed, else a neutral tile.
+  // #99: the second channel of a photo — one file, the same chain, kept
+  // on the tile it was picked for (the tile's id, so a replaced photo keeps
+  // its channel only while the tile stays).
+  async function pickChannel(slot: Slot, file: File, input: HTMLInputElement) {
+    input.value = "";
+    setError(null);
+    const localUrl = URL.createObjectURL(file);
+    previews.current.add(localUrl);
+    const pendingId = `pending:${localUrl}`;
+    const abort = new AbortController();
+    const patch = (tileId: string, next: Channel | undefined) =>
+      commitSlots((current) =>
+        current.map((s) =>
+          s.fileId === tileId ? { ...s, secondary: next } : s,
+        ),
+      );
+    // A channel still on its way is stopped, not overwritten under itself.
+    let previous = slot.secondary;
+    if (previous?.uploading) {
+      previous.abort?.abort();
+      previous = undefined;
+    }
+    patch(slot.fileId, {
+      fileId: pendingId,
+      previewUrl: localUrl,
+      uploading: true,
+      progress: 0,
+      abort,
+    });
+    const result = await uploadImage(file, "work", {
+      signal: abort.signal,
+      onProgress: (fraction) =>
+        commitSlots((current) =>
+          current.map((s) =>
+            s.secondary?.fileId === pendingId
+              ? { ...s, secondary: { ...s.secondary, progress: fraction } }
+              : s,
+          ),
+        ),
+    });
+    const tile = slotsRef.current.find(
+      (s) => s.secondary?.fileId === pendingId,
+    );
+    // The form closed, or the tile went (removed, replaced) while this was
+    // uploading: nothing to attach it to.
+    if (!tile || closed.current) {
+      if (result.ok) void discardFile(result.fileId);
+      return;
+    }
+    if (!result.ok) {
+      patch(tile.fileId, previous);
+      if (result.failure !== "aborted") uploadFail(result.failure);
+      return;
+    }
+    // The same bytes as the photo itself, or as another tile's channel:
+    // not a channel.
+    const taken = slotsRef.current.some(
+      (s) =>
+        s.fileId === result.fileId ||
+        (s.secondary?.fileId === result.fileId && s.fileId !== tile.fileId),
+    );
+    if (taken) {
+      patch(tile.fileId, previous);
+      fail("duplicatePhoto");
+      return;
+    }
+    patch(tile.fileId, {
+      fileId: result.fileId,
+      previewUrl: result.thumbnailUrl ?? localUrl,
+      uploading: false,
+    });
+    // The same bytes as the channel already there: nothing changed, and
+    // nothing new is this form's orphan.
+    if (previous?.fileId === result.fileId) return;
+    if (previous) void discard(previous.fileId);
+    unsaved.current.add(result.fileId);
+  }
+
+  function removeChannel(slot: Slot) {
+    const channel = slot.secondary;
+    if (!channel) return;
+    setError(null);
+    if (channel.uploading) {
+      channel.abort?.abort();
+    } else {
+      void discard(channel.fileId);
+    }
+    commitSlots((current) =>
+      current.map((s) =>
+        s.fileId === slot.fileId ? { ...s, secondary: undefined } : s,
+      ),
+    );
+  }
+
   function markBroken(fileId: string) {
     commitSlots((current) =>
       current.map((slot) =>
@@ -411,6 +536,12 @@ export function WorkForm({
 
   function removePhoto(fileId: string) {
     setError(null);
+    // The photo's channel goes with it.
+    const channel = slotsRef.current.find(
+      (s) => s.fileId === fileId,
+    )?.secondary;
+    if (channel?.uploading) channel.abort?.abort();
+    else if (channel) void discard(channel.fileId);
     commitSlots((current) => current.filter((slot) => slot.fileId !== fileId));
     void discard(fileId);
   }
@@ -442,7 +573,10 @@ export function WorkForm({
     // after awaits); the text fields are committed by the typing itself.
     const tiles = slotsRef.current;
     const zip = archiveRef.current;
-    if (tiles.some((slot) => slot.uploading) || zip?.uploading) {
+    if (
+      tiles.some((slot) => slot.uploading || slot.secondary?.uploading) ||
+      zip?.uploading
+    ) {
       return fail("uploading");
     }
     const trimmedName = name.trim();
@@ -453,6 +587,13 @@ export function WorkForm({
       investor,
       developer,
       imageFileIds: tiles.map((slot) => slot.fileId),
+      ...(tiles.some((slot) => slot.secondary)
+        ? {
+            secondaryFileIds: tiles.map(
+              (slot) => slot.secondary?.fileId ?? null,
+            ),
+          }
+        : {}),
       r360FileId: zip?.fileId ?? null,
     });
     if (!parsed.success) {
@@ -502,7 +643,9 @@ export function WorkForm({
   // Nothing to keep: a new form with nothing in it, or an edit form with
   // every field and file as the work has them.
   function untouched(): boolean {
-    const ids = slotsRef.current.map((slot) => slot.fileId).join(",");
+    const ids = slotsRef.current
+      .map((slot) => `${slot.fileId}+${slot.secondary?.fileId ?? ""}`)
+      .join(",");
     const archiveId = archiveRef.current?.fileId ?? null;
     if (!work) {
       return (
@@ -520,7 +663,7 @@ export function WorkForm({
       ids ===
         work.images
           .filter((image) => image.fileId)
-          .map((image) => image.fileId)
+          .map((image) => `${image.fileId}+${image.secondary?.fileId ?? ""}`)
           .join(",") &&
       archiveId === (work.r360?.fileId ?? null)
     );
@@ -657,6 +800,21 @@ export function WorkForm({
                     className="absolute right-0 bottom-0 left-0 bg-n-950/80 px-2 py-1.5"
                   />
                 )}
+                {slot.secondary?.uploading && (
+                  <UploadProgress
+                    compact
+                    label={t("photos.channel")}
+                    fraction={slot.secondary.progress ?? 0}
+                    onCancel={() => removeChannel(slot)}
+                    className="absolute right-0 bottom-0 left-0 bg-n-950/80 px-2 py-1.5"
+                  />
+                )}
+                {slot.secondary && !slot.secondary.uploading && (
+                  <span className="absolute top-1.5 right-1.5 inline-flex items-center gap-1 rounded-full bg-n-950/80 px-2 py-0.5 type-eyebrow text-white">
+                    <Icon name="layers" size={12} />
+                    {t("photos.channelBadge")}
+                  </span>
+                )}
               </div>
               {!slot.uploading && (
                 <div className="flex flex-col gap-(--sp-2)">
@@ -710,6 +868,43 @@ export function WorkForm({
                     >
                       {t("photos.removeShort")}
                     </Button>
+                    {/* #99: the second channel — one file, added or taken
+                        away; no label, the icon and its name say it. */}
+                    {slot.secondary ? (
+                      <Button
+                        variant="quiet"
+                        onClick={() => removeChannel(slot)}
+                        aria-label={t("photos.channelRemove")}
+                        title={t("photos.channelRemove")}
+                        className="w-(--control-h) px-0"
+                      >
+                        <Icon name="layers" size={16} />
+                      </Button>
+                    ) : (
+                      <label
+                        title={t("photos.channelAdd")}
+                        className={buttonClassName(
+                          "quiet",
+                          "md",
+                          "w-(--control-h) cursor-pointer px-0 focus-within:shadow-[var(--ring-focus)]",
+                        )}
+                      >
+                        <Icon name="layers" size={16} />
+                        <input
+                          type="file"
+                          aria-label={t("photos.channelAdd")}
+                          accept={IMAGE_CONTENT_TYPES.join(",")}
+                          className="sr-only"
+                          data-testid={`work-photo-channel-${index}`}
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            if (file) {
+                              void track(pickChannel(slot, file, event.target));
+                            }
+                          }}
+                        />
+                      </label>
+                    )}
                   </div>
                 </div>
               )}
