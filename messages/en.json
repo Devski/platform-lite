@@ -467,6 +467,7 @@
       "developer": "Developer",
       "r360Uploaded": "R360 uploaded",
       "r360None": "No R360",
+      "orbit": "360° view",
       "edit": "Edit",
       "delete": "Delete",
       "confirmDelete": "Delete it with its photos?",
@@ -529,7 +530,10 @@
         "generic": "Saving failed. Try again.",
         "duplicatePhoto": "That photo is already on the list.",
         "tooManyPhotos": "You picked {offered} photos and {room, plural, one {one fits} other {# fit}}. Pick at most {room}.",
-        "invalidArchive": "The R360 archive is no longer available. Upload it again."
+        "invalidArchive": "The R360 archive is no longer available. Upload it again.",
+        "framesUploading": "Wait for the frames to finish.",
+        "invalidSet": "The frames of the archive are no longer available. Add the archive again.",
+        "framesExpired": "The frames ran out of time before the save. Add the archive again."
       },
       "r360": {
         "label": "Render 360",
@@ -538,7 +542,57 @@
         "add": "Add an R360 zip",
         "uploaded": "Uploaded",
         "attached": "R360 archive",
-        "remove": "Remove"
+        "remove": "Remove",
+        "frames": "Frames: {done} of {total}",
+        "framesDone": "Frames ready: {total}",
+        "stageArchive": "Archive {percent}%",
+        "stageFrames": "Frames {done} of {total}",
+        "stageUpload": "Frames uploaded {landed} of {total}",
+        "progressLabel": "R360 upload",
+        "previewLabel": "Orbit preview: drag across the picture to turn it",
+        "previewAlt": "Orbit frame",
+        "previewHint": "Drag across the picture to turn the building.",
+        "paramFrameCount": "Frames",
+        "paramDirection": "Direction",
+        "directionForward": "As exported",
+        "directionReverse": "Reversed",
+        "paramFramesPerWidth": "Frames per picture width",
+        "paramStartFrame": "Start frame",
+        "useThisFrame": "Use this frame",
+        "paramFlattening": "Ring flattening",
+        "flatteningCircle": "Circle",
+        "flatteningHint": "Takes effect once the ring dial arrives.",
+        "offer": "An archive from {date} ({size}) reached the server without its frames. Finish processing it?",
+        "offerAccept": "Finish",
+        "offerDecline": "Skip",
+        "retryFrames": "Process the frames again",
+        "refused": {
+          "not_a_zip": "This is not a zip archive.",
+          "encrypted": "The archive is encrypted. Export it without a password.",
+          "multi_part": "The archive is split into parts. Export it as one file.",
+          "unsupported_method": "The archive uses a compression a browser cannot open. Export a plain zip.",
+          "corrupt": "The archive is damaged or cut short.",
+          "network": "The archive could not be read. Try again.",
+          "expired": "The archive's link ran out. Try again.",
+          "unsupported_format": "A browser cannot show EXR, TIFF or TGA ({files}). Export JPEG, PNG or WebP.",
+          "no_frames": "No frames found in the archive — JPEG, PNG or WebP.",
+          "too_few": "One frame is not an orbit: at least 2 are needed.",
+          "too_many": "{count} frames is more than the 360 the viewer accepts.",
+          "folders": "The frames must sit directly in the archive or in one folder ({files}).",
+          "unnumbered": "A frame without a number in its name: {files}.",
+          "numbering": "The frame numbers do not form a sequence: {files}."
+        },
+        "failed": {
+          "presign_failed": "The frames could not be prepared. Try again.",
+          "quota_exceeded": "No space left: the frames would exceed your 1 GB limit.",
+          "rate_limited": "Too many attempts. Wait a moment and try again.",
+          "read_failed": "A frame could not be read from the archive.",
+          "encode_failed": "A frame could not be decoded. Export JPEG, PNG or WebP.",
+          "webp_unsupported": "This browser cannot encode WebP. Use a current Chrome, Firefox, Edge or Safari.",
+          "frame_too_large": "A frame is too detailed to encode within the limit. Export smaller frames.",
+          "upload_failed": "A frame failed to upload. Try again.",
+          "resume": "The archive is no longer available. Add it again."
+        }
       }
     },
     "lightbox": {
@@ -548,6 +602,17 @@
       "next": "Next photo",
       "counter": "{index} / {count}",
       "hint": "Esc closes, arrows move"
+    },
+    "orbit": {
+      "frameOf": "Frame {frame} of {total}",
+      "frameOfShowing": "Frame {frame} of {total}, showing frame {shown} while it loads",
+      "loading": "Loading frames…",
+      "mark": "360°",
+      "frameAlt": "{name}, 360° view",
+      "cardLabel": "360° view of {name}: drag across the picture to turn it",
+      "lightboxLabel": "360° view of {name}, enlarged: drag across the picture to turn it",
+      "enlarge": "Enlarge the 360° view: {name}",
+      "counter": "{frame} / {total}"
     },
     "reveal": {
       "label": "Channel comparison: {name}, photo {index}",

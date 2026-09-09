@@ -1,12 +1,30 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ChannelReveal } from "@/components/ui/channel-reveal";
 import { Icon } from "@/components/ui/icon";
+import { OrbitRing } from "@/components/ui/orbit-ring";
+import { OrbitViewer } from "@/components/ui/orbit-viewer";
+import { useOrbit } from "@/components/ui/use-orbit";
+import { useFrameLoader } from "@/components/ui/use-frame-loader";
+import type { LoadTier } from "@/lib/r360/frame-loading";
+import {
+  frameUrl,
+  frameUrls,
+  type R360Params,
+  type R360Width,
+} from "@/lib/r360/frame-set-shared";
 
 // #72 / A12: a profile's works as cards — the main photo dominant (two
 // thirds of the width and both rows, the other one or two beside it), the
@@ -26,14 +44,44 @@ export interface GalleryImage {
   secondary?: { fileId?: string; url1600: string; url480: string };
 }
 
+/** #104: the orbit a visitor turns — the parameters and where the frames are. */
+export interface GalleryOrbit {
+  params: R360Params;
+  frameBase: string;
+}
+
 export interface GalleryWork {
   id: string;
   name: string;
   investor: string | null;
   developer: string | null;
   images: GalleryImage[];
-  /** Owner-facing; a visitor never gets it. */
-  r360?: { fileId: string; sizeBytes: number } | null;
+  /** The work's R360 as shown to everyone; its start frame is the poster. */
+  orbit?: GalleryOrbit | null;
+  /** Owner-facing; a visitor never gets it. Since #102 with its frame set. */
+  r360?: {
+    fileId: string;
+    sizeBytes: number;
+    set?: { id: string; params: R360Params; frameBase: string } | null;
+  } | null;
+}
+
+// #104: what the card shows and the lightbox steps through — the orbit
+// first, when the work has one, then the photos, numbered from one among
+// themselves. Both count the same way because both count this list.
+type Picture =
+  | { kind: "orbit"; orbit: GalleryOrbit }
+  | { kind: "photo"; image: GalleryImage; number: number };
+
+function picturesOf(work: GalleryWork): Picture[] {
+  return [
+    ...(work.orbit ? [{ kind: "orbit" as const, orbit: work.orbit }] : []),
+    ...work.images.map((image, i) => ({
+      kind: "photo" as const,
+      image,
+      number: i + 1,
+    })),
+  ];
 }
 
 const LIGHTBOX = "__lightbox";
@@ -174,7 +222,11 @@ function WorkCard({
   useEffect(() => {
     if (confirming) confirmRef.current?.focus();
   }, [confirming]);
-  const count = work.images.length;
+  // The strip shows three pictures at most — an orbit and three photos
+  // (A12 allows both) would break its two-row grid; the fourth is in
+  // the lightbox, one arrow away (#104 review).
+  const pictures = picturesOf(work).slice(0, 3);
+  const count = pictures.length;
 
   return (
     <Card
@@ -182,56 +234,80 @@ function WorkCard({
       padding="none"
       className="flex w-full flex-col overflow-hidden"
     >
-      {/* The main photo takes both rows and two thirds of the width; the
+      {/* The main picture takes both rows and two thirds of the width; the
           others stack beside it. Alone, it takes the whole strip. */}
       <div
         className={`grid gap-[2px] bg-(--border-hairline) ${
-          count === 1 ? "grid-cols-1" : "grid-cols-[2fr_1fr] grid-rows-2"
+          count <= 1 ? "grid-cols-1" : "grid-cols-[2fr_1fr] grid-rows-2"
         }`}
       >
-        {work.images.map((image, index) => (
-          <button
-            key={image.url1600}
-            type="button"
-            onClick={(event) => onOpen(index, event.currentTarget)}
-            // The badge is inside the button, whose label replaces its
-            // content for the screen reader: the two channels are named here.
-            aria-label={`${t("card.enlarge", {
-              index: index + 1,
-              count,
-              name: work.name,
-            })}${image.secondary ? `, ${t("reveal.badge")}` : ""}`}
-            className={`relative block min-h-0 cursor-zoom-in overflow-hidden bg-n-200 focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_3px_var(--surface-card),inset_0_0_0_5px_var(--focus-ring)] ${
-              index === 0
-                ? count === 1
-                  ? "aspect-[16/9]"
-                  : "row-span-2 aspect-[4/3]"
-                : count === 2
-                  ? "row-span-2"
-                  : "aspect-[4/3]"
-            }`}
+        {count === 0 && (
+          <div
+            className="flex aspect-[16/9] items-center justify-center bg-(--surface-sunken) type-eyebrow text-(--text-muted)"
+            data-testid="work-card-no-photo"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={image.url480}
-              srcSet={`${image.url480} 480w, ${image.url1600} 1600w`}
-              sizes={index === 0 ? "(max-width: 640px) 100vw, 30rem" : "12rem"}
-              alt={t("photoAlt", { name: work.name, index: index + 1 })}
-              className="h-full w-full object-cover"
-              loading="lazy"
-            />
-            {image.secondary && (
-              <span
-                className="absolute top-1.5 right-1.5 inline-flex items-center gap-1 rounded-full bg-n-950/80 px-2 py-0.5 type-eyebrow text-white"
-                title={t("reveal.badge")}
-                aria-hidden="true"
-              >
-                <Icon name="layers" size={12} />
-                <span className="sr-only">{t("reveal.badge")}</span>
-              </span>
-            )}
-          </button>
-        ))}
+            {t("card.orbit")}
+          </div>
+        )}
+        {pictures.map((picture, index) => {
+          const tile =
+            index === 0
+              ? count === 1
+                ? "aspect-[16/9]"
+                : "row-span-2 aspect-[4/3]"
+              : count === 2
+                ? "row-span-2"
+                : "aspect-[4/3]";
+          if (picture.kind === "orbit") {
+            return (
+              <OrbitTile
+                key="orbit"
+                name={work.name}
+                orbit={picture.orbit}
+                className={tile}
+                onOpen={(returnTo) => onOpen(index, returnTo)}
+              />
+            );
+          }
+          const { image, number } = picture;
+          return (
+            <button
+              key={image.url1600}
+              type="button"
+              onClick={(event) => onOpen(index, event.currentTarget)}
+              // The badge is inside the button, whose label replaces its
+              // content for the screen reader: the two channels are named here.
+              aria-label={`${t("card.enlarge", {
+                index: picture.number,
+                count: work.images.length,
+                name: work.name,
+              })}${image.secondary ? `, ${t("reveal.badge")}` : ""}`}
+              className={`relative block min-h-0 cursor-zoom-in overflow-hidden bg-n-200 focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_3px_var(--surface-card),inset_0_0_0_5px_var(--focus-ring)] ${tile}`}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={image.url480}
+                srcSet={`${image.url480} 480w, ${image.url1600} 1600w`}
+                sizes={
+                  index === 0 ? "(max-width: 640px) 100vw, 30rem" : "12rem"
+                }
+                alt={t("photoAlt", { name: work.name, index: number })}
+                className="h-full w-full object-cover"
+                loading="lazy"
+              />
+              {image.secondary && (
+                <span
+                  className="absolute top-1.5 right-1.5 inline-flex items-center gap-1 rounded-full bg-n-950/80 px-2 py-0.5 type-eyebrow text-white"
+                  title={t("reveal.badge")}
+                  aria-hidden="true"
+                >
+                  <Icon name="layers" size={12} />
+                  <span className="sr-only">{t("reveal.badge")}</span>
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
       <div className="flex flex-1 flex-col gap-(--sp-3) p-(--sp-5) sm:px-(--sp-6) sm:pb-(--sp-6)">
         <h3 className="type-h3 break-words text-(--text-strong)">
@@ -346,7 +422,8 @@ function LightboxOverlay({
   const t = useTranslations("Works");
   const closeRef = useRef<HTMLButtonElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
-  const count = work.images.length;
+  const pictures = picturesOf(work);
+  const count = pictures.length;
   const step = (delta: number) => onStep((index + delta + count) % count);
 
   // Focus goes to Close once, when the overlay opens — not on every step,
@@ -403,7 +480,7 @@ function LightboxOverlay({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [index, count]);
 
-  const image = work.images[index];
+  const picture: Picture | undefined = pictures[index];
   const control =
     "absolute flex h-11 w-11 items-center justify-center rounded-full border border-white/30 bg-white/10 text-white hover:bg-white/20 focus-visible:outline-none focus-visible:shadow-[0_0_0_2px_rgba(12,17,22,.6),0_0_0_4px_#fff]";
 
@@ -447,27 +524,32 @@ function LightboxOverlay({
           </button>
         </>
       )}
-      {image.secondary ? (
+      {picture?.kind === "orbit" ? (
+        <OrbitFull name={work.name} orbit={picture.orbit} />
+      ) : picture?.kind !== "photo" ? null : picture.image.secondary ? (
         // #100: two channels — the second revealed under the first by the
         // slider, along the picture or across it.
         <ChannelReveal
-          key={image.url1600}
+          key={picture.image.url1600}
           first={{
-            src: image.url1600,
-            alt: t("photoAlt", { name: work.name, index: index + 1 }),
+            src: picture.image.url1600,
+            alt: t("photoAlt", { name: work.name, index: picture.number }),
           }}
           second={{
-            src: image.secondary.url1600,
-            alt: t("reveal.secondAlt", { name: work.name, index: index + 1 }),
+            src: picture.image.secondary.url1600,
+            alt: t("reveal.secondAlt", {
+              name: work.name,
+              index: picture.number,
+            }),
           }}
-          label={t("reveal.label", { name: work.name, index: index + 1 })}
+          label={t("reveal.label", { name: work.name, index: picture.number })}
           imageClassName="max-h-[calc(100vh-180px)] max-w-[min(96vw,1600px)] object-contain"
         />
       ) : (
         /* eslint-disable-next-line @next/next/no-img-element */
         <img
-          src={image.url1600}
-          alt={t("photoAlt", { name: work.name, index: index + 1 })}
+          src={picture.image.url1600}
+          alt={t("photoAlt", { name: work.name, index: picture.number })}
           className="max-h-[calc(100vh-140px)] max-w-[min(96vw,1600px)] object-contain"
         />
       )}
@@ -479,5 +561,218 @@ function LightboxOverlay({
         <span className="hidden sm:inline">{t("lightbox.hint")}</span>
       </p>
     </div>
+  );
+}
+
+// #104: the visitor's orbit at one width — the frames loading coarse to
+// fine from the start frame, which the server renders as the poster (a
+// plain <img>, so the page has a picture without JavaScript and for
+// crawlers). The card and the lightbox both stand on this.
+function PublicOrbit({
+  name,
+  orbit,
+  width,
+  label,
+  className,
+  imageClassName,
+  enabled,
+  tier,
+  posterSrc,
+  onTouch,
+  ring,
+}: {
+  name: string;
+  orbit: GalleryOrbit;
+  width: R360Width;
+  label: string;
+  className: string;
+  imageClassName: string;
+  /** Fetch frames at all — once the picture is in view. */
+  enabled: boolean;
+  /** The coarse tier until the visitor touches the orbit, then all. */
+  tier: LoadTier;
+  posterSrc?: string;
+  /** The first pointer, key or focus on the orbit. */
+  onTouch: () => void;
+  /** #106: the ring over the picture's foot, or below the picture. */
+  ring: "overlay" | "below";
+}) {
+  const t = useTranslations("Works");
+  const urls = useMemo(
+    () => frameUrls(orbit.frameBase, width, orbit.params.frameCount),
+    [orbit.frameBase, width, orbit.params.frameCount],
+  );
+  const { loaded } = useFrameLoader(urls, orbit.params.startFrame, {
+    enabled,
+    tier,
+  });
+  const hand = useOrbit(orbit.params);
+  const dial = (
+    <OrbitRing
+      orbit={hand}
+      params={orbit.params}
+      loaded={loaded}
+      flattening={orbit.params.flattening}
+      className={
+        ring === "overlay"
+          ? "absolute bottom-1 left-1/2 w-[38%] max-w-40 -translate-x-1/2"
+          : "mt-(--sp-3) w-40"
+      }
+      // In the lightbox the caption counts the pictures right under it.
+      counter={ring === "overlay"}
+    />
+  );
+  return (
+    <div
+      className={ring === "below" ? "flex flex-col items-center" : "contents"}
+      onPointerDownCapture={onTouch}
+      onFocusCapture={onTouch}
+      onKeyDownCapture={onTouch}
+    >
+      <OrbitViewer
+        frames={urls}
+        loaded={loaded}
+        poster={orbit.params.startFrame}
+        posterSrc={posterSrc}
+        params={orbit.params}
+        orbit={hand}
+        alt={t("orbit.frameAlt", { name })}
+        label={label}
+        className={className}
+        imageClassName={imageClassName}
+      />
+      {dial}
+    </div>
+  );
+}
+
+/**
+ * Whether the element is at least half in view (#104 review): the frames
+ * of a tile below the fold wait for the visitor to scroll to it. True at
+ * once where there is no observer (an old browser; the server).
+ */
+function useInView(): [React.RefObject<HTMLDivElement | null>, boolean] {
+  const ref = useRef<HTMLDivElement | null>(null);
+  // Without an observer (an old browser) the tile counts as in view; the
+  // server answers false, and nothing rendered depends on it.
+  const [inView, setInView] = useState(
+    () => typeof IntersectionObserver === "undefined",
+  );
+  useEffect(() => {
+    const element = ref.current;
+    if (!element || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) setInView(true);
+      },
+      { threshold: 0.5 },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  return [ref, inView];
+}
+
+/** The page's own pictures first: frames wait for the load event. */
+function usePageLoaded(): boolean {
+  const [loaded, setLoaded] = useState(
+    () => typeof document !== "undefined" && document.readyState === "complete",
+  );
+  useEffect(() => {
+    if (loaded) return;
+    const onLoad = () => setLoaded(true);
+    window.addEventListener("load", onLoad, { once: true });
+    return () => window.removeEventListener("load", onLoad);
+  }, [loaded]);
+  return loaded;
+}
+
+/** The tier: coarse until the orbit is touched, then everything. */
+function useTouchedTier(): [LoadTier, () => void] {
+  const [touched, setTouched] = useState(false);
+  const touch = useCallback(() => setTouched(true), []);
+  return [touched ? "all" : "coarse", touch];
+}
+
+// The orbit on the card, a drag across the picture turning it. The
+// picture is the control, so the way into the lightbox is a button of
+// its own beside the 360° mark.
+function OrbitTile({
+  name,
+  orbit,
+  className,
+  onOpen,
+}: {
+  name: string;
+  orbit: GalleryOrbit;
+  className: string;
+  onOpen: (returnTo: HTMLElement | null) => void;
+}) {
+  const t = useTranslations("Works");
+  const [ref, inView] = useInView();
+  const pageLoaded = usePageLoaded();
+  const [tier, touch] = useTouchedTier();
+  return (
+    <div
+      ref={ref}
+      className={`relative min-h-0 overflow-hidden bg-n-200 ${className}`}
+    >
+      <PublicOrbit
+        name={name}
+        orbit={orbit}
+        width={800}
+        label={t("orbit.cardLabel", { name })}
+        className="h-full w-full"
+        imageClassName="object-cover"
+        enabled={inView && pageLoaded}
+        tier={tier}
+        onTouch={touch}
+        ring="overlay"
+      />
+      <span
+        className="pointer-events-none absolute top-1.5 left-1.5 rounded-full bg-n-950 px-2 py-0.5 type-eyebrow text-white"
+        aria-hidden="true"
+      >
+        {t("orbit.mark")}
+      </span>
+      <button
+        type="button"
+        onClick={(event) => onOpen(event.currentTarget)}
+        aria-label={t("orbit.enlarge", { name })}
+        title={t("orbit.enlarge", { name })}
+        className="absolute right-1.5 bottom-1.5 flex h-9 w-9 items-center justify-center rounded-full bg-n-950/80 text-white hover:bg-n-950 focus-visible:outline-none focus-visible:shadow-[0_0_0_2px_var(--surface-card),0_0_0_4px_var(--focus-ring)]"
+      >
+        <Icon name="plus" size={16} />
+      </button>
+    </div>
+  );
+}
+
+// The orbit at its largest in the lightbox: the 1600 px set on a wide
+// screen, the 800 px one on a phone.
+function OrbitFull({ name, orbit }: { name: string; orbit: GalleryOrbit }) {
+  const t = useTranslations("Works");
+  const [width] = useState<R360Width>(() =>
+    typeof window !== "undefined" && window.innerWidth > 900 ? 1600 : 800,
+  );
+  const [tier, touch] = useTouchedTier();
+  return (
+    <PublicOrbit
+      name={name}
+      orbit={orbit}
+      width={width}
+      label={t("orbit.lightboxLabel", { name })}
+      // The ring under the picture takes its band out of the height, or
+      // the dialog would overflow with nowhere to scroll (#106 review).
+      className="flex max-h-[calc(100vh-140px-12rem)] w-[min(96vw,1600px)] items-center justify-center"
+      imageClassName="max-h-[calc(100vh-140px-12rem)] object-contain"
+      enabled
+      tier={tier}
+      // The card's 800 px start frame is in the cache already: painted at
+      // once, while the larger set is on its way.
+      posterSrc={frameUrl(orbit.frameBase, 800, orbit.params.startFrame)}
+      onTouch={touch}
+      ring="below"
+    />
   );
 }

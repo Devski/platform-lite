@@ -10,6 +10,21 @@ import {
   type ProfileReadDeps,
 } from "@/lib/profile";
 import {
+  assertNotRecorded,
+  copyFrameSet,
+  CopyFailed,
+  FrameSetError,
+  insertFrameRows,
+  isRecorded,
+  isStagingGone,
+  removeFrameSetRows,
+  settleFrameSet,
+  takeBackCopies,
+  verifyFrameSet,
+  type VerifiedFrameSet,
+} from "@/lib/r360/frame-set";
+import { frameSetPrefix, type R360Params } from "@/lib/r360/frame-set-shared";
+import {
   secondariesOf,
   workInputSchema,
   WORKS_MAX,
@@ -25,7 +40,12 @@ import {
 export class WorksError extends Error {
   constructor(
     public readonly code:
-      "limit" | "invalid_image" | "invalid_archive" | "not_found",
+      | "limit"
+      | "invalid_image"
+      | "invalid_archive"
+      /** #102: a frame set kept while its archive changed. */
+      | "invalid_set"
+      | "not_found",
   ) {
     super(`work rejected: ${code}`);
     this.name = "WorksError";
@@ -46,6 +66,12 @@ export interface WorkImageView {
   url480: string;
 }
 
+/** #104: what a visitor needs to orbit — the parameters and where the frames are. */
+export interface WorkOrbitView {
+  params: R360Params;
+  frameBase: string;
+}
+
 export interface WorkView {
   id: string;
   name: string;
@@ -53,8 +79,19 @@ export interface WorkView {
   developer: string | null;
   /** In display order; the first is the main photo. */
   images: WorkImageView[];
-  /** The R360 archive, owner-facing: a visitor never learns one exists. */
-  r360: { fileId: string; sizeBytes: number } | null;
+  /** The R360 as shown: the set's parameters and address, or none. */
+  orbit: WorkOrbitView | null;
+  /**
+   * The R360 archive, owner-facing: a visitor never learns one exists —
+   * and, since #102, its frame set: the id, the viewer's parameters, and
+   * the public address every frame's URL starts with
+   * (`${frameBase}${width}/${ordinal}.webp`).
+   */
+  r360: {
+    fileId: string;
+    sizeBytes: number;
+    set: { id: string; params: R360Params; frameBase: string } | null;
+  } | null;
 }
 
 const WORK_VARIANTS = IMAGE_PROFILES.work.variants;
@@ -69,6 +106,8 @@ export async function listWorks(deps: ProfileReadDeps): Promise<WorkView[]> {
       investor: works.investor,
       developer: works.developer,
       r360FileId: works.r360FileId,
+      r360SetId: works.r360SetId,
+      r360Params: works.r360Params,
     })
     .from(works)
     .where(eq(works.userId, userId))
@@ -153,6 +192,15 @@ export async function listWorks(deps: ProfileReadDeps): Promise<WorkView[]> {
     const archive = row.r360FileId
       ? fileRows.find((file) => file.id === row.r360FileId)
       : undefined;
+    const orbit: WorkOrbitView | null =
+      row.r360SetId && row.r360Params
+        ? {
+            params: row.r360Params,
+            frameBase: storage.publicUrl(
+              frameSetPrefix(prefix, userId, row.r360SetId),
+            ),
+          }
+        : null;
     return {
       id: row.id,
       name: row.name,
@@ -162,11 +210,96 @@ export async function listWorks(deps: ProfileReadDeps): Promise<WorkView[]> {
         .filter((image) => image.workId === row.id)
         .map(imageOf)
         .filter((image): image is WorkImageView => image !== null),
+      orbit,
       r360: archive
-        ? { fileId: archive.id, sizeBytes: archive.sizeBytes }
+        ? {
+            fileId: archive.id,
+            sizeBytes: archive.sizeBytes,
+            set:
+              row.r360SetId && orbit ? { id: row.r360SetId, ...orbit } : null,
+          }
         : null,
     };
   });
+}
+
+/**
+ * #102: a new set on a work is verified and copied under its final keys
+ * BEFORE the work's transaction — a listing and a few hundred server-side
+ * copies have no business under the per-user lock — and taken back if the
+ * transaction fails; success settles the reservation. `run` gets the
+ * verified set to record its rows with the work. With no set to stage
+ * (`null`), `run` simply runs.
+ */
+async function withFrameSet<T>(
+  deps: ProfileDeps,
+  set: { r360SetId: string | null; r360Params: R360Params | null } | null,
+  run: (verified: VerifiedFrameSet | null) => Promise<T>,
+): Promise<T> {
+  if (!set?.r360SetId || !set.r360Params) return run(null);
+  const verified = await verifyFrameSet(deps, {
+    setId: set.r360SetId,
+    frameCount: set.r360Params.frameCount,
+  });
+  let copied: string[];
+  try {
+    copied = await copyFrameSet(deps.storage, verified);
+  } catch (error) {
+    if (!(error instanceof CopyFailed)) throw error;
+    // Only the copies no row names by now: a second save of the same set
+    // that lost the race must not delete the winner's frames.
+    await takeBackCopies(deps, error.copied);
+    if (
+      isStagingGone(error) &&
+      (await isRecorded(deps.db, deps.userId, verified.setId))
+    ) {
+      throw new FrameSetError("invalid_set");
+    }
+    throw error.cause;
+  }
+  let result: T;
+  try {
+    result = await run(verified);
+  } catch (error) {
+    await takeBackCopies(deps, copied);
+    throw error;
+  }
+  await settleFrameSet(deps, verified);
+  return result;
+}
+
+/**
+ * The cheap refusals before a set is copied (#102 review): the works
+ * limit and the ownership of every file, read without the lock — the
+ * transaction repeats them under it; this only spares a few hundred
+ * copies and deletes for a save that was never going to go through.
+ */
+async function assertCouldSave(
+  db: Database,
+  userId: string,
+  parsed: ReturnType<typeof workInputSchema.parse>,
+  creating: boolean,
+): Promise<void> {
+  if (creating) {
+    const [{ count }] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(works)
+      .where(eq(works.userId, userId));
+    if (count >= WORKS_MAX) throw new WorksError("limit");
+  }
+  await assertOwnInput(db, userId, parsed);
+}
+
+/** The work's own columns as the form sends them; blank text is null. */
+function workColumnsOf(parsed: ReturnType<typeof workInputSchema.parse>) {
+  return {
+    name: parsed.name,
+    investor: parsed.investor || null,
+    developer: parsed.developer || null,
+    r360FileId: parsed.r360FileId,
+    r360SetId: parsed.r360SetId,
+    r360Params: parsed.r360Params,
+  };
 }
 
 // Every file a work is given must be the caller's own confirmed row of the
@@ -235,27 +368,28 @@ export async function createWork(
 ): Promise<{ id: string }> {
   const parsed = workInputSchema.parse(input);
   const { db, userId } = deps;
-  return db.transaction(async (tx) => {
-    await lockUser(tx, userId);
-    const [{ count }] = await tx
-      .select({ count: sql<number>`count(*)::int` })
-      .from(works)
-      .where(eq(works.userId, userId));
-    if (count >= WORKS_MAX) throw new WorksError("limit");
-    await assertOwnInput(tx, userId, parsed);
-    const [created] = await tx
-      .insert(works)
-      .values({
-        userId,
-        name: parsed.name,
-        investor: parsed.investor || null,
-        developer: parsed.developer || null,
-        r360FileId: parsed.r360FileId,
-      })
-      .returning({ id: works.id });
-    await tx.insert(workImages).values(imageRowsOf(created.id, parsed));
-    return { id: created.id };
-  });
+  if (parsed.r360SetId) await assertCouldSave(db, userId, parsed, true);
+  return withFrameSet(deps, parsed, (verified) =>
+    db.transaction(async (tx) => {
+      await lockUser(tx, userId);
+      const [{ count }] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(works)
+        .where(eq(works.userId, userId));
+      if (count >= WORKS_MAX) throw new WorksError("limit");
+      await assertOwnInput(tx, userId, parsed);
+      if (verified) await assertNotRecorded(tx, userId, verified.setId);
+      const [created] = await tx
+        .insert(works)
+        .values({ userId, ...workColumnsOf(parsed) })
+        .returning({ id: works.id });
+      await insertImageRows(tx, created.id, parsed);
+      if (verified && parsed.r360FileId) {
+        await insertFrameRows(tx, userId, parsed.r360FileId, verified);
+      }
+      return { id: created.id };
+    }),
+  );
 }
 
 /**
@@ -272,64 +406,106 @@ export async function updateWork(
 ): Promise<void> {
   const parsed = workInputSchema.parse(input);
   const { db, userId } = deps;
-  const dropped = await db.transaction(async (tx) => {
-    // The same per-user lock create and free take: an attach and a free of
-    // the same file never interleave.
-    await lockUser(tx, userId);
-    const [own] = await tx
-      .select({ id: works.id, r360FileId: works.r360FileId })
-      .from(works)
-      .where(and(eq(works.id, workId), eq(works.userId, userId)))
-      .for("update");
-    if (!own) throw new WorksError("not_found");
-    await assertOwnInput(tx, userId, parsed);
-    const before = await tx
-      .select({
-        fileId: workImages.fileId,
-        secondaryFileId: workImages.secondaryFileId,
-      })
-      .from(workImages)
-      .where(eq(workImages.workId, workId));
-    await tx.delete(workImages).where(eq(workImages.workId, workId));
-    await tx.insert(workImages).values(imageRowsOf(workId, parsed));
-    await tx
-      .update(works)
-      .set({
-        name: parsed.name,
-        investor: parsed.investor || null,
-        developer: parsed.developer || null,
-        r360FileId: parsed.r360FileId,
-        updatedAt: sql`now()`,
-      })
-      .where(eq(works.id, workId));
-    const kept = new Set([
-      ...parsed.imageFileIds,
-      ...secondariesOf(parsed).filter((id): id is string => id !== null),
-    ]);
-    return {
-      images: channelsOf(before).filter((fileId) => !kept.has(fileId)),
-      archives:
-        own.r360FileId && own.r360FileId !== parsed.r360FileId
-          ? [own.r360FileId]
-          : [],
-    };
-  });
+  // The set as the work has it now, read before the transaction: a new one
+  // is verified and copied outside the lock (withFrameSet), and a set kept
+  // across a change of archive is refused — the frames belong to the bytes
+  // they were derived from.
+  const [current] = await db
+    .select({
+      r360FileId: works.r360FileId,
+      r360SetId: works.r360SetId,
+      r360Params: works.r360Params,
+    })
+    .from(works)
+    .where(and(eq(works.id, workId), eq(works.userId, userId)));
+  if (!current) throw new WorksError("not_found");
+  const setChanges = parsed.r360SetId !== current.r360SetId;
+  if (!setChanges && parsed.r360SetId !== null) {
+    if (parsed.r360FileId !== current.r360FileId) {
+      throw new WorksError("invalid_set");
+    }
+    // The count is detected, not chosen (A13): a kept set keeps its N.
+    if (parsed.r360Params?.frameCount !== current.r360Params?.frameCount) {
+      throw new WorksError("invalid_set");
+    }
+  }
+  if (setChanges && parsed.r360SetId) {
+    await assertCouldSave(db, userId, parsed, false);
+  }
+  // Only a set the work did not have is staged; one kept is left alone.
+  const staging = setChanges ? parsed : null;
+  const dropped = await withFrameSet(deps, staging, (verified) =>
+    db.transaction(async (tx) => {
+      // The same per-user lock create and free take: an attach and a free of
+      // the same file never interleave.
+      await lockUser(tx, userId);
+      const [own] = await tx
+        .select({
+          id: works.id,
+          r360FileId: works.r360FileId,
+          r360SetId: works.r360SetId,
+        })
+        .from(works)
+        .where(and(eq(works.id, workId), eq(works.userId, userId)))
+        .for("update");
+      if (!own) throw new WorksError("not_found");
+      // Read again under the lock: a save that raced this one is a conflict,
+      // not a silent overwrite of its frames.
+      if (own.r360SetId !== current.r360SetId)
+        throw new WorksError("invalid_set");
+      await assertOwnInput(tx, userId, parsed);
+      if (verified) await assertNotRecorded(tx, userId, verified.setId);
+      const before = await tx
+        .select({
+          fileId: workImages.fileId,
+          secondaryFileId: workImages.secondaryFileId,
+        })
+        .from(workImages)
+        .where(eq(workImages.workId, workId));
+      await tx.delete(workImages).where(eq(workImages.workId, workId));
+      await insertImageRows(tx, workId, parsed);
+      await tx
+        .update(works)
+        .set({ ...workColumnsOf(parsed), updatedAt: sql`now()` })
+        .where(eq(works.id, workId));
+      if (verified && parsed.r360FileId) {
+        await insertFrameRows(tx, userId, parsed.r360FileId, verified);
+      }
+      const kept = new Set([
+        ...parsed.imageFileIds,
+        ...secondariesOf(parsed).filter((id): id is string => id !== null),
+      ]);
+      return {
+        images: channelsOf(before).filter((fileId) => !kept.has(fileId)),
+        archives:
+          own.r360FileId && own.r360FileId !== parsed.r360FileId
+            ? [own.r360FileId]
+            : [],
+        sets: own.r360SetId && setChanges ? [own.r360SetId] : [],
+      };
+    }),
+  );
   await freeUnreferenced(deps, dropped);
 }
 
 // The rows of a work's photos as given: position, the photo, its second
-// channel if any (#99).
-function imageRowsOf(
+// channel if any (#99). None at all for a work with an R360 set and no
+// photo (#103) — an insert of no rows is an error, not a no-op.
+async function insertImageRows(
+  tx: Database,
   workId: string,
   parsed: { imageFileIds: string[]; secondaryFileIds?: (string | null)[] },
-) {
+): Promise<void> {
+  if (parsed.imageFileIds.length === 0) return;
   const secondaries = secondariesOf(parsed);
-  return parsed.imageFileIds.map((fileId, position) => ({
-    workId,
-    fileId,
-    secondaryFileId: secondaries[position] ?? null,
-    position,
-  }));
+  await tx.insert(workImages).values(
+    parsed.imageFileIds.map((fileId, position) => ({
+      workId,
+      fileId,
+      secondaryFileId: secondaries[position] ?? null,
+      position,
+    })),
+  );
 }
 
 /** Every file the rows name: the photos and their second channels. */
@@ -350,7 +526,11 @@ export async function deleteWork(
   const dropped = await db.transaction(async (tx) => {
     await lockUser(tx, userId);
     const [own] = await tx
-      .select({ id: works.id, r360FileId: works.r360FileId })
+      .select({
+        id: works.id,
+        r360FileId: works.r360FileId,
+        r360SetId: works.r360SetId,
+      })
       .from(works)
       .where(and(eq(works.id, workId), eq(works.userId, userId)))
       .for("update");
@@ -367,6 +547,7 @@ export async function deleteWork(
     return {
       images: channelsOf(images),
       archives: own.r360FileId ? [own.r360FileId] : [],
+      sets: own.r360SetId ? [own.r360SetId] : [],
     };
   });
   await freeUnreferenced(deps, dropped);
@@ -409,12 +590,21 @@ export async function discardWorkFile(
 // transaction.
 async function freeUnreferenced(
   deps: ProfileDeps,
-  dropped: { images: string[]; archives: string[] },
+  dropped: { images: string[]; archives: string[]; sets?: string[] },
 ): Promise<void> {
-  if (dropped.images.length === 0 && dropped.archives.length === 0) return;
+  const sets = dropped.sets ?? [];
+  const nothing = [dropped.images, dropped.archives, sets].every(
+    (ids) => ids.length === 0,
+  );
+  if (nothing) return;
   const keys = await deps.db.transaction(async (tx) => {
     await lockUser(tx, deps.userId);
     const freed: string[] = [];
+    // #102: a set belongs to one work; its rows go before the archive's,
+    // which would otherwise cascade over them.
+    if (sets.length > 0) {
+      freed.push(...(await removeFrameSetRows(tx, deps, sets)));
+    }
     if (dropped.images.length > 0) {
       // Named as a photo or as a second channel: either keeps the file.
       const stillUsed = await tx
@@ -443,13 +633,23 @@ async function freeUnreferenced(
   await deleteObjects(deps, keys, "work");
 }
 
+/** How long a claim (#105) holds the sweep off: a session's worth. */
+export const ARCHIVE_CLAIM_HOURS = 6;
+/**
+ * A claim renews; without a ceiling an archive of any size could be kept
+ * out of the sweep forever by claiming it every six hours (#105 review).
+ * Past this age the sweep takes it, claimed or not — a decision to
+ * revisit with the paid-model conversation (SPEC §10).
+ */
+export const ARCHIVE_CLAIM_CEILING_DAYS = 7;
+
 /**
  * An archive confirmed and never attached — the tab closed between the
  * upload and the save — is invisible to the owner and can be most of the
  * quota. Nothing but this frees it: on the user's next archive presign,
  * every r360-zip of theirs older than a day that no work names goes
  * (step 5 review). A day, because a form left open overnight is not an
- * orphan yet.
+ * orphan yet; an archive being finished from (#105) is not one either.
  */
 export async function sweepOrphanArchives(
   deps: ProfileDeps,
@@ -468,6 +668,20 @@ export async function sweepOrphanArchives(
         lt(
           files.createdAt,
           sql`now() - make_interval(hours => ${olderThanHours})`,
+        ),
+        // #105: an archive being finished from is not an orphan yet —
+        // for as long as the claim is fresh and the archive not past the
+        // ceiling.
+        or(
+          isNull(files.claimedAt),
+          lt(
+            files.claimedAt,
+            sql`now() - make_interval(hours => ${ARCHIVE_CLAIM_HOURS})`,
+          ),
+          lt(
+            files.createdAt,
+            sql`now() - make_interval(days => ${ARCHIVE_CLAIM_CEILING_DAYS})`,
+          ),
         ),
       ),
     );

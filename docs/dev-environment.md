@@ -101,7 +101,17 @@ Two OVHcloud facts, both found the hard way against the real bucket on 04.09.202
   is refused with 403 and the upload never leaves the page, while every server-side
   call keeps working. The signature, not the origin, authorizes the write, so the dev
   bucket accepts any origin — developer machines, PR previews and phones on the LAN all
-  differ. Production (#24) should narrow it to its own domain.
+  differ. Production (#24) should narrow it to its own domain — for `GET` as well
+  as `PUT` since #101: the rule also allows `GET` and exposes `Content-Range`,
+  `Accept-Ranges`, `Content-Length` and `ETag`. The R360 reader (A13) fetches
+  single frames out of an archive already in the bucket through a presigned GET with
+  a `Range` header (a plain `bytes=N-M` range is CORS-safelisted, so no preflight
+  runs — the method has to be granted for the answer to carry `Allow-Origin`, and
+  `Content-Range` has to be exposed for the script to learn the archive's size). The
+  widening moves no confidentiality line: the bucket authorises by the per-object ACL
+  and the signature, never by the origin. A bucket created before 09.09.2026 needs the
+  rule re-applied — re-run the CORS step of `scripts/bootstrap-dev.sh` or
+  `aws s3api put-bucket-cors` with the same JSON.
 - **There are no bucket policies.** `PutBucketPolicy` answers `NotImplemented`, so
   public access is a **per-object ACL**. `putObject` takes an explicit `publicRead`
   flag, and only the 512/128 variants get it — the full-resolution original and every

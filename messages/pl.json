@@ -467,6 +467,7 @@
       "developer": "Deweloper",
       "r360Uploaded": "R360 wgrany",
       "r360None": "Bez R360",
+      "orbit": "Widok 360°",
       "edit": "Edytuj",
       "delete": "Usuń",
       "confirmDelete": "Usunąć razem ze zdjęciami?",
@@ -529,7 +530,10 @@
         "generic": "Zapis nie powiódł się. Spróbuj ponownie.",
         "duplicatePhoto": "To zdjęcie jest już na liście.",
         "tooManyPhotos": "Wybrano {offered, plural, one {# zdjęcie} few {# zdjęcia} many {# zdjęć} other {# zdjęcia}}, a {room, plural, one {zmieści się jedno} other {zmieszczą się #}}. Wybierz najwyżej {room}.",
-        "invalidArchive": "Archiwum R360 nie jest już dostępne. Wgraj je ponownie."
+        "invalidArchive": "Archiwum R360 nie jest już dostępne. Wgraj je ponownie.",
+        "framesUploading": "Poczekaj, aż klatki się przygotują.",
+        "invalidSet": "Klatki archiwum nie są już dostępne. Dodaj archiwum ponownie.",
+        "framesExpired": "Klatki straciły ważność przed zapisem. Dodaj archiwum ponownie."
       },
       "r360": {
         "label": "Render 360",
@@ -538,7 +542,57 @@
         "add": "Dodaj zip R360",
         "uploaded": "Wgrany",
         "attached": "Archiwum R360",
-        "remove": "Usuń"
+        "remove": "Usuń",
+        "frames": "Klatki: {done} z {total}",
+        "framesDone": "Klatki gotowe: {total}",
+        "stageArchive": "Archiwum {percent}%",
+        "stageFrames": "Klatki {done} z {total}",
+        "stageUpload": "Klatki wysłane {landed} z {total}",
+        "progressLabel": "Wysyłanie R360",
+        "previewLabel": "Podgląd orbity: przeciągnij po obrazie, by go obrócić",
+        "previewAlt": "Klatka orbity",
+        "previewHint": "Przeciągnij po obrazie, by obrócić budynek.",
+        "paramFrameCount": "Klatki",
+        "paramDirection": "Kierunek",
+        "directionForward": "Jak w eksporcie",
+        "directionReverse": "Odwrotnie",
+        "paramFramesPerWidth": "Klatek na szerokość obrazu",
+        "paramStartFrame": "Klatka startowa",
+        "useThisFrame": "Użyj tej klatki",
+        "paramFlattening": "Spłaszczenie pierścienia",
+        "flatteningCircle": "Okrąg",
+        "flatteningHint": "Zadziała, gdy pojawi się pierścień.",
+        "offer": "Archiwum z {date} ({size}) dotarło na serwer bez klatek. Dokończyć przetwarzanie?",
+        "offerAccept": "Dokończ",
+        "offerDecline": "Pomiń",
+        "retryFrames": "Przetwórz klatki ponownie",
+        "refused": {
+          "not_a_zip": "To nie jest archiwum zip.",
+          "encrypted": "Archiwum jest zaszyfrowane. Wyeksportuj je bez hasła.",
+          "multi_part": "Archiwum jest podzielone na części. Wyeksportuj je jako jeden plik.",
+          "unsupported_method": "Archiwum używa kompresji, której przeglądarka nie otworzy. Wyeksportuj zwykły zip.",
+          "corrupt": "Archiwum jest uszkodzone lub ucięte.",
+          "network": "Nie udało się odczytać archiwum. Spróbuj ponownie.",
+          "expired": "Link do archiwum wygasł. Spróbuj ponownie.",
+          "unsupported_format": "Przeglądarka nie pokaże EXR, TIFF ani TGA ({files}). Wyeksportuj JPEG, PNG lub WebP.",
+          "no_frames": "W archiwum nie ma klatek — JPEG, PNG lub WebP.",
+          "too_few": "Jedna klatka to nie orbita: potrzeba co najmniej 2.",
+          "too_many": "{count} klatek to więcej niż 360, które przyjmuje przeglądarka.",
+          "folders": "Klatki muszą leżeć bezpośrednio w archiwum albo w jednym folderze ({files}).",
+          "unnumbered": "Klatka bez numeru w nazwie: {files}.",
+          "numbering": "Numery klatek nie tworzą ciągu: {files}."
+        },
+        "failed": {
+          "presign_failed": "Nie udało się przygotować klatek. Spróbuj ponownie.",
+          "quota_exceeded": "Brak miejsca: klatki przekroczyłyby Twój limit 1 GB.",
+          "rate_limited": "Za dużo prób. Odczekaj chwilę i spróbuj ponownie.",
+          "read_failed": "Nie udało się odczytać klatki z archiwum.",
+          "encode_failed": "Nie udało się zdekodować klatki. Wyeksportuj JPEG, PNG lub WebP.",
+          "webp_unsupported": "Ta przeglądarka nie koduje WebP. Użyj aktualnego Chrome, Firefoksa, Edge lub Safari.",
+          "frame_too_large": "Klatka jest zbyt szczegółowa, by zmieścić się w limicie. Wyeksportuj mniejsze klatki.",
+          "upload_failed": "Nie udało się wysłać klatki. Spróbuj ponownie.",
+          "resume": "Archiwum nie jest już dostępne. Dodaj je ponownie."
+        }
       }
     },
     "lightbox": {
@@ -548,6 +602,17 @@
       "next": "Następne zdjęcie",
       "counter": "{index} / {count}",
       "hint": "Esc zamyka, strzałki przewijają"
+    },
+    "orbit": {
+      "frameOf": "Klatka {frame} z {total}",
+      "frameOfShowing": "Klatka {frame} z {total}, w trakcie wczytywania pokazana klatka {shown}",
+      "loading": "Wczytywanie klatek…",
+      "mark": "360°",
+      "frameAlt": "{name}, widok 360°",
+      "cardLabel": "Widok 360° realizacji {name}: przeciągnij po obrazie, by go obrócić",
+      "lightboxLabel": "Widok 360° realizacji {name} w powiększeniu: przeciągnij po obrazie, by go obrócić",
+      "enlarge": "Powiększ widok 360°: {name}",
+      "counter": "{frame} / {total}"
     },
     "reveal": {
       "label": "Porównanie kanałów: {name}, zdjęcie {index}",

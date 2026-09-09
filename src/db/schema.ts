@@ -6,6 +6,7 @@ import {
   date,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   primaryKey,
@@ -280,6 +281,14 @@ export const works = pgTable(
     r360FileId: uuid("r360_file_id").references((): AnyPgColumn => files.id, {
       onDelete: "set null",
     }),
+    // #102 (A13): the frame set derived from the archive in the owner's
+    // browser — the prefix `u/<user>/r360/<set id>/` the frames sit under
+    // (32 hex digits minted at presign) — and the five viewer parameters
+    // (#68): frame count, direction, frames per picture width, start frame,
+    // ring flattening. Both or neither: a set without parameters cannot be
+    // shown, parameters without a set describe nothing.
+    r360SetId: text("r360_set_id"),
+    r360Params: jsonb("r360_params").$type<R360ParamsRow>(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -287,6 +296,17 @@ export const works = pgTable(
     // The profile page lists a user's works in adding order.
     index("works_user_id_created_at_idx").on(table.userId, table.createdAt),
     index("works_r360_file_id_idx").on(table.r360FileId),
+    // #102 review: a set belongs to one work — the second save of one set
+    // is refused by the code and, should it slip past, by the database.
+    uniqueIndex("works_r360_set_id_unique").on(table.r360SetId),
+    check(
+      "works_r360_set_pairing",
+      sql`(${table.r360SetId} IS NULL) = (${table.r360Params} IS NULL)`,
+    ),
+    check(
+      "works_r360_set_id_format",
+      sql`${table.r360SetId} IS NULL OR ${table.r360SetId} ~ '^[0-9a-f]{32}$'`,
+    ),
     // Same guard as the display name (#36): NOT NULL does not stop "".
     check("works_name_not_blank", sql`length(btrim(${table.name})) > 0`),
     check("works_name_length", sql`length(${table.name}) <= 120`),
@@ -428,7 +448,20 @@ export const fileKind = pgEnum("file_kind", [
   "work-480",
   // #72: a work's R360 archive, stored as uploaded; #68 processes it.
   "r360-zip",
+  // #102: the archive's frames, encoded in the owner's browser (A13) — N
+  // rows of each width under the archive's row.
+  "r360-1600",
+  "r360-800",
 ]);
+
+/** #102: works.r360_params as stored — the shape lib/r360 pins with Zod. */
+export interface R360ParamsRow {
+  frameCount: number;
+  direction: 1 | -1;
+  framesPerWidth: number;
+  startFrame: number;
+  flattening: number;
+}
 
 // #30: a staged upload is bytes that already exist in the bucket but have no
 // `files` row yet, so without this table the A9 quota cannot see them — and
@@ -519,6 +552,11 @@ export const files = pgTable(
     // read paths fall back to the old derivation until it has run. New rows
     // always carry it.
     objectKey: text("object_key"),
+    // #105: an R360 archive the owner is finishing from — the frames are
+    // derived again from it. The orphan sweep (a day after the upload)
+    // leaves a claimed archive alone for a while, or it would delete an
+    // archive near the one-day line while it is being read.
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
   (table) => [
@@ -539,9 +577,23 @@ export const files = pgTable(
     uniqueIndex("files_original_user_sha256_unique")
       .on(table.userId, table.sha256, table.kind)
       .where(sql`${table.parentFileId} IS NULL`),
+    // #102: the R360 frames are N rows of one kind under one parent — the
+    // point of a set — so they are out of this dedup. Told by their key
+    // (`…/r360/<set>/…`, SPEC §9): the enum note above rules out naming the
+    // kinds, and the enum-to-text cast is not immutable, which an index
+    // predicate must be. A row written before #49 has no key and is no
+    // frame.
     uniqueIndex("files_variant_user_parent_kind_unique")
       .on(table.userId, table.parentFileId, table.kind)
-      .where(sql`${table.parentFileId} IS NOT NULL`),
+      .where(
+        sql`${table.parentFileId} IS NOT NULL AND (${table.objectKey} IS NULL OR ${table.objectKey} NOT LIKE '%/r360/%')`,
+      ),
+    // #102: a frame is one object and one row — the key is its identity.
+    // Only the frames: an ordinary photo may sit under one key as two rows
+    // (the same picture as a cover and as a work photo).
+    uniqueIndex("files_r360_frame_user_object_key_unique")
+      .on(table.userId, table.objectKey)
+      .where(sql`${table.objectKey} LIKE '%/r360/%'`),
     // Postgres does not index FK source columns; the replacement cascade
     // scans by parent.
     index("files_parent_file_id_idx").on(table.parentFileId),

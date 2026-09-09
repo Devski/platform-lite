@@ -55,6 +55,8 @@ describe("schema tables (SPEC §9)", () => {
         "investor",
         "name",
         "r360_file_id",
+        "r360_set_id",
+        "r360_params",
         "updated_at",
         "user_id",
       ].sort(),
@@ -181,6 +183,7 @@ describe("schema tables (SPEC §9)", () => {
     const columnNames = files.columns.map((c) => c.name).sort();
     expect(columnNames).toEqual(
       [
+        "claimed_at",
         "created_at",
         "ext",
         "id",
@@ -221,6 +224,9 @@ describe("schema tables (SPEC §9)", () => {
         "work-1600",
         "work-480",
         "r360-zip",
+        // #102: the frames the owner's browser derives from the archive.
+        "r360-1600",
+        "r360-800",
       ].sort(),
     );
   });
@@ -276,12 +282,17 @@ describe("generated migration SQL (G6 — migrations are the source of truth)", 
       // #72: the role read from parentage, so covers, work photos and zips
       // dedupe as originals rather than masquerading as variants.
       'CREATE UNIQUE INDEX "files_original_user_sha256_unique" ON "files" USING btree ("user_id","sha256","kind") WHERE "files"."parent_file_id" IS NULL',
-      'CREATE UNIQUE INDEX "files_variant_user_parent_kind_unique" ON "files" USING btree ("user_id","parent_file_id","kind") WHERE "files"."parent_file_id" IS NOT NULL',
+      // #102: the R360 frames (N rows of one kind under one parent) are out
+      // of the variant dedup, and each frame is keyed by its object.
+      'CREATE UNIQUE INDEX "files_variant_user_parent_kind_unique" ON "files" USING btree ("user_id","parent_file_id","kind") WHERE "files"."parent_file_id" IS NOT NULL AND ("files"."object_key" IS NULL OR "files"."object_key" NOT LIKE \'%/r360/%\')',
+      'CREATE UNIQUE INDEX "files_r360_frame_user_object_key_unique" ON "files" USING btree ("user_id","object_key") WHERE "files"."object_key" LIKE \'%/r360/%\'',
       'CREATE INDEX "files_parent_file_id_idx" ON "files" USING btree ("parent_file_id")',
       'CREATE INDEX "files_object_key_idx" ON "files" USING btree ("object_key")',
       'CREATE INDEX "profiles_cover_file_id_idx" ON "profiles" USING btree ("cover_file_id")',
       'CREATE INDEX "works_user_id_created_at_idx" ON "works" USING btree ("user_id","created_at")',
       'CREATE INDEX "works_r360_file_id_idx" ON "works" USING btree ("r360_file_id")',
+      // #102 review: one set, one work.
+      'CREATE UNIQUE INDEX "works_r360_set_id_unique" ON "works" USING btree ("r360_set_id")',
       'CREATE UNIQUE INDEX "work_images_work_id_file_id_unique" ON "work_images" USING btree ("work_id","file_id")',
       'CREATE INDEX "work_images_file_id_idx" ON "work_images" USING btree ("file_id")',
       'CREATE INDEX "work_images_secondary_file_id_idx" ON "work_images" USING btree ("secondary_file_id")',
@@ -364,6 +375,9 @@ describe("generated migration SQL (G6 — migrations are the source of truth)", 
       // grown by seven values — ADD VALUE is additive, but it is also
       // irreversible, which is why it passes through this list.
       'DROP INDEX "files_original_user_sha256_unique"',
+      'DROP INDEX "files_variant_user_parent_kind_unique"',
+      // 0014 (#102): the variant index re-created once more, with the R360
+      // frames left out of it; guarded above. The enum grows by two.
       'DROP INDEX "files_variant_user_parent_kind_unique"',
       ...schema.fileKind.enumValues
         .slice(3)

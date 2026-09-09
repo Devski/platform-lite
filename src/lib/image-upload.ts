@@ -92,13 +92,21 @@ function sha256(buffer: Buffer): string {
 // Deleting a staged object is always best-effort. It may never have arrived,
 // and the bucket's lifecycle rule is the backstop for a delete that fails —
 // so nothing here is worth failing a request that otherwise succeeded, and
-// every caller carries on regardless.
+// every caller carries on regardless. A key ending with a slash is an R360
+// frame set's staging prefix (#102): one reservation, up to 720 objects,
+// discarded one by one — every walk under `staging/` reaches them the way
+// it reaches a single upload.
 export async function discardStagedObject(
   storage: FileStorage,
   key: string,
 ): Promise<boolean> {
   try {
-    await storage.deleteObject(key);
+    if (key.endsWith("/")) {
+      const listed = await storage.listObjects(key);
+      await storage.deleteObjects(listed.map((object) => object.key));
+    } else {
+      await storage.deleteObject(key);
+    }
     return true;
   } catch (error) {
     console.error("[image-upload] staging cleanup failed:", error);
@@ -129,7 +137,7 @@ export async function sweepExpiredUploads(
         // every PR preview share one database and one bucket, separated only
         // by prefix (SPEC §4), so an unscoped sweep would let one deployment
         // delete the same user's staged objects in another.
-        like(pendingUploads.stagingKey, `${deps.prefix}staging/%`),
+        like(pendingUploads.stagingKey, `${escapeLike(deps.prefix)}staging/%`),
       ),
     );
   // Load-bearing, not an optimization: inArray() on an empty list has no
@@ -176,14 +184,15 @@ export async function abandonStagedUpload(
 }
 
 /** Only this user's staging namespace: other users' keys, content keys and
- * arbitrary paths are refused unread. */
+ * arbitrary paths are refused unread. A trailing slash names a frame set's
+ * prefix (#102), abandoned the same way. */
 export function isOwnStagingKey(
   prefix: string,
   userId: string,
   key: string,
 ): boolean {
   return new RegExp(
-    `^${escapeRegExp(prefix)}staging/${escapeRegExp(userId)}/[0-9a-f]{32}$`,
+    `^${escapeRegExp(prefix)}staging/${escapeRegExp(userId)}/[0-9a-f]{32}/?$`,
   ).test(key);
 }
 
@@ -500,4 +509,9 @@ export async function confirmImageUpload(
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** A literal for a LIKE pattern: `%`, `_` and the escape itself escaped. */
+export function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, "\\$&");
 }

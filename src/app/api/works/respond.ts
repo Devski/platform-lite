@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { FrameSetError } from "@/lib/r360/frame-set";
 import { WorksError } from "@/lib/works";
 
 // Shared by the works routes: run the step, serialize the result, and turn
@@ -16,6 +17,10 @@ export async function respondWithWorkResult(
         { error: error.code },
         { status: error.code === "not_found" ? 404 : 400 },
       );
+    }
+    // #102: the frame set named by the save did not check out.
+    if (error instanceof FrameSetError) {
+      return NextResponse.json({ error: error.code }, { status: 400 });
     }
     throw error;
   }

@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  R360_SET_ID_PATTERN,
+  r360ParamsSchema,
+} from "@/lib/r360/frame-set-shared";
 
 // #72 / A12: a work (realizacja) as the form and the API agree on it. The
 // same single-source principle as profile-schemas.ts; the database CHECKs
@@ -31,11 +35,12 @@ export const workInputSchema = z
     developer: partySchema.default(""),
     /**
      * The confirmed work-original file ids in display order: the first is the
-     * MAIN photo (position 0). One to three, no repeats.
+     * MAIN photo (position 0). One to three, no repeats — or none at all
+     * when the work carries an R360 set (#103, A12 as amended): its start
+     * frame is the main picture then.
      */
     imageFileIds: z
       .array(z.uuid())
-      .min(1)
       .max(WORK_PHOTOS_MAX)
       .refine((ids) => new Set(ids).size === ids.length, {
         message: "duplicate photo",
@@ -50,6 +55,26 @@ export const workInputSchema = z
       .optional(),
     /** The confirmed r360-zip file id, or none. */
     r360FileId: z.uuid().nullable().default(null),
+    /**
+     * #102: the frame set the owner's browser produced from the archive,
+     * and the viewer's five parameters (#68) — both or neither, and only
+     * with an archive. A set already on the work is sent back unchanged;
+     * a new archive brings a new set.
+     */
+    r360SetId: z.string().regex(R360_SET_ID_PATTERN).nullable().default(null),
+    r360Params: r360ParamsSchema.nullable().default(null),
+  })
+  .refine((work) => (work.r360SetId === null) === (work.r360Params === null), {
+    message: "a set with its parameters",
+    path: ["r360Params"],
+  })
+  .refine((work) => work.r360SetId === null || work.r360FileId !== null, {
+    message: "a set needs its archive",
+    path: ["r360SetId"],
+  })
+  .refine((work) => work.imageFileIds.length > 0 || work.r360SetId !== null, {
+    message: "a photo, or an R360 set",
+    path: ["imageFileIds"],
   })
   .refine(
     (work) =>

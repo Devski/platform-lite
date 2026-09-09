@@ -4,6 +4,7 @@ import { useFormatter, useTranslations } from "next-intl";
 import {
   useEffect,
   useId,
+  useMemo,
   useImperativeHandle,
   useLayoutEffect,
   useRef,
@@ -14,10 +15,42 @@ import { Button, buttonClassName } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
+import { OrbitRing } from "@/components/ui/orbit-ring";
+import { OrbitViewer } from "@/components/ui/orbit-viewer";
 import { UploadProgress } from "@/components/ui/upload-progress";
+import { useOrbit } from "@/components/ui/use-orbit";
 import { postJson } from "@/lib/api-client";
 import { IMAGE_CONTENT_TYPES } from "@/lib/image-upload-shared";
 import {
+  browserFrameEncoder,
+  canEncodeWebp,
+} from "@/lib/r360/browser-frame-encoder";
+import { orderFrames } from "@/lib/r360/frame-names";
+import {
+  produceFrameSet,
+  type FrameSetOutcome,
+} from "@/lib/r360/frame-pipeline";
+import {
+  defaultR360Params,
+  frameUrls,
+  R360_WIDTHS,
+  type R360Params,
+} from "@/lib/r360/frame-set-shared";
+import {
+  fileSource,
+  openZip,
+  urlSource,
+  ZipError,
+  type ByteSource,
+  type ZipArchive,
+  type ZipEntry,
+} from "@/lib/r360/zip-reader";
+import {
+  abandon,
+  listUnattachedArchives,
+  resumeArchive,
+  type UnattachedArchiveJson,
+  frameSetTransport,
   uploadArchive,
   uploadImage,
   type UploadFailure,
@@ -29,6 +62,7 @@ import {
   WORKS_MAX,
   workInputSchema,
 } from "@/lib/work-schemas";
+import { R360ParamControls } from "./r360-params";
 import type { GalleryWork } from "./works-gallery";
 
 // #72 / A12: the card that unfolds under the "Realizacje" heading — a new
@@ -46,6 +80,39 @@ interface Archive {
   uploading: boolean;
   /** 0..1 while uploading. */
   progress?: number;
+  /** #102: the frames produced in this browser, as they go (#103: with
+   * their bytes, for the one composite bar). */
+  frames?: {
+    done: number;
+    total: number;
+    bytesSent?: number;
+    bytesQueued?: number;
+    /** Frames whose encodings have landed: the bar's monotone input. */
+    landed?: number;
+  };
+  /**
+   * #102: the set the work names — produced now (with the staging prefix
+   * to abandon if the form closes unsaved), or saved before.
+   */
+  set?: { id: string; params: R360Params; stagingPrefix?: string };
+}
+
+/** The dictionary key for an archive the reader refused (#101). */
+function zipRefusal(error: unknown): string {
+  if (error instanceof ZipError) {
+    switch (error.reason) {
+      case "not_a_zip":
+      case "encrypted":
+      case "multi_part":
+      case "unsupported_method":
+      case "corrupt":
+        return error.reason;
+      case "http":
+        // A signed address that ran out answers 403 (#105).
+        return error.message.includes("403") ? "expired" : "network";
+    }
+  }
+  return "network";
 }
 
 interface Slot {
@@ -82,6 +149,21 @@ function discardFile(fileId: string): Promise<unknown> {
   return postJson("/api/uploads/discard", { fileId }).catch(() => undefined);
 }
 
+/** The public addresses of a saved set's 800 px frames (#103). */
+function savedFrames(
+  set: { params: R360Params; frameBase: string } | null,
+): (string | null)[] {
+  if (!set) return [];
+  return frameUrls(set.frameBase, R360_WIDTHS[1], set.params.frameCount);
+}
+
+/** Frees the preview's object URLs; a saved set's public addresses stay. */
+function revokeBlobUrls(urls: readonly (string | null)[]) {
+  for (const url of urls) {
+    if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
+  }
+}
+
 // "412 MB", "3,2 GB": enough precision for a badge, the decimal separator
 // the page's locale uses.
 function formatBytes(
@@ -99,6 +181,34 @@ function formatBytes(
   return `${format.number(value, { maximumFractionDigits: digits })} ${units[unit]}`;
 }
 
+/** `part / whole`, or 0 before there is a whole. */
+function fractionOf(part: number, whole: number): number {
+  return whole > 0 ? part / whole : 0;
+}
+function percentOf(fraction: number): number {
+  return Math.floor(fraction * 100);
+}
+
+// #103: one bar for the whole R360 flow — the archive's bytes, the
+// frames processed, the frames landed — weighted so it moves steadily:
+// the archive is the long transfer, the frames the long computation.
+// Every input only grows (the frames' bytes in flight do not: a large
+// frame after small ones would pull the bar back — #103 review), so the
+// bar does too.
+type FrameProgress = NonNullable<Archive["frames"]>;
+function uploadFraction(frames: FrameProgress): number {
+  return fractionOf(frames.landed ?? 0, frames.total);
+}
+function compositeFraction(archive: Archive): number {
+  const bytes = archive.progress ?? 0;
+  if (!archive.frames) return bytes;
+  const processed = fractionOf(archive.frames.done, archive.frames.total);
+  return Math.min(
+    1,
+    0.5 * bytes + 0.3 * processed + 0.2 * uploadFraction(archive.frames),
+  );
+}
+
 type FormErrorKey =
   | "nameRequired"
   | "nameInvalid"
@@ -109,6 +219,8 @@ type FormErrorKey =
   | "limit"
   | "invalidImage"
   | "invalidArchive"
+  | "invalidSet"
+  | "framesExpired"
   | "rateLimited"
   | "generic";
 
@@ -177,6 +289,9 @@ export function WorkForm({
           sizeBytes: work.r360.sizeBytes,
           name: "",
           uploading: false,
+          set: work.r360.set
+            ? { id: work.r360.set.id, params: work.r360.set.params }
+            : undefined,
         }
       : null,
   );
@@ -192,6 +307,52 @@ export function WorkForm({
   }
   // The archive transfer in flight, to stop it on remove or unmount.
   const archiveAbort = useRef<AbortController | null>(null);
+  // #105: an archive of the owner's that reached the bucket and no work
+  // names — offered to finish from, so it is not sent twice. Asked for
+  // once, on a form without an archive of its own.
+  const [offer, setOffer] = useState<UnattachedArchiveJson | null>(null);
+  const ownsArchive = work?.r360 !== undefined;
+  useEffect(() => {
+    if (ownsArchive) return;
+    let gone = false;
+    void listUnattachedArchives().then((archives) => {
+      if (!gone && archives[0]) setOffer(archives[0]);
+    });
+    return () => {
+      gone = true;
+    };
+  }, [ownsArchive]);
+  // #103: the preview's frames — object URLs of the 800 px encodings as
+  // the pipeline produces them (revoked with the form), or the saved set's
+  // public addresses. `previewFrames[ordinal - 1]`.
+  const [previewFrames, setPreviewFrames] = useState<(string | null)[]>(() =>
+    savedFrames(work?.r360?.set ?? null),
+  );
+  const previewFramesRef = useRef(previewFrames);
+  function commitPreview(
+    next: (current: (string | null)[]) => (string | null)[],
+  ) {
+    previewFramesRef.current = next(previewFramesRef.current);
+    setPreviewFrames(previewFramesRef.current);
+  }
+  /** Frees the frames shown so far and shows `next`: none, or an
+   * archive's N still to come. */
+  function resetPreview(next: (string | null)[] = []) {
+    revokeBlobUrls(previewFramesRef.current);
+    commitPreview(() => next);
+  }
+  // The hand on the preview: the parameters as the owner has them so far,
+  // or the defaults for the count while the set is still being produced.
+  const previewParams =
+    archive?.set?.params ??
+    defaultR360Params(Math.max(2, archive?.frames?.total ?? 2));
+  const previewOrbit = useOrbit(previewParams);
+  // The ring's ticks (#106): here every frame with an address is there.
+  const previewLoaded = useMemo(
+    () =>
+      new Set(previewFrames.flatMap((url, index) => (url ? [index + 1] : []))),
+    [previewFrames],
+  );
   const format = useFormatter();
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -216,12 +377,16 @@ export function WorkForm({
     return () => {
       closed.current = true;
       archiveAbort.current?.abort();
+      // A set produced here and never saved stops counting now (#102).
+      const staged = archiveRef.current?.set?.stagingPrefix;
+      if (staged) void abandon(staged);
       // Photos still on their way go with the form too (#80 review).
       for (const slot of slotsRef.current) {
         slot.abort?.abort();
         slot.secondary?.abort?.abort();
       }
       for (const url of urls) URL.revokeObjectURL(url);
+      revokeBlobUrls(previewFramesRef.current);
       // Whatever this form uploaded and did not save goes back off the
       // quota — however the form went away: cancel, another work's edit,
       // editing switched off, the work deleted under it.
@@ -480,47 +645,268 @@ export function WorkForm({
     await discardFile(fileId);
   }
 
+  // The archive in the form patched while it is still the one named —
+  // a transfer whose outcome arrives after the owner removed it, or after
+  // another pick, changes nothing.
+  function patchArchive(fileId: string, change: Partial<Archive>) {
+    commitArchive((current) =>
+      current?.fileId === fileId ? { ...current, ...change } : current,
+    );
+  }
+
+  /**
+   * #102 (A13): the archive is read here, before a byte leaves — the
+   * frames named, ordered and counted, or the archive refused with the
+   * reason told and nothing returned.
+   */
+  async function readArchive(
+    source: ByteSource,
+  ): Promise<{ zip: ZipArchive; frames: ZipEntry[] } | null> {
+    let zip: ZipArchive;
+    try {
+      zip = await openZip(source);
+    } catch (error) {
+      // The reason, for a developer on dev — CORS, an expired signature and
+      // a real network fault read the same to the owner (never the address).
+      if (error instanceof ZipError)
+        console.warn("[r360] archive refused:", error.message);
+      setError(t(`r360.refused.${zipRefusal(error)}`));
+      return null;
+    }
+    const order = orderFrames(zip.entries);
+    if (!order.ok) {
+      setError(
+        t(`r360.refused.${order.reason}`, {
+          files: order.files.join(", "),
+          count: order.count,
+        }),
+      );
+      return null;
+    }
+    return { zip, frames: order.frames };
+  }
+
+  /**
+   * Shows `entry` as the archive in the form, its frames still to come,
+   * and produces and uploads them (#102): the preview shows the very
+   * frames being uploaded (#103) and the bar moves per frame encoded or
+   * landed, not per progress event of 720 PUTs — as long as this archive
+   * is still the one in the form. A browser whose canvas encodes no WebP
+   * takes no reservation.
+   */
+  async function runFrames(
+    zip: ZipArchive,
+    frames: ZipEntry[],
+    entry: Pick<Archive, "fileId" | "sizeBytes" | "name" | "progress">,
+    signal: AbortSignal,
+  ): Promise<FrameSetOutcome> {
+    commitArchive({
+      ...entry,
+      uploading: true,
+      frames: { done: 0, total: frames.length },
+    });
+    resetPreview(frames.map(() => null));
+    previewOrbit.setFrame(1);
+    if (!(await canEncodeWebp())) {
+      return { ok: false, failure: "webp_unsupported" };
+    }
+    let framesDone = -1;
+    return produceFrameSet({
+      archive: zip,
+      frames,
+      encoder: browserFrameEncoder(),
+      transport: frameSetTransport,
+      signal,
+      onFrame: (ordinal, encoded) => {
+        if (closed.current || archiveRef.current?.fileId !== entry.fileId) {
+          return;
+        }
+        const url = URL.createObjectURL(encoded[R360_WIDTHS[1]]);
+        commitPreview((current) =>
+          current.map((item, index) => (index === ordinal - 1 ? url : item)),
+        );
+      },
+      onProgress: (p) => {
+        const bucket = p.framesDone * 1000 + p.framesLanded;
+        if (bucket === framesDone) return;
+        framesDone = bucket;
+        patchArchive(entry.fileId, {
+          frames: {
+            done: p.framesDone,
+            total: p.framesTotal,
+            bytesSent: p.bytesSent,
+            bytesQueued: p.bytesQueued,
+            landed: p.framesLanded,
+          },
+        });
+      },
+    });
+  }
+
+  /** #102: the set produced, as the archive names it. */
+  function producedSet(set: FrameSetOutcome & { ok: true }): Archive["set"] {
+    return {
+      id: set.setId,
+      params: defaultR360Params(set.frameCount),
+      stagingPrefix: set.stagingPrefix,
+    };
+  }
+
   async function pickArchive(file: File, input: HTMLInputElement) {
     input.value = "";
     setError(null);
+    // The frames are produced in this browser and uploaded in parallel
+    // with the archive itself; the work names both on save.
+    const read = await readArchive(fileSource(file));
+    if (!read) return;
     const pendingId = `pending:${file.name}:${file.size}`;
-    commitArchive({
-      fileId: pendingId,
-      sizeBytes: file.size,
-      name: file.name,
-      uploading: true,
-      progress: 0,
-    });
+    // The archive's failure stops the frames; the frames' failure does
+    // not stop the archive — an archive that landed is what #105 resumes
+    // from, and a work may carry an archive without its frames.
     const controller = new AbortController();
     archiveAbort.current = controller;
-    const result = await uploadArchive(file, {
-      signal: controller.signal,
-      onProgress: (fraction) =>
-        commitArchive((current) =>
-          current?.fileId === pendingId
-            ? { ...current, progress: fraction }
-            : current,
-        ),
+    const frames = new AbortController();
+    controller.signal.addEventListener("abort", () => frames.abort(), {
+      once: true,
     });
+    const [result, set] = await Promise.all([
+      uploadArchive(file, {
+        signal: controller.signal,
+        onProgress: (fraction) =>
+          patchArchive(pendingId, { progress: fraction }),
+      }).then((outcome) => {
+        if (!outcome.ok) frames.abort();
+        return outcome;
+      }),
+      runFrames(
+        read.zip,
+        read.frames,
+        {
+          fileId: pendingId,
+          sizeBytes: file.size,
+          name: file.name,
+          progress: 0,
+        },
+        frames.signal,
+      ),
+    ]);
     archiveAbort.current = null;
-    if (result.ok && closed.current) {
-      void discardFile(result.fileId);
+    if (closed.current) {
+      if (result.ok) void discardFile(result.fileId);
+      if (set.ok) void abandon(set.stagingPrefix);
       return;
     }
     if (!result.ok) {
       commitArchive((current) =>
         current?.fileId === pendingId ? null : current,
       );
+      resetPreview();
+      if (set.ok) void abandon(set.stagingPrefix);
       if (result.failure !== "aborted") uploadFail(result.failure);
       return;
     }
     unsaved.current.add(result.fileId);
+    if (!set.ok) {
+      // The archive stays, without its frames and without a preview of
+      // frames it does not have; the reason is told.
+      commitArchive({
+        fileId: result.fileId,
+        sizeBytes: result.sizeBytes,
+        name: file.name,
+        uploading: false,
+      });
+      resetPreview();
+      if (set.failure !== "aborted") setError(t(`r360.failed.${set.failure}`));
+      return;
+    }
     commitArchive({
       fileId: result.fileId,
       sizeBytes: result.sizeBytes,
       name: file.name,
       uploading: false,
+      set: producedSet(set),
     });
+  }
+
+  /**
+   * #105: the frames again, from an archive that already reached the
+   * bucket — the current one whose set failed, or one offered. The
+   * archive is claimed and read by Range through a signed address; the
+   * pipeline is the one a pick runs, without the archive's own upload.
+   */
+  async function resumeFrames(archive: {
+    fileId: string;
+    sizeBytes: number;
+    name?: string;
+  }) {
+    // One at a time: a second click, or a pick while the claim is on its
+    // way, must not start a rival pipeline (#105 review).
+    if (archiveRef.current?.uploading) return;
+    setError(null);
+    // Busy before the first await: the picker goes, the buttons wait.
+    const before = archiveRef.current;
+    const name = archive.name || t("r360.attached");
+    commitArchive({
+      fileId: archive.fileId,
+      sizeBytes: archive.sizeBytes,
+      name,
+      uploading: true,
+      progress: 1,
+    });
+    const restore = () =>
+      commitArchive(
+        before?.fileId === archive.fileId
+          ? { ...before, uploading: false }
+          : before,
+      );
+    const claim = await resumeArchive(archive.fileId);
+    if (!claim.ok) {
+      restore();
+      if (claim.failure === "not_found") setError(t("r360.failed.resume"));
+      else uploadFail(claim.failure);
+      return;
+    }
+    setOffer(null);
+    const controller = new AbortController();
+    archiveAbort.current = controller;
+    const read = await readArchive(
+      urlSource(claim.downloadUrl, fetch, { signal: controller.signal }),
+    );
+    if (!read) {
+      archiveAbort.current = null;
+      restore();
+      return;
+    }
+    const set = await runFrames(
+      read.zip,
+      read.frames,
+      {
+        fileId: archive.fileId,
+        sizeBytes: claim.sizeBytes || archive.sizeBytes,
+        name,
+        // The archive is there already: its bytes are the bar's done half.
+        progress: 1,
+      },
+      controller.signal,
+    );
+    archiveAbort.current = null;
+    if (closed.current) {
+      if (set.ok) void abandon(set.stagingPrefix);
+      return;
+    }
+    if (!set.ok) {
+      patchArchive(archive.fileId, { uploading: false, frames: undefined });
+      resetPreview();
+      if (set.failure !== "aborted") setError(t(`r360.failed.${set.failure}`));
+      return;
+    }
+    patchArchive(archive.fileId, { uploading: false, set: producedSet(set) });
+  }
+
+  // A set produced here and not saved is abandoned, so its ceiling stops
+  // counting against the quota now rather than in two hours (#102 review).
+  function abandonUnsavedSet(current: Archive | null) {
+    if (current?.set?.stagingPrefix) void abandon(current.set.stagingPrefix);
   }
 
   function removeArchive() {
@@ -528,10 +914,22 @@ export function WorkForm({
       // Stops the transfer; the abort path abandons the staged bytes.
       archiveAbort.current?.abort();
       commitArchive(null);
+      resetPreview();
       return;
     }
     if (archive) void discard(archive.fileId);
+    abandonUnsavedSet(archive);
     commitArchive(null);
+    resetPreview();
+  }
+
+  // #103: the owner's four parameters, on the set the work will name.
+  function setParams(change: Partial<R360Params>) {
+    commitArchive((current) => {
+      if (!current?.set) return current;
+      const params = { ...current.set.params, ...change };
+      return { ...current, set: { ...current.set, params } };
+    });
   }
 
   function removePhoto(fileId: string) {
@@ -581,7 +979,9 @@ export function WorkForm({
     }
     const trimmedName = name.trim();
     if (!trimmedName) return fail("nameRequired");
-    if (tiles.length === 0) return fail("photoRequired");
+    // A work with an R360 set needs no photo (A12): its start frame stands
+    // for it (#104).
+    if (tiles.length === 0 && !zip?.set) return fail("photoRequired");
     const parsed = workInputSchema.safeParse({
       name: trimmedName,
       investor,
@@ -595,6 +995,8 @@ export function WorkForm({
           }
         : {}),
       r360FileId: zip?.fileId ?? null,
+      r360SetId: zip?.set?.id ?? null,
+      r360Params: zip?.set?.params ?? null,
     });
     if (!parsed.success) {
       const path = parsed.error.issues[0]?.path[0];
@@ -627,10 +1029,30 @@ export function WorkForm({
         if (response.data.error === "invalid_archive") {
           return fail("invalidArchive");
         }
+        if (response.data.error === "set_expired") return fail("framesExpired");
+        if (response.data.error === "quota_exceeded") {
+          uploadFail("quota_exceeded");
+          return false;
+        }
+        if (
+          [
+            "invalid_set",
+            "incomplete_set",
+            "frame_too_large",
+            "not_webp",
+          ].includes(response.data.error ?? "")
+        ) {
+          return fail("invalidSet");
+        }
         return fail("generic");
       }
-      // Saved: the photos belong to the work now.
+      // Saved: the photos and the set belong to the work now.
       unsaved.current.clear();
+      commitArchive((current) =>
+        current?.set
+          ? { ...current, set: { ...current.set, stagingPrefix: undefined } }
+          : current,
+      );
       onSaved();
       return true;
     } catch {
@@ -647,6 +1069,10 @@ export function WorkForm({
       .map((slot) => `${slot.fileId}+${slot.secondary?.fileId ?? ""}`)
       .join(",");
     const archiveId = archiveRef.current?.fileId ?? null;
+    const params = JSON.stringify(archiveRef.current?.set?.params ?? null);
+    if (work && params !== JSON.stringify(work.r360?.set?.params ?? null)) {
+      return false;
+    }
     if (!work) {
       return (
         name.trim() === "" &&
@@ -953,6 +1379,36 @@ export function WorkForm({
             {t("r360.rule")}
           </span>
         </p>
+        {!archive && offer && (
+          <div
+            className="flex flex-wrap items-center gap-(--sp-4) rounded-sm border border-(--border-hairline) bg-(--surface-card) px-(--sp-5) py-(--sp-4)"
+            data-testid="work-r360-offer"
+          >
+            <span className="min-w-0 flex-1 type-sm text-(--text-body)">
+              {t("r360.offer", {
+                date: format.dateTime(new Date(offer.createdAt), {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                }),
+                size: formatBytes(offer.sizeBytes, format),
+              })}
+            </span>
+            <Button
+              variant="solid"
+              onClick={() => void track(resumeFrames(offer))}
+              disabled={saving}
+            >
+              {t("r360.offerAccept")}
+            </Button>
+            <Button
+              variant="quiet"
+              onClick={() => setOffer(null)}
+              disabled={saving}
+            >
+              {t("r360.offerDecline")}
+            </Button>
+          </div>
+        )}
         {archive ? (
           <div className="flex flex-wrap items-center gap-(--sp-4) rounded-sm border border-(--border-hairline) bg-(--surface-card) px-(--sp-5) py-(--sp-4)">
             {!archive.uploading && (
@@ -967,18 +1423,83 @@ export function WorkForm({
               {archive.name || t("r360.attached")}
               {" · "}
               {formatBytes(archive.sizeBytes, format)}
+              {archive.uploading && archive.frames ? (
+                <span
+                  className="font-sans text-(--text-muted)"
+                  data-testid="work-r360-frames"
+                >
+                  {" · "}
+                  {t("r360.frames", archive.frames)}
+                </span>
+              ) : archive.set ? (
+                <span
+                  className="font-sans text-(--text-muted)"
+                  data-testid="work-r360-frames"
+                >
+                  {" · "}
+                  {t("r360.framesDone", {
+                    total: archive.set.params.frameCount,
+                  })}
+                </span>
+              ) : null}
             </span>
             {archive.uploading ? (
-              <UploadProgress
-                label={t("r360.label")}
-                fraction={archive.progress ?? 0}
-                onCancel={removeArchive}
-                className="basis-full sm:basis-auto sm:min-w-56"
-              />
+              <div className="flex basis-full flex-col gap-(--sp-2)">
+                <UploadProgress
+                  label={t("r360.progressLabel")}
+                  fraction={compositeFraction(archive)}
+                  onCancel={removeArchive}
+                />
+                {/* The stages under the one bar (#103): the archive's bytes,
+                    the frames processed, the frames' bytes. */}
+                <ul
+                  className="flex flex-wrap gap-x-(--sp-4) gap-y-(--sp-1) type-sm text-(--text-muted)"
+                  data-testid="work-r360-stages"
+                >
+                  <li>
+                    {t("r360.stageArchive", {
+                      percent: percentOf(archive.progress ?? 0),
+                    })}
+                  </li>
+                  {archive.frames && (
+                    <>
+                      <li>
+                        {t("r360.stageFrames", {
+                          done: archive.frames.done,
+                          total: archive.frames.total,
+                        })}
+                      </li>
+                      <li>
+                        {t("r360.stageUpload", {
+                          landed: archive.frames.landed ?? 0,
+                          total: archive.frames.total,
+                        })}
+                      </li>
+                    </>
+                  )}
+                </ul>
+              </div>
             ) : (
-              <Button variant="quiet" onClick={removeArchive} disabled={saving}>
-                {t("r360.remove")}
-              </Button>
+              <>
+                {!archive.set && (
+                  // #105: the archive is there, its frames are not — derive
+                  // them again without sending it twice.
+                  <Button
+                    variant="quiet"
+                    onClick={() => void track(resumeFrames(archive))}
+                    disabled={saving}
+                  >
+                    {t("r360.retryFrames")}
+                  </Button>
+                )}
+                <Button
+                  variant="quiet"
+                  onClick={removeArchive}
+                  disabled={saving}
+                >
+                  {t("r360.remove")}
+                </Button>
+              </>
             )}
           </div>
         ) : (
@@ -998,6 +1519,49 @@ export function WorkForm({
           </label>
         )}
         <p className="type-sm text-(--text-muted)">{t("r360.hint")}</p>
+        {archive && previewFrames.length > 0 && (
+          <div
+            className="flex flex-col gap-(--sp-4)"
+            data-testid="work-r360-preview"
+          >
+            {/* #103: the preview from the frames themselves — local ones
+                the moment they are encoded, the saved set's otherwise. */}
+            <OrbitViewer
+              frames={previewFrames}
+              params={previewParams}
+              orbit={previewOrbit}
+              alt={t("r360.previewAlt")}
+              label={t("r360.previewLabel")}
+              className="aspect-[16/9] overflow-hidden rounded-sm border border-(--border-hairline) bg-(--surface-sunken)"
+            />
+            {/* #106: the ring dial, flattened as the owner sets it. */}
+            <OrbitRing
+              orbit={previewOrbit}
+              params={previewParams}
+              loaded={previewLoaded}
+              flattening={previewParams.flattening}
+              tone="light"
+              className="mx-auto w-48"
+            />
+            <p className="type-sm text-(--text-muted)">
+              {t("r360.previewHint")}
+              {" · "}
+              <span data-testid="work-r360-frame-count">
+                {t("r360.paramFrameCount")}
+                {": "}
+                {previewParams.frameCount}
+              </span>
+            </p>
+            {archive.set && (
+              <R360ParamControls
+                params={archive.set.params}
+                frameInView={previewOrbit.frame}
+                disabled={saving}
+                onChange={setParams}
+              />
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-(--sp-3)">

@@ -10,6 +10,14 @@ import {
   IMAGE_MAX_BYTES,
   type ImagePurpose,
 } from "@/lib/image-upload-shared";
+import type {
+  FrameSetTransport,
+  PresignOutcome,
+} from "@/lib/r360/frame-pipeline";
+import {
+  R360_FRAME_CONTENT_TYPE,
+  type FrameSetPresign,
+} from "@/lib/r360/frame-set-shared";
 import { IMMUTABLE_CACHE_CONTROL } from "@/lib/storage-shared";
 
 // The #12 upload contract from the browser's side, in one place since #72
@@ -155,7 +163,7 @@ export interface UploadOptions {
 // leave an owner in (step 5 review).
 function putWithProgress(
   url: string,
-  file: File,
+  file: Blob,
   type: string,
   options: UploadOptions,
 ): Promise<"ok" | "failed" | "aborted"> {
@@ -196,11 +204,97 @@ function putWithProgress(
 }
 
 // Tells the server the staged upload is not coming, so the reserved bytes
-// stop counting now rather than at the window's end. Best-effort.
-function abandon(stagingKey: string): Promise<unknown> {
+// stop counting now rather than at the window's end. Best-effort. A key
+// ending with a slash is an R360 set's prefix (#102): the form abandons a
+// set it produced and did not save, so its ceiling stops counting.
+export function abandon(stagingKey: string): Promise<unknown> {
   return postJson("/api/uploads/abandon", { stagingKey }).catch(
     () => undefined,
   );
+}
+
+// #102 / A13: the network side of the frame pipeline (lib/r360) — the
+// batch presign of a set, the same PUT the archive uses, and the give-up
+// by prefix. The loop itself lives in frame-pipeline.ts, without a network.
+export const frameSetTransport: FrameSetTransport = {
+  async presign(frameCount): Promise<PresignOutcome> {
+    try {
+      const response = await postJson<
+        { error?: string } & Partial<FrameSetPresign>
+      >("/api/uploads/presign-r360-set", { frameCount });
+      const { setId, stagingPrefix, urls } = response.data;
+      if (!response.ok || !setId || !stagingPrefix || !urls) {
+        const code = serverFailure(response.data.error, response.status);
+        return {
+          ok: false,
+          failure:
+            code === "quota_exceeded" || code === "rate_limited"
+              ? code
+              : "presign_failed",
+        };
+      }
+      return { ok: true, set: { setId, stagingPrefix, urls } };
+    } catch {
+      return { ok: false, failure: "presign_failed" };
+    }
+  },
+  put: (url, body, options) =>
+    putWithProgress(url, body, R360_FRAME_CONTENT_TYPE, options),
+  abandon,
+};
+
+// #105: the archives that reached the bucket and no work names, and the
+// claim of one — a signed address to read the frames from again.
+export interface UnattachedArchiveJson {
+  fileId: string;
+  sizeBytes: number;
+  /** ISO 8601, as the route writes the date. */
+  createdAt: string;
+}
+
+export async function listUnattachedArchives(): Promise<
+  UnattachedArchiveJson[]
+> {
+  try {
+    const response = await fetch("/api/uploads/unattached-archives", {
+      headers: { accept: "application/json" },
+    });
+    if (!response.ok) return [];
+    const data = (await response.json()) as {
+      archives?: UnattachedArchiveJson[];
+    };
+    return data.archives ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function resumeArchive(
+  fileId: string,
+): Promise<
+  | { ok: true; downloadUrl: string; sizeBytes: number }
+  | { ok: false; failure: UploadFailure }
+> {
+  try {
+    const response = await postJson<{
+      error?: string;
+      downloadUrl?: string;
+      sizeBytes?: number;
+    }>("/api/uploads/resume-archive", { fileId });
+    if (!response.ok || !response.data.downloadUrl) {
+      return {
+        ok: false,
+        failure: serverFailure(response.data.error, response.status),
+      };
+    }
+    return {
+      ok: true,
+      downloadUrl: response.data.downloadUrl,
+      sizeBytes: response.data.sizeBytes ?? 0,
+    };
+  } catch {
+    return { ok: false, failure: "generic" };
+  }
 }
 
 export async function uploadArchive(

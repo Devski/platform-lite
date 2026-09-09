@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { Client } from "pg";
+import { defaultR360Params } from "@/lib/r360/frame-set-shared";
 
 // Works for an e2e account, written straight into the test database: a
 // browser-driven add needs a bucket (the photo goes through S3), which CI
@@ -12,54 +13,126 @@ export interface SeededWork {
   name: string;
 }
 
-/** A name, or a name with a second channel on its photo (#99). */
-export type SeedWork = string | { name: string; secondChannel: true };
+/**
+ * A name, a name with a second channel on its photo (#99), or a name with
+ * an R360 set of N frames and no photo (#103) — the archive row and the
+ * set id are placeholders, the frames have no objects behind them.
+ */
+export type SeedWork =
+  | string
+  | { name: string; secondChannel: true }
+  | { name: string; r360: { frameCount: number; startFrame?: number } };
+
+/** The test database, and only a loopback one: rows the app itself never writes. */
+async function connectForSeed(): Promise<Client> {
+  const url = process.env.DATABASE_URL_TEST?.trim();
+  if (!url) throw new Error("DATABASE_URL_TEST is unset");
+  // Rows the app itself would never write go only where an e2e run has a
+  // legitimate target: loopback (local Postgres, the tunnel, CI's service).
+  const parsed = new URL(url);
+  const host = parsed.hostname;
+  if (!["localhost", "127.0.0.1", "::1", "[::1]"].includes(host)) {
+    throw new Error(`seedWorks refuses the non-loopback database ${host}`);
+  }
+  // pg lets a query parameter override the host the URL names.
+  if (parsed.searchParams.has("host") || parsed.searchParams.has("hostaddr")) {
+    throw new Error("seedWorks refuses a host set in the query string");
+  }
+  const client = new Client({ connectionString: url });
+  await client.connect();
+  return client;
+}
+
+async function ownerOf(client: Client, handle: string): Promise<string> {
+  const owner = await client.query<{ user_id: string }>(
+    "select user_id from profiles where handle = $1",
+    [handle],
+  );
+  const userId = owner.rows[0]?.user_id;
+  if (!userId) throw new Error(`no profile for handle ${handle}`);
+  return userId;
+}
+
+/**
+ * #105: an R360 archive of the account that reached the bucket and no
+ * work names — what the form offers to finish from. No object behind it:
+ * the e2e stubs the signed address it is read from.
+ */
+export async function seedArchive(
+  handle: string,
+  sizeBytes: number,
+): Promise<{ fileId: string }> {
+  const client = await connectForSeed();
+  try {
+    const userId = await ownerOf(client, handle);
+    const etag = randomBytes(16).toString("hex");
+    const row = await client.query<{ id: string }>(
+      `insert into files (user_id, sha256, size_bytes, kind, ext, object_key)
+       values ($1, $2, $3, 'r360-zip', 'zip', $4) returning id`,
+      [userId, `md5-${etag}`, sizeBytes, `u/${userId}/r360-${etag}.zip`],
+    );
+    return { fileId: row.rows[0].id };
+  } finally {
+    await client.end();
+  }
+}
 
 export async function seedWorks(
   handle: string,
   works: SeedWork[],
 ): Promise<SeededWork[]> {
-  const url = process.env.DATABASE_URL_TEST?.trim();
-  if (!url) throw new Error("DATABASE_URL_TEST is unset");
-  // Rows the app itself would never write go only where an e2e run has a
-  // legitimate target: loopback (local Postgres, the tunnel, CI's service).
-  const host = new URL(url).hostname;
-  if (!["localhost", "127.0.0.1", "::1", "[::1]"].includes(host)) {
-    throw new Error(`seedWorks refuses the non-loopback database ${host}`);
-  }
-  const client = new Client({ connectionString: url });
-  await client.connect();
+  const client = await connectForSeed();
   try {
-    const owner = await client.query<{ user_id: string }>(
-      "select user_id from profiles where handle = $1",
-      [handle],
-    );
-    const userId = owner.rows[0]?.user_id;
-    if (!userId) throw new Error(`no profile for handle ${handle}`);
-    const seeded: SeededWork[] = [];
-    const placeholder = async () =>
-      (
-        await client.query<{ id: string }>(
-          `insert into files (user_id, sha256, size_bytes, kind, ext)
-           values ($1, $2, 1, 'work-original', 'png') returning id`,
-          [userId, randomBytes(32).toString("hex")],
-        )
-      ).rows[0].id;
-    for (const entry of works) {
-      const name = typeof entry === "string" ? entry : entry.name;
+    const userId = await ownerOf(client, handle);
+    const insertId = async (sql: string, values: unknown[]) =>
+      (await client.query<{ id: string }>(sql, values)).rows[0].id;
+    const placeholder = () =>
+      insertId(
+        `insert into files (user_id, sha256, size_bytes, kind, ext)
+         values ($1, $2, 1, 'work-original', 'png') returning id`,
+        [userId, randomBytes(32).toString("hex")],
+      );
+    const photoWork = async (name: string, secondChannel: boolean) => {
       const fileId = await placeholder();
-      const secondaryId =
-        typeof entry === "string" ? null : await placeholder();
-      const work = await client.query<{ id: string }>(
+      const secondaryId = secondChannel ? await placeholder() : null;
+      const workId = await insertId(
         `insert into works (user_id, name) values ($1, $2) returning id`,
         [userId, name],
       );
       await client.query(
         `insert into work_images (work_id, file_id, secondary_file_id, position)
          values ($1, $2, $3, 0)`,
-        [work.rows[0].id, fileId, secondaryId],
+        [workId, fileId, secondaryId],
       );
-      seeded.push({ id: work.rows[0].id, name });
+      return workId;
+    };
+    const r360Work = async (
+      name: string,
+      r360: { frameCount: number; startFrame?: number },
+    ) => {
+      const archiveId = await insertId(
+        `insert into files (user_id, sha256, size_bytes, kind, ext)
+         values ($1, $2, 1, 'r360-zip', 'zip') returning id`,
+        [userId, `md5-${randomBytes(16).toString("hex")}`],
+      );
+      const params = {
+        ...defaultR360Params(r360.frameCount),
+        startFrame: r360.startFrame ?? 1,
+      };
+      return insertId(
+        `insert into works (user_id, name, r360_file_id, r360_set_id, r360_params)
+         values ($1, $2, $3, $4, $5) returning id`,
+        [userId, name, archiveId, randomBytes(16).toString("hex"), params],
+      );
+    };
+    const seeded: SeededWork[] = [];
+    for (const entry of works) {
+      const name = typeof entry === "string" ? entry : entry.name;
+      const id =
+        typeof entry !== "string" && "r360" in entry
+          ? await r360Work(name, entry.r360)
+          : await photoWork(name, typeof entry !== "string");
+      seeded.push({ id, name });
     }
     return seeded;
   } finally {
