@@ -194,11 +194,13 @@ function WorkCard({
             key={image.url1600}
             type="button"
             onClick={(event) => onOpen(index, event.currentTarget)}
-            aria-label={t("card.enlarge", {
+            // The badge is inside the button, whose label replaces its
+            // content for the screen reader: the two channels are named here.
+            aria-label={`${t("card.enlarge", {
               index: index + 1,
               count,
               name: work.name,
-            })}
+            })}${image.secondary ? `, ${t("reveal.badge")}` : ""}`}
             className={`relative block min-h-0 cursor-zoom-in overflow-hidden bg-n-200 focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_3px_var(--surface-card),inset_0_0_0_5px_var(--focus-ring)] ${
               index === 0
                 ? count === 1
@@ -222,6 +224,7 @@ function WorkCard({
               <span
                 className="absolute top-1.5 right-1.5 inline-flex items-center gap-1 rounded-full bg-n-950/80 px-2 py-0.5 type-eyebrow text-white"
                 title={t("reveal.badge")}
+                aria-hidden="true"
               >
                 <Icon name="layers" size={12} />
                 <span className="sr-only">{t("reveal.badge")}</span>

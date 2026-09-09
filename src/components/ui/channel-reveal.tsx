@@ -71,7 +71,9 @@ export function ChannelReveal({
         onPointerCancel={() => setDragging(false)}
       >
         {/* The first channel sets the size; the second is laid over it and
-            cut past the handle. Both are the same view, so one box. */}
+            cut past the handle. Both are the same view, so one box — the
+            pair is assumed to share its proportions; with different ones
+            the second would letterbox and the divide drift off it. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={first.src}
@@ -112,7 +114,7 @@ export function ChannelReveal({
             event.preventDefault();
             setPosition(next);
           }}
-          className={`absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 cursor-${along ? "ew" : "ns"}-resize items-center justify-center rounded-full border border-white/40 bg-n-950/80 text-white shadow-md focus-visible:outline-none focus-visible:shadow-[0_0_0_2px_rgba(12,17,22,.6),0_0_0_4px_#fff]`}
+          className={`absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 ${along ? "cursor-ew-resize" : "cursor-ns-resize"} items-center justify-center rounded-full border border-white/40 bg-n-950/80 text-white shadow-md focus-visible:outline-none focus-visible:shadow-[0_0_0_2px_rgba(12,17,22,.6),0_0_0_4px_#fff]`}
           style={
             along
               ? { left: percent, top: "50%" }

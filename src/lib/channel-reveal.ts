@@ -33,6 +33,9 @@ export function positionAfterKey(
   key: string,
   axis: RevealAxis,
 ): number | null {
+  // A key moves the handle the way it points — down is more of the second
+  // channel across the picture, a conscious step away from the APG's
+  // "up is more" for vertical sliders; aria-valuetext says what it means.
   const less = axis === "x" ? "ArrowLeft" : "ArrowUp";
   const more = axis === "x" ? "ArrowRight" : "ArrowDown";
   switch (key) {

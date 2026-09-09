@@ -79,7 +79,7 @@ test("a two-channel photo opens as the reveal slider: drag to the middle, arrows
 }) => {
   await page.goto(`/${handle}`);
   // The card marks the photo as two-channel.
-  await expect(page.getByText("Dwa kanały")).toBeAttached();
+  await expect(page.getByRole("button", { name: /Dwa kanały/ })).toBeVisible();
   await page
     .getByRole("button", { name: `Powiększ zdjęcie 1 z 1: ${PAIR}` })
     .click();
