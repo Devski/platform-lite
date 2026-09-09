@@ -552,6 +552,11 @@ export const files = pgTable(
     // read paths fall back to the old derivation until it has run. New rows
     // always carry it.
     objectKey: text("object_key"),
+    // #105: an R360 archive the owner is finishing from — the frames are
+    // derived again from it. The orphan sweep (a day after the upload)
+    // leaves a claimed archive alone for a while, or it would delete an
+    // archive near the one-day line while it is being read.
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
   (table) => [

@@ -14,7 +14,7 @@ import {
 } from "./account";
 import { buildZip } from "@/lib/r360/test-zip";
 import { expectNoAxeViolations } from "../axe";
-import { seedWorks } from "./seed-works";
+import { seedArchive, seedWorks } from "./seed-works";
 
 // #72 / A12, step 4: the work form's wiring from the browser's side, every
 // server answer stubbed — which calls it makes, with what, and which it does
@@ -865,4 +865,88 @@ test("an archive with a gap is refused on the page and sends nothing; a saved se
   );
   await expect(page.getByTestId("work-r360-frames-per-width")).toHaveValue("2");
   await page.getByRole("button", { name: "Anuluj" }).click();
+});
+// #105: an archive that reached the bucket without its frames is offered
+// on the next form and read again by Range through a signed address —
+// stubbed here with a real archive served in pieces — and the work saves
+// with the set it produced.
+test("an archive that landed without frames is offered, its frames derived again by Range, and the work saves with the set (#105)", async () => {
+  const zip = await orbitZip(3);
+  const { fileId } = await seedArchive(identity.handle, zip.length);
+  const ARCHIVE_URL = "/__stub-storage/landed-archive.zip";
+  const ranges: string[] = [];
+  const created: Request[] = [];
+  await page.route("**/api/uploads/resume-archive", (route) =>
+    json(200, { downloadUrl: ARCHIVE_URL, sizeBytes: zip.length })(route),
+  );
+  // The bucket, as a Range request sees it: 206 with Content-Range for a
+  // range, the whole body without one.
+  await page.route(`**${ARCHIVE_URL}`, (route) => {
+    const range = route.request().headers()["range"];
+    const match = /^bytes=(\d+)-(\d+)$/.exec(range ?? "");
+    if (!match) return route.fulfill({ status: 200, body: zip });
+    ranges.push(range);
+    const start = Number(match[1]);
+    const end = Math.min(Number(match[2]), zip.length - 1);
+    return route.fulfill({
+      status: 206,
+      headers: {
+        "content-range": `bytes ${start}-${end}/${zip.length}`,
+        "accept-ranges": "bytes",
+        "content-type": "application/zip",
+      },
+      body: zip.subarray(start, end + 1),
+    });
+  });
+  await page.route("**/api/uploads/presign-r360-set", (route) =>
+    json(200, {
+      setId: SET_ID,
+      stagingPrefix: `staging/someone/${SET_ID}/`,
+      urls: { 1600: frameUrls(1600, 3), 800: frameUrls(800, 3) },
+    })(route),
+  );
+  await page.route(`**${FRAME_URL}/**`, (route) =>
+    route.fulfill({ status: 200, body: "" }),
+  );
+  await page.route("**/api/uploads/confirm", (route) =>
+    json(200, { original: { fileId: FILE_ID } })(route),
+  );
+  await page.route("**/api/works", (route) => {
+    created.push(route.request());
+    return json(200, { id: "33333333-3333-4333-8333-333333333333" })(route);
+  });
+
+  // A fresh form asks the server what landed: the seeded archive is offered.
+  await page.getByRole("button", { name: "Anuluj" }).click();
+  await page.getByRole("button", { name: "Dodaj realizację" }).click();
+  const offer = page.getByTestId("work-r360-offer");
+  await expect(offer).toBeVisible();
+  await expect(offer).toContainText("dotarło na serwer bez klatek");
+  await offer.getByRole("button", { name: "Dokończ" }).click();
+  await expect(page.getByText("Wgrany", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("work-r360-frames")).toHaveText(
+    "· Klatki gotowe: 3",
+  );
+  // Read in pieces, never whole: the tail, the directory, each frame.
+  expect(ranges.length).toBeGreaterThanOrEqual(4);
+  expect(ranges[0]).toBe("bytes=0-0");
+
+  await page.getByLabel("Nazwa", { exact: true }).fill("Dokończona orbita");
+  await page.getByRole("button", { name: "Zapisz realizację" }).click();
+  await expect.poll(() => created.length).toBe(1);
+  expect(created[0].postDataJSON()).toEqual({
+    name: "Dokończona orbita",
+    investor: "",
+    developer: "",
+    imageFileIds: [],
+    r360FileId: fileId,
+    r360SetId: SET_ID,
+    r360Params: {
+      frameCount: 3,
+      direction: 1,
+      framesPerWidth: 2,
+      startFrame: 1,
+      flattening: 1,
+    },
+  });
 });

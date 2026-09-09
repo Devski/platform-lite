@@ -562,6 +562,10 @@
         "paramFlattening": "Spłaszczenie pierścienia",
         "flatteningCircle": "Okrąg",
         "flatteningHint": "Zadziała, gdy pojawi się pierścień.",
+        "offer": "Archiwum z {date} ({size}) dotarło na serwer bez klatek. Dokończyć przetwarzanie?",
+        "offerAccept": "Dokończ",
+        "offerDecline": "Pomiń",
+        "retryFrames": "Przetwórz klatki ponownie",
         "refused": {
           "not_a_zip": "To nie jest archiwum zip.",
           "encrypted": "Archiwum jest zaszyfrowane. Wyeksportuj je bez hasła.",
@@ -585,7 +589,8 @@
           "encode_failed": "Nie udało się zdekodować klatki. Wyeksportuj JPEG, PNG lub WebP.",
           "webp_unsupported": "Ta przeglądarka nie koduje WebP. Użyj aktualnego Chrome, Firefoksa, Edge lub Safari.",
           "frame_too_large": "Klatka jest zbyt szczegółowa, by zmieścić się w limicie. Wyeksportuj mniejsze klatki.",
-          "upload_failed": "Nie udało się wysłać klatki. Spróbuj ponownie."
+          "upload_failed": "Nie udało się wysłać klatki. Spróbuj ponownie.",
+          "resume": "Archiwum nie jest już dostępne. Dodaj je ponownie."
         }
       }
     },

@@ -243,6 +243,55 @@ export const frameSetTransport: FrameSetTransport = {
   abandon,
 };
 
+// #105: the archives that reached the bucket and no work names, and the
+// claim of one — a signed address to read the frames from again.
+export interface UnattachedArchive {
+  fileId: string;
+  sizeBytes: number;
+  createdAt: string;
+}
+
+export async function listUnattachedArchives(): Promise<UnattachedArchive[]> {
+  try {
+    const response = await fetch("/api/uploads/unattached-archives", {
+      headers: { accept: "application/json" },
+    });
+    if (!response.ok) return [];
+    const data = (await response.json()) as { archives?: UnattachedArchive[] };
+    return data.archives ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function resumeArchive(
+  fileId: string,
+): Promise<
+  | { ok: true; downloadUrl: string; sizeBytes: number }
+  | { ok: false; failure: UploadFailure }
+> {
+  try {
+    const response = await postJson<{
+      error?: string;
+      downloadUrl?: string;
+      sizeBytes?: number;
+    }>("/api/uploads/resume-archive", { fileId });
+    if (!response.ok || !response.data.downloadUrl) {
+      return {
+        ok: false,
+        failure: serverFailure(response.data.error, response.status),
+      };
+    }
+    return {
+      ok: true,
+      downloadUrl: response.data.downloadUrl,
+      sizeBytes: response.data.sizeBytes ?? 0,
+    };
+  } catch {
+    return { ok: false, failure: "generic" };
+  }
+}
+
 export async function uploadArchive(
   file: File,
   options: UploadOptions = {},

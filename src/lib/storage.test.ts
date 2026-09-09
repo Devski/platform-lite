@@ -136,6 +136,18 @@ describe("memory storage (the G1 fake for dependent code)", () => {
     ).toContain("maxBytes=any");
   });
 
+  it("signs a short-lived address to read a private object (#105)", async () => {
+    const { storage } = createMemoryStorage();
+    expect(
+      await storage.presignDownload("u/x/r360-abc.zip", {
+        expiresInSeconds: 7200,
+      }),
+    ).toBe("memory://download/u/x/r360-abc.zip?expires=7200");
+    expect(await storage.presignDownload("u/x/r360-abc.zip")).toContain(
+      "expires=600",
+    );
+  });
+
   it("deletes idempotently", async () => {
     const { storage } = createMemoryStorage();
     await storage.putObject("a/k2.bin", Buffer.from("x"), "text/plain");
@@ -259,6 +271,20 @@ describe("S3 storage (offline: URL composition and signing)", () => {
     expect(signedHeaders).not.toContain("content-length");
     expect(signedHeaders).toContain("content-type");
     expect(signedHeaders).toContain("cache-control");
+  });
+
+  it("signs a GET for a private archive, path style, with the caller's TTL (#105)", async () => {
+    const storage = createS3Storage(config);
+    const url = new URL(
+      await storage.presignDownload("devski/u/x/r360-abc.zip", {
+        expiresInSeconds: 7200,
+      }),
+    );
+    expect(url.pathname).toBe("/platform-dev/devski/u/x/r360-abc.zip");
+    expect(url.searchParams.get("X-Amz-Expires")).toBe("7200");
+    expect(url.searchParams.get("X-Amz-Signature")).toBeTruthy();
+    // A GET's signature names no content headers.
+    expect(url.searchParams.get("X-Amz-SignedHeaders")).toBe("host");
   });
 
   it("honors a caller TTL override and keeps 600 s as the default", async () => {

@@ -562,6 +562,10 @@
         "paramFlattening": "Ring flattening",
         "flatteningCircle": "Circle",
         "flatteningHint": "Takes effect once the ring dial arrives.",
+        "offer": "An archive from {date} ({size}) reached the server without its frames. Finish processing it?",
+        "offerAccept": "Finish",
+        "offerDecline": "Skip",
+        "retryFrames": "Process the frames again",
         "refused": {
           "not_a_zip": "This is not a zip archive.",
           "encrypted": "The archive is encrypted. Export it without a password.",
@@ -585,7 +589,8 @@
           "encode_failed": "A frame could not be decoded. Export JPEG, PNG or WebP.",
           "webp_unsupported": "This browser cannot encode WebP. Use a current Chrome, Firefox, Edge or Safari.",
           "frame_too_large": "A frame is too detailed to encode within the limit. Export smaller frames.",
-          "upload_failed": "A frame failed to upload. Try again."
+          "upload_failed": "A frame failed to upload. Try again.",
+          "resume": "The archive is no longer available. Add it again."
         }
       }
     },

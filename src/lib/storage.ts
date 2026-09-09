@@ -118,6 +118,16 @@ export interface FileStorage {
   ): Promise<{ key: string; sizeBytes: number; etag: string }[]>;
   /** Stable, unsigned address of a public object (G3). */
   publicUrl(key: string): string;
+  /**
+   * A signed, short-lived address to READ a private object — the R360
+   * archive the owner's browser derives the frames from again (#105).
+   * Not a public photo, so G3's rule on signatures does not apply; a
+   * public address would hand any visitor the whole archive.
+   */
+  presignDownload(
+    key: string,
+    opts?: { expiresInSeconds?: number },
+  ): Promise<string>;
 }
 
 // G2: content-addressed name → served forever-cacheable. Defined in the
@@ -389,6 +399,14 @@ export function createS3Storage(config: {
       return found;
     },
 
+    async presignDownload(key, opts) {
+      return getSignedUrl(
+        client,
+        new GetObjectCommand({ Bucket: bucket, Key: key }),
+        { expiresIn: opts?.expiresInSeconds ?? PRESIGN_EXPIRES_SECONDS },
+      );
+    },
+
     publicUrl(key) {
       // Encoded per segment exactly like the SDK encodes the signed path, so
       // the public address always names the object the upload created — an
@@ -474,6 +492,9 @@ export function createMemoryStorage(): {
       },
       publicUrl(key) {
         return `memory://${key}`;
+      },
+      async presignDownload(key, opts) {
+        return `memory://download/${key}?expires=${opts?.expiresInSeconds ?? PRESIGN_EXPIRES_SECONDS}`;
       },
     },
   };

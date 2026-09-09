@@ -33,9 +33,18 @@ import {
   R360_WIDTHS,
   type R360Params,
 } from "@/lib/r360/frame-set-shared";
-import { fileSource, openZip, ZipError } from "@/lib/r360/zip-reader";
+import {
+  fileSource,
+  openZip,
+  urlSource,
+  ZipError,
+  type ZipArchive,
+} from "@/lib/r360/zip-reader";
 import {
   abandon,
+  listUnattachedArchives,
+  resumeArchive,
+  type UnattachedArchive,
   frameSetTransport,
   uploadArchive,
   uploadImage,
@@ -290,6 +299,20 @@ export function WorkForm({
   }
   // The archive transfer in flight, to stop it on remove or unmount.
   const archiveAbort = useRef<AbortController | null>(null);
+  // #105: an archive of the owner's that reached the bucket and no work
+  // names — offered to finish from, so it is not sent twice. Asked for
+  // once, on a form without an archive of its own.
+  const [offer, setOffer] = useState<UnattachedArchive | null>(null);
+  useEffect(() => {
+    if (work?.r360) return;
+    let gone = false;
+    void listUnattachedArchives().then((archives) => {
+      if (!gone && archives[0]) setOffer(archives[0]);
+    });
+    return () => {
+      gone = true;
+    };
+  }, [work?.r360]);
   // #103: the preview's frames — object URLs of the 800 px encodings as
   // the pipeline produces them (revoked with the form), or the saved set's
   // public addresses. `previewFrames[ordinal - 1]`.
@@ -747,6 +770,121 @@ export function WorkForm({
       fileId: result.fileId,
       sizeBytes: result.sizeBytes,
       name: file.name,
+      uploading: false,
+      set: {
+        id: set.setId,
+        params: defaultR360Params(set.frameCount),
+        stagingPrefix: set.stagingPrefix,
+      },
+    });
+  }
+
+  /**
+   * #105: the frames again, from an archive that already reached the
+   * bucket — the current one whose set failed, or one offered. The
+   * archive is claimed and read by Range through a signed address; the
+   * pipeline is the one a pick runs, without the archive's own upload.
+   */
+  async function resumeFrames(archive: {
+    fileId: string;
+    sizeBytes: number;
+    name: string;
+  }) {
+    setError(null);
+    setOffer(null);
+    const claim = await resumeArchive(archive.fileId);
+    if (!claim.ok) {
+      if (claim.failure === "not_found") setError(t("r360.failed.resume"));
+      else uploadFail(claim.failure);
+      return;
+    }
+    let zip: ZipArchive;
+    try {
+      zip = await openZip(urlSource(claim.downloadUrl));
+    } catch (error) {
+      setError(t(`r360.refused.${zipRefusal(error)}`));
+      return;
+    }
+    const order = orderFrames(zip.entries);
+    if (!order.ok) {
+      setError(
+        t(`r360.refused.${order.reason}`, {
+          files: order.files.join(", "),
+          count: order.count,
+        }),
+      );
+      return;
+    }
+    const sizeBytes = claim.sizeBytes || archive.sizeBytes;
+    const patchResumed = (change: Partial<Archive>) =>
+      commitArchive((current) =>
+        current?.fileId === archive.fileId
+          ? { ...current, ...change }
+          : current,
+      );
+    commitArchive({
+      fileId: archive.fileId,
+      sizeBytes,
+      name: archive.name,
+      uploading: true,
+      // The archive is there already: its bytes are the bar's done half.
+      progress: 1,
+      frames: { done: 0, total: order.frames.length },
+    });
+    resetPreview(order.frames.map(() => null));
+    previewOrbit.setFrame(1);
+    const controller = new AbortController();
+    archiveAbort.current = controller;
+    let framesDone = -1;
+    const set = (await canEncodeWebp())
+      ? await produceFrameSet({
+          archive: zip,
+          frames: order.frames,
+          encoder: browserFrameEncoder(),
+          transport: frameSetTransport,
+          signal: controller.signal,
+          onFrame: (ordinal, encoded) => {
+            if (
+              closed.current ||
+              archiveRef.current?.fileId !== archive.fileId
+            ) {
+              return;
+            }
+            const url = URL.createObjectURL(encoded[R360_WIDTHS[1]]);
+            commitPreview((current) =>
+              current.map((entry, index) =>
+                index === ordinal - 1 ? url : entry,
+              ),
+            );
+          },
+          onProgress: (p) => {
+            const bucket = p.framesDone * 1000 + p.framesLanded;
+            if (bucket === framesDone) return;
+            framesDone = bucket;
+            patchResumed({
+              frames: {
+                done: p.framesDone,
+                total: p.framesTotal,
+                bytesSent: p.bytesSent,
+                bytesQueued: p.bytesQueued,
+                landed: p.framesLanded,
+              },
+            });
+          },
+        })
+      : { ok: false as const, failure: "webp_unsupported" as const };
+    archiveAbort.current = null;
+    if (closed.current) {
+      if (set.ok) void abandon(set.stagingPrefix);
+      return;
+    }
+    if (!set.ok) {
+      patchResumed({ uploading: false, frames: undefined });
+      resetPreview();
+      if (set.failure !== "aborted") setError(t(`r360.failed.${set.failure}`));
+      return;
+    }
+    patchResumed({
       uploading: false,
       set: {
         id: set.setId,
@@ -1232,6 +1370,44 @@ export function WorkForm({
             {t("r360.rule")}
           </span>
         </p>
+        {!archive && offer && (
+          <div
+            className="flex flex-wrap items-center gap-(--sp-4) rounded-sm border border-(--border-hairline) bg-(--surface-card) px-(--sp-5) py-(--sp-4)"
+            data-testid="work-r360-offer"
+          >
+            <span className="min-w-0 flex-1 type-sm text-(--text-body)">
+              {t("r360.offer", {
+                date: format.dateTime(new Date(offer.createdAt), {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                }),
+                size: formatBytes(offer.sizeBytes, format),
+              })}
+            </span>
+            <Button
+              variant="solid"
+              onClick={() =>
+                void track(
+                  resumeFrames({
+                    fileId: offer.fileId,
+                    sizeBytes: offer.sizeBytes,
+                    name: t("r360.attached"),
+                  }),
+                )
+              }
+              disabled={saving}
+            >
+              {t("r360.offerAccept")}
+            </Button>
+            <Button
+              variant="quiet"
+              onClick={() => setOffer(null)}
+              disabled={saving}
+            >
+              {t("r360.offerDecline")}
+            </Button>
+          </div>
+        )}
         {archive ? (
           <div className="flex flex-wrap items-center gap-(--sp-4) rounded-sm border border-(--border-hairline) bg-(--surface-card) px-(--sp-5) py-(--sp-4)">
             {!archive.uploading && (
@@ -1303,9 +1479,34 @@ export function WorkForm({
                 </ul>
               </div>
             ) : (
-              <Button variant="quiet" onClick={removeArchive} disabled={saving}>
-                {t("r360.remove")}
-              </Button>
+              <>
+                {!archive.set && (
+                  // #105: the archive is there, its frames are not — derive
+                  // them again without sending it twice.
+                  <Button
+                    variant="quiet"
+                    onClick={() =>
+                      void track(
+                        resumeFrames({
+                          fileId: archive.fileId,
+                          sizeBytes: archive.sizeBytes,
+                          name: archive.name || t("r360.attached"),
+                        }),
+                      )
+                    }
+                    disabled={saving}
+                  >
+                    {t("r360.retryFrames")}
+                  </Button>
+                )}
+                <Button
+                  variant="quiet"
+                  onClick={removeArchive}
+                  disabled={saving}
+                >
+                  {t("r360.remove")}
+                </Button>
+              </>
             )}
           </div>
         ) : (

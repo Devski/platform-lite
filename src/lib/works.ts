@@ -641,6 +641,9 @@ async function freeUnreferenced(
  * (step 5 review). A day, because a form left open overnight is not an
  * orphan yet.
  */
+/** How long a claim (#105) holds the sweep off: a session's worth. */
+export const ARCHIVE_CLAIM_HOURS = 6;
+
 export async function sweepOrphanArchives(
   deps: ProfileDeps,
   olderThanHours = 24,
@@ -658,6 +661,14 @@ export async function sweepOrphanArchives(
         lt(
           files.createdAt,
           sql`now() - make_interval(hours => ${olderThanHours})`,
+        ),
+        // #105: an archive being finished from is not an orphan yet.
+        or(
+          isNull(files.claimedAt),
+          lt(
+            files.claimedAt,
+            sql`now() - make_interval(hours => ${ARCHIVE_CLAIM_HOURS})`,
+          ),
         ),
       ),
     );

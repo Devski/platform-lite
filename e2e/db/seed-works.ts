@@ -23,10 +23,13 @@ export type SeedWork =
   | { name: string; secondChannel: true }
   | { name: string; r360: { frameCount: number; startFrame?: number } };
 
-export async function seedWorks(
-  handle: string,
-  works: SeedWork[],
-): Promise<SeededWork[]> {
+/**
+ * #105: an R360 archive of the account that reached the bucket and no
+ * work names — what the form offers to finish from. No object behind it:
+ * the e2e stubs the signed address it is read from.
+ */
+/** The test database, and only a loopback one: rows the app itself never writes. */
+async function connectForSeed(): Promise<Client> {
   const url = process.env.DATABASE_URL_TEST?.trim();
   if (!url) throw new Error("DATABASE_URL_TEST is unset");
   // Rows the app itself would never write go only where an e2e run has a
@@ -42,6 +45,38 @@ export async function seedWorks(
   }
   const client = new Client({ connectionString: url });
   await client.connect();
+  return client;
+}
+
+export async function seedArchive(
+  handle: string,
+  sizeBytes: number,
+): Promise<{ fileId: string }> {
+  const client = await connectForSeed();
+  try {
+    const owner = await client.query<{ user_id: string }>(
+      "select user_id from profiles where handle = $1",
+      [handle],
+    );
+    const userId = owner.rows[0]?.user_id;
+    if (!userId) throw new Error(`no profile for handle ${handle}`);
+    const etag = randomBytes(16).toString("hex");
+    const row = await client.query<{ id: string }>(
+      `insert into files (user_id, sha256, size_bytes, kind, ext, object_key)
+       values ($1, $2, $3, 'r360-zip', 'zip', $4) returning id`,
+      [userId, `md5-${etag}`, sizeBytes, `u/${userId}/r360-${etag}.zip`],
+    );
+    return { fileId: row.rows[0].id };
+  } finally {
+    await client.end();
+  }
+}
+
+export async function seedWorks(
+  handle: string,
+  works: SeedWork[],
+): Promise<SeededWork[]> {
+  const client = await connectForSeed();
   try {
     const owner = await client.query<{ user_id: string }>(
       "select user_id from profiles where handle = $1",

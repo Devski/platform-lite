@@ -183,6 +183,7 @@ describe("schema tables (SPEC §9)", () => {
     const columnNames = files.columns.map((c) => c.name).sort();
     expect(columnNames).toEqual(
       [
+        "claimed_at",
         "created_at",
         "ext",
         "id",
