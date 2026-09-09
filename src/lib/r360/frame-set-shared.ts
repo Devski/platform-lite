@@ -65,12 +65,31 @@ export function frameKey(
 }
 
 /**
+ * The 2N (width, ordinal) pairs of a set, in the order the presign answers
+ * them and the save checks them: every ordinal of the first width, then of
+ * the second.
+ */
+export function frameSlots(
+  frameCount: number,
+): { width: R360Width; ordinal: number }[] {
+  return R360_WIDTHS.flatMap((width) =>
+    Array.from({ length: frameCount }, (_, i) => ({ width, ordinal: i + 1 })),
+  );
+}
+
+const frameCountSchema = z
+  .number()
+  .int()
+  .min(R360_MIN_FRAMES)
+  .max(R360_MAX_FRAMES);
+
+/**
  * The five viewer parameters (#68), as stored in works.r360_params. The
  * frame count is detected, not chosen; the other four are the owner's.
  */
 export const r360ParamsSchema = z
   .object({
-    frameCount: z.number().int().min(R360_MIN_FRAMES).max(R360_MAX_FRAMES),
+    frameCount: frameCountSchema,
     direction: z.union([z.literal(1), z.literal(-1)]),
     framesPerWidth: z.number().int().min(1).max(R360_MAX_FRAMES),
     startFrame: z.number().int().min(1).max(R360_MAX_FRAMES),
@@ -93,9 +112,7 @@ export function defaultR360Params(frameCount: number): R360Params {
   };
 }
 
-export const presignFrameSetSchema = z.object({
-  frameCount: z.number().int().min(R360_MIN_FRAMES).max(R360_MAX_FRAMES),
-});
+export const presignFrameSetSchema = z.object({ frameCount: frameCountSchema });
 
 /** What the batch presign answers: 2N URLs, by width, in ordinal order. */
 export interface FrameSetPresign {

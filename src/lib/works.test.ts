@@ -1,14 +1,12 @@
 import { eq, inArray, sql } from "drizzle-orm";
-import sharp from "sharp";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { files, workImages, works } from "@/db/schema";
 import { insertTestAccount } from "@/db/test-account";
 import { createTestDb, type TestDb } from "@/db/test-db";
-import { confirmImageUpload, presignImageUpload } from "./image-upload";
 import { updateDisplayName } from "./profile";
 import { createMemoryStorage } from "./storage";
+import { uploadTestArchive, uploadTestPhoto } from "./test-uploads";
 import { WORKS_MAX } from "./work-schemas";
-import { confirmArchiveUpload, presignArchiveUpload } from "./archive-upload";
 import {
   createWork,
   deleteWork,
@@ -62,38 +60,14 @@ function makeDeps(ownerId = userId) {
   };
 }
 
-async function uploadPhoto(
+const uploadPhoto = (
   d: ReturnType<typeof makeDeps>,
   seed: number,
-  purpose: "work" | "cover" = "work",
-) {
-  const image = await sharp({
-    create: {
-      width: 800,
-      height: 600,
-      channels: 3,
-      background: { r: seed % 255, g: 100, b: 50 },
-    },
-  })
-    .png()
-    .toBuffer();
-  const { stagingKey } = await presignImageUpload(d.deps, {
-    sizeBytes: image.length,
-    contentType: "image/png",
-  });
-  await d.deps.storage.putObject(stagingKey, image, "image/png");
-  return confirmImageUpload(d.deps, { stagingKey, purpose });
-}
+  purpose?: "work" | "cover",
+) => uploadTestPhoto(d.deps, { seed, purpose });
 
-async function uploadArchive(d: ReturnType<typeof makeDeps>, seed: string) {
-  const body = Buffer.from(`PK archive ${seed}`);
-  const { stagingKey } = await presignArchiveUpload(d.deps, {
-    sizeBytes: body.length,
-    contentType: "application/zip",
-  });
-  await d.deps.storage.putObject(stagingKey, body, "application/zip");
-  return confirmArchiveUpload(d.deps, { stagingKey });
-}
+const uploadArchive = (d: ReturnType<typeof makeDeps>, seed: string) =>
+  uploadTestArchive(d.deps, seed);
 
 describe("the R360 archive on a work (step 5)", () => {
   it("attaches the caller's own archive, replaces it, and frees the one nothing names", async () => {

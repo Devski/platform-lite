@@ -553,28 +553,33 @@ export function WorkForm({
     archiveAbort.current = controller;
     // Either half failing stops the other: a set without its archive, or
     // an archive without its frames, is nothing the save could use.
+    const stopOthersOnFailure = <T extends { ok: boolean }>(
+      half: Promise<T>,
+    ): Promise<T> =>
+      half.then((outcome) => {
+        if (!outcome.ok) controller.abort();
+        return outcome;
+      });
     const [result, set] = await Promise.all([
-      uploadArchive(file, {
-        signal: controller.signal,
-        onProgress: (fraction) => patchPending({ progress: fraction }),
-      }).then((outcome) => {
-        if (!outcome.ok) controller.abort();
-        return outcome;
-      }),
-      produceFrameSet({
-        archive: zip,
-        frames: order.frames,
-        encoder: browserFrameEncoder(),
-        transport: frameSetTransport,
-        signal: controller.signal,
-        onProgress: (p) =>
-          patchPending({
-            frames: { done: p.framesDone, total: p.framesTotal },
-          }),
-      }).then((outcome) => {
-        if (!outcome.ok) controller.abort();
-        return outcome;
-      }),
+      stopOthersOnFailure(
+        uploadArchive(file, {
+          signal: controller.signal,
+          onProgress: (fraction) => patchPending({ progress: fraction }),
+        }),
+      ),
+      stopOthersOnFailure(
+        produceFrameSet({
+          archive: zip,
+          frames: order.frames,
+          encoder: browserFrameEncoder(),
+          transport: frameSetTransport,
+          signal: controller.signal,
+          onProgress: (p) =>
+            patchPending({
+              frames: { done: p.framesDone, total: p.framesTotal },
+            }),
+        }),
+      ),
     ]);
     archiveAbort.current = null;
     if (closed.current) {

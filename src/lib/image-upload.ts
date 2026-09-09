@@ -100,25 +100,25 @@ export async function discardStagedObject(
   storage: FileStorage,
   key: string,
 ): Promise<boolean> {
+  let keys: string[];
   try {
-    if (!key.endsWith("/")) {
-      await storage.deleteObject(key);
-      return true;
-    }
-    let complete = true;
-    for (const object of await storage.listObjects(key)) {
-      try {
-        await storage.deleteObject(object.key);
-      } catch (error) {
-        console.error("[image-upload] staging cleanup failed:", error);
-        complete = false;
-      }
-    }
-    return complete;
+    keys = key.endsWith("/")
+      ? (await storage.listObjects(key)).map((object) => object.key)
+      : [key];
   } catch (error) {
     console.error("[image-upload] staging cleanup failed:", error);
     return false;
   }
+  let complete = true;
+  for (const each of keys) {
+    try {
+      await storage.deleteObject(each);
+    } catch (error) {
+      console.error("[image-upload] staging cleanup failed:", error);
+      complete = false;
+    }
+  }
+  return complete;
 }
 
 // #30: staged uploads are swept by the APPLICATION, lazily, on the next

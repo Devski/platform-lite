@@ -208,42 +208,46 @@ export async function listWorks(deps: ProfileReadDeps): Promise<WorkView[]> {
   });
 }
 
-// #102: a new set on a work is verified and copied under its final keys
-// BEFORE the work's transaction — a listing and a few hundred server-side
-// copies have no business under the per-user lock — and taken back if the
-// transaction fails. The rows go in with the work.
-interface StagedSet {
-  verified: VerifiedFrameSet;
-  copied: string[];
-}
-
-async function stageFrameSet(
+/**
+ * #102: a new set on a work is verified and copied under its final keys
+ * BEFORE the work's transaction — a listing and a few hundred server-side
+ * copies have no business under the per-user lock — and taken back if the
+ * transaction fails; success settles the reservation. `run` gets the
+ * verified set to record its rows with the work. With no set to stage
+ * (`null`), `run` simply runs.
+ */
+async function withFrameSet<T>(
   deps: ProfileDeps,
-  parsed: { r360SetId: string | null; r360Params: R360Params | null },
-): Promise<StagedSet | null> {
-  if (!parsed.r360SetId || !parsed.r360Params) return null;
+  set: { r360SetId: string | null; r360Params: R360Params | null } | null,
+  run: (verified: VerifiedFrameSet | null) => Promise<T>,
+): Promise<T> {
+  if (!set?.r360SetId || !set.r360Params) return run(null);
   const verified = await verifyFrameSet(deps, {
-    setId: parsed.r360SetId,
-    frameCount: parsed.r360Params.frameCount,
+    setId: set.r360SetId,
+    frameCount: set.r360Params.frameCount,
   });
   const copied = await copyFrameSet(deps.storage, verified);
-  return { verified, copied };
-}
-
-async function withStagedSet<T>(
-  deps: ProfileDeps,
-  staged: StagedSet | null,
-  run: () => Promise<T>,
-): Promise<T> {
   let result: T;
   try {
-    result = await run();
+    result = await run(verified);
   } catch (error) {
-    if (staged) await deleteFrameObjects(deps.storage, staged.copied);
+    await deleteFrameObjects(deps.storage, copied);
     throw error;
   }
-  if (staged) await settleFrameSet(deps, staged.verified);
+  await settleFrameSet(deps, verified);
   return result;
+}
+
+/** The work's own columns as the form sends them; blank text is null. */
+function workColumnsOf(parsed: ReturnType<typeof workInputSchema.parse>) {
+  return {
+    name: parsed.name,
+    investor: parsed.investor || null,
+    developer: parsed.developer || null,
+    r360FileId: parsed.r360FileId,
+    r360SetId: parsed.r360SetId,
+    r360Params: parsed.r360Params,
+  };
 }
 
 // Every file a work is given must be the caller's own confirmed row of the
@@ -312,8 +316,7 @@ export async function createWork(
 ): Promise<{ id: string }> {
   const parsed = workInputSchema.parse(input);
   const { db, userId } = deps;
-  const staged = await stageFrameSet(deps, parsed);
-  return withStagedSet(deps, staged, () =>
+  return withFrameSet(deps, parsed, (verified) =>
     db.transaction(async (tx) => {
       await lockUser(tx, userId);
       const [{ count }] = await tx
@@ -324,19 +327,11 @@ export async function createWork(
       await assertOwnInput(tx, userId, parsed);
       const [created] = await tx
         .insert(works)
-        .values({
-          userId,
-          name: parsed.name,
-          investor: parsed.investor || null,
-          developer: parsed.developer || null,
-          r360FileId: parsed.r360FileId,
-          r360SetId: parsed.r360SetId,
-          r360Params: parsed.r360Params,
-        })
+        .values({ userId, ...workColumnsOf(parsed) })
         .returning({ id: works.id });
       await tx.insert(workImages).values(imageRowsOf(created.id, parsed));
-      if (staged && parsed.r360FileId) {
-        await insertFrameRows(tx, userId, parsed.r360FileId, staged.verified);
+      if (verified && parsed.r360FileId) {
+        await insertFrameRows(tx, userId, parsed.r360FileId, verified);
       }
       return { id: created.id };
     }),
@@ -358,7 +353,7 @@ export async function updateWork(
   const parsed = workInputSchema.parse(input);
   const { db, userId } = deps;
   // The set as the work has it now, read before the transaction: a new one
-  // is verified and copied outside the lock (stageFrameSet), and a set kept
+  // is verified and copied outside the lock (withFrameSet), and a set kept
   // across a change of archive is refused — the frames belong to the bytes
   // they were derived from.
   const [current] = await db
@@ -374,8 +369,9 @@ export async function updateWork(
   ) {
     throw new WorksError("invalid_set");
   }
-  const staged = setChanges ? await stageFrameSet(deps, parsed) : null;
-  const dropped = await withStagedSet(deps, staged, () =>
+  // Only a set the work did not have is staged; one kept is left alone.
+  const staging = setChanges ? parsed : null;
+  const dropped = await withFrameSet(deps, staging, (verified) =>
     db.transaction(async (tx) => {
       // The same per-user lock create and free take: an attach and a free of
       // the same file never interleave.
@@ -406,18 +402,10 @@ export async function updateWork(
       await tx.insert(workImages).values(imageRowsOf(workId, parsed));
       await tx
         .update(works)
-        .set({
-          name: parsed.name,
-          investor: parsed.investor || null,
-          developer: parsed.developer || null,
-          r360FileId: parsed.r360FileId,
-          r360SetId: parsed.r360SetId,
-          r360Params: parsed.r360Params,
-          updatedAt: sql`now()`,
-        })
+        .set({ ...workColumnsOf(parsed), updatedAt: sql`now()` })
         .where(eq(works.id, workId));
-      if (staged && parsed.r360FileId) {
-        await insertFrameRows(tx, userId, parsed.r360FileId, staged.verified);
+      if (verified && parsed.r360FileId) {
+        await insertFrameRows(tx, userId, parsed.r360FileId, verified);
       }
       const kept = new Set([
         ...parsed.imageFileIds,
@@ -536,13 +524,10 @@ async function freeUnreferenced(
   dropped: { images: string[]; archives: string[]; sets?: string[] },
 ): Promise<void> {
   const sets = dropped.sets ?? [];
-  if (
-    dropped.images.length === 0 &&
-    dropped.archives.length === 0 &&
-    sets.length === 0
-  ) {
-    return;
-  }
+  const nothing = [dropped.images, dropped.archives, sets].every(
+    (ids) => ids.length === 0,
+  );
+  if (nothing) return;
   const keys = await deps.db.transaction(async (tx) => {
     await lockUser(tx, deps.userId);
     const freed: string[] = [];

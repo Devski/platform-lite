@@ -14,11 +14,11 @@ import {
   frameSetBytesCeiling,
   frameSetPrefix,
   frameSetStagingPrefix,
+  frameSlots,
   presignFrameSetSchema,
   R360_FRAME_CONTENT_TYPE,
   R360_FRAME_MAX_BYTES,
   R360_SET_ID_PATTERN,
-  R360_WIDTHS,
   type FrameSetPresign,
   type R360Width,
 } from "./frame-set-shared";
@@ -81,15 +81,13 @@ export async function presignFrameSet(
   });
   if (!reserved) throw new FrameSetError("quota_exceeded");
   const urls = { 1600: [] as string[], 800: [] as string[] };
-  for (const width of R360_WIDTHS) {
-    for (let ordinal = 1; ordinal <= frameCount; ordinal++) {
-      urls[width].push(
-        await storage.presignUpload(frameKey(stagingPrefix, width, ordinal), {
-          contentType: R360_FRAME_CONTENT_TYPE,
-          expiresInSeconds: windowSeconds,
-        }),
-      );
-    }
+  for (const { width, ordinal } of frameSlots(frameCount)) {
+    urls[width].push(
+      await storage.presignUpload(frameKey(stagingPrefix, width, ordinal), {
+        contentType: R360_FRAME_CONTENT_TYPE,
+        expiresInSeconds: windowSeconds,
+      }),
+    );
   }
   return { setId, stagingPrefix, urls };
 }
@@ -137,39 +135,38 @@ export async function verifyFrameSet(
     );
   if (!reservation) throw new FrameSetError("invalid_set");
 
-  const expected = frameCount * R360_WIDTHS.length;
+  const slots = frameSlots(frameCount);
   const listed = await storage.listObjects(stagingPrefix, {
-    maxKeys: expected + 1,
+    maxKeys: slots.length + 1,
   });
-  if (listed.length !== expected) throw new FrameSetError("incomplete_set");
+  if (listed.length !== slots.length) {
+    throw new FrameSetError("incomplete_set");
+  }
   const byKey = new Map(listed.map((object) => [object.key, object]));
   const finalPrefix = frameSetPrefix(prefix, userId, setId);
-  const frames: StagedFrame[] = [];
-  for (const width of R360_WIDTHS) {
-    for (let ordinal = 1; ordinal <= frameCount; ordinal++) {
-      const stagingKey = frameKey(stagingPrefix, width, ordinal);
-      const object = byKey.get(stagingKey);
-      if (!object || object.sizeBytes === 0) {
-        throw new FrameSetError("incomplete_set");
-      }
-      if (object.sizeBytes > R360_FRAME_MAX_BYTES[width]) {
-        throw new FrameSetError("frame_too_large");
-      }
-      // As for the archive: a presigned PUT is a single PUT, so the ETag is
-      // the body's MD5; anything else is a provider off the contract.
-      if (!/^[0-9a-f]{32}$/.test(object.etag)) {
-        throw new Error(`storage answered a non-MD5 ETag for ${stagingKey}`);
-      }
-      frames.push({
-        width,
-        ordinal,
-        stagingKey,
-        finalKey: frameKey(finalPrefix, width, ordinal),
-        sizeBytes: object.sizeBytes,
-        etag: object.etag,
-      });
+  const frames = slots.map(({ width, ordinal }): StagedFrame => {
+    const stagingKey = frameKey(stagingPrefix, width, ordinal);
+    const object = byKey.get(stagingKey);
+    if (!object || object.sizeBytes === 0) {
+      throw new FrameSetError("incomplete_set");
     }
-  }
+    if (object.sizeBytes > R360_FRAME_MAX_BYTES[width]) {
+      throw new FrameSetError("frame_too_large");
+    }
+    // As for the archive: a presigned PUT is a single PUT, so the ETag is
+    // the body's MD5; anything else is a provider off the contract.
+    if (!/^[0-9a-f]{32}$/.test(object.etag)) {
+      throw new Error(`storage answered a non-MD5 ETag for ${stagingKey}`);
+    }
+    return {
+      width,
+      ordinal,
+      stagingKey,
+      finalKey: frameKey(finalPrefix, width, ordinal),
+      sizeBytes: object.sizeBytes,
+      etag: object.etag,
+    };
+  });
   for (const ordinal of sampleOrdinals(frameCount)) {
     const header = await storage.getObject(
       frameKey(stagingPrefix, 1600, ordinal),
@@ -211,7 +208,6 @@ export async function copyFrameSet(
   storage: FileStorage,
   verified: VerifiedFrameSet,
 ): Promise<string[]> {
-  const copied: string[] = [];
   await inBatches(verified.frames, 4, async (frame) => {
     await storage.copyObject(
       frame.stagingKey,
@@ -219,9 +215,8 @@ export async function copyFrameSet(
       R360_FRAME_CONTENT_TYPE,
       { publicRead: true },
     );
-    copied.push(frame.finalKey);
   });
-  return copied;
+  return verified.frames.map((frame) => frame.finalKey);
 }
 
 /** One `files` row per frame variant, under the archive's row. */

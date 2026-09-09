@@ -102,16 +102,15 @@ export async function produceFrameSet(
   // PUT reports its own fraction; the sum is the bar's byte count.
   const inFlight = new Set<Promise<void>>();
   let failure: FrameSetFailure | null = null;
-  const sent = new Map<Promise<void>, number>();
   const upload = (url: string, blob: Blob) => {
+    let sentOfThis = 0;
     const task: Promise<void> = transport
       .put(url, blob, {
         signal,
         onProgress: (fraction) => {
-          const before = sent.get(task) ?? 0;
           const now = Math.round(fraction * blob.size);
-          sent.set(task, now);
-          progress.bytesSent += now - before;
+          progress.bytesSent += now - sentOfThis;
+          sentOfThis = now;
           report();
         },
       })
@@ -120,15 +119,15 @@ export async function produceFrameSet(
           failure = result === "aborted" ? "aborted" : "upload_failed";
         }
       })
-      .finally(() => {
-        inFlight.delete(task);
-        sent.delete(task);
-      });
+      .finally(() => inFlight.delete(task));
     inFlight.add(task);
-    sent.set(task, 0);
   };
-  const drainTo = async (count: number) => {
-    while (inFlight.size > count && !failure) await Promise.race(inFlight);
+  // Room for one more: never more than `concurrency` PUTs in the air, the
+  // next frame decoding meanwhile.
+  const waitForRoom = async () => {
+    while (inFlight.size >= concurrency && !failure) {
+      await Promise.race(inFlight);
+    }
   };
   const giveUp = async (why: FrameSetFailure): Promise<FrameSetOutcome> => {
     await Promise.allSettled(inFlight);
@@ -161,16 +160,13 @@ export async function produceFrameSet(
     }
     progress.framesDone = index + 1;
     for (const width of R360_WIDTHS) {
-      // Room for this one before it goes: never more than `concurrency`
-      // PUTs in the air, the next frame decoding meanwhile.
-      await drainTo(concurrency - 1);
+      await waitForRoom();
       if (failure) break;
       progress.bytesQueued += encoded[width].size;
       upload(set.urls[width][index], encoded[width]);
     }
     report();
   }
-  await drainTo(0);
   await Promise.allSettled(inFlight);
   if (failure) return giveUp(failure);
   if (signal?.aborted) return giveUp("aborted");

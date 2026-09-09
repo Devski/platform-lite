@@ -42,20 +42,14 @@ async function draw(
 ): Promise<Blob> {
   if (typeof OffscreenCanvas !== "undefined") {
     const canvas = new OffscreenCanvas(width, height);
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("no 2d context");
-    context.imageSmoothingQuality = "high";
-    context.drawImage(bitmap, 0, 0, width, height);
+    paint(canvas.getContext("2d"), bitmap, width, height);
     return canvas.convertToBlob({ type: R360_FRAME_CONTENT_TYPE, quality });
   }
   // A browser without OffscreenCanvas: the same through a detached element.
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("no 2d context");
-  context.imageSmoothingQuality = "high";
-  context.drawImage(bitmap, 0, 0, width, height);
+  paint(canvas.getContext("2d"), bitmap, width, height);
   return new Promise((resolve, reject) => {
     canvas.toBlob(
       (blob) => (blob ? resolve(blob) : reject(new Error("toBlob failed"))),
@@ -63,4 +57,16 @@ async function draw(
       quality,
     );
   });
+}
+
+/** The bitmap drawn to fill the canvas; both canvas kinds share the brush. */
+function paint(
+  context: (CanvasDrawImage & CanvasImageSmoothing) | null,
+  bitmap: ImageBitmap,
+  width: number,
+  height: number,
+): void {
+  if (!context) throw new Error("no 2d context");
+  context.imageSmoothingQuality = "high";
+  context.drawImage(bitmap, 0, 0, width, height);
 }

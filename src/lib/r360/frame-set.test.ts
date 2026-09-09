@@ -3,18 +3,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { files, pendingUploads, works } from "@/db/schema";
 import { insertTestAccount } from "@/db/test-account";
 import { createTestDb, type TestDb } from "@/db/test-db";
-import {
-  confirmArchiveUpload,
-  presignArchiveUpload,
-} from "@/lib/archive-upload";
-import {
-  confirmImageUpload,
-  presignImageUpload,
-  sweepExpiredUploads,
-} from "@/lib/image-upload";
+import { sweepExpiredUploads } from "@/lib/image-upload";
 import { QUOTA_BYTES, quotaUsageBytes } from "@/lib/quota";
 import { createMemoryStorage } from "@/lib/storage";
 import { updateDisplayName } from "@/lib/profile";
+import { uploadTestArchive, uploadTestPhoto } from "@/lib/test-uploads";
 import { createWork, deleteWork, listWorks, updateWork } from "@/lib/works";
 import sharp from "sharp";
 import {
@@ -29,6 +22,7 @@ import {
   frameKey,
   frameSetBytesCeiling,
   frameSetPrefix,
+  frameSlots,
   R360_FRAME_MAX_BYTES,
   r360ParamsSchema,
 } from "./frame-set-shared";
@@ -65,29 +59,12 @@ function makeDeps() {
   };
 }
 
-async function uploadPhoto(d: ReturnType<typeof makeDeps>) {
-  const image = await sharp({
-    create: { width: 40, height: 30, channels: 3, background: "#446688" },
-  })
-    .png()
-    .toBuffer();
-  const { stagingKey } = await presignImageUpload(d.deps, {
-    sizeBytes: image.length,
-    contentType: "image/png",
-  });
-  await d.deps.storage.putObject(stagingKey, image, "image/png");
-  return confirmImageUpload(d.deps, { stagingKey, purpose: "work" });
-}
+/** A small photo: the tests here are about the frames, not the variants. */
+const uploadPhoto = (d: ReturnType<typeof makeDeps>) =>
+  uploadTestPhoto(d.deps, { seed: 68, width: 40, height: 30 });
 
-async function uploadArchive(d: ReturnType<typeof makeDeps>, seed: string) {
-  const body = Buffer.from(`PK archive ${seed}`);
-  const { stagingKey } = await presignArchiveUpload(d.deps, {
-    sizeBytes: body.length,
-    contentType: "application/zip",
-  });
-  await d.deps.storage.putObject(stagingKey, body, "application/zip");
-  return confirmArchiveUpload(d.deps, { stagingKey });
-}
+const uploadArchive = (d: ReturnType<typeof makeDeps>, seed: string) =>
+  uploadTestArchive(d.deps, seed);
 
 /** A WebP of the given width, as the browser would encode a frame. */
 async function webp(width: number, seed: number): Promise<Buffer> {
@@ -110,18 +87,19 @@ async function stageSet(
   options: { skip?: string; oversize?: string; notWebp?: string } = {},
 ) {
   const set = await presignFrameSet(d.deps, { frameCount });
-  for (const width of [1600, 800] as const) {
-    for (let ordinal = 1; ordinal <= frameCount; ordinal++) {
-      const key = frameKey(set.stagingPrefix, width, ordinal);
-      const short = `${width}/${ordinal}`;
-      if (options.skip === short) continue;
-      let body = await webp(width === 1600 ? 64 : 32, ordinal);
-      if (options.oversize === short) {
-        body = Buffer.alloc(R360_FRAME_MAX_BYTES[width] + 1, 1);
-      }
-      if (options.notWebp === short) body = Buffer.from("not a webp at all");
-      await d.deps.storage.putObject(key, body, "image/webp");
+  for (const { width, ordinal } of frameSlots(frameCount)) {
+    const short = `${width}/${ordinal}`;
+    if (options.skip === short) continue;
+    let body = await webp(width === 1600 ? 64 : 32, ordinal);
+    if (options.oversize === short) {
+      body = Buffer.alloc(R360_FRAME_MAX_BYTES[width] + 1, 1);
     }
+    if (options.notWebp === short) body = Buffer.from("not a webp at all");
+    await d.deps.storage.putObject(
+      frameKey(set.stagingPrefix, width, ordinal),
+      body,
+      "image/webp",
+    );
   }
   return set;
 }
@@ -366,7 +344,7 @@ describe("a frame set on a work", () => {
   it("takes the copies back when the work itself is refused after the copy", async () => {
     const d = makeDeps();
     const photo = await uploadPhoto(d);
-    const archive = await uploadArchive(d, "one");
+    await uploadArchive(d, "one");
     const set = await stageSet(d, 2);
     // The archive named is not the caller's: refused inside the transaction,
     // after the frames were copied.
@@ -393,7 +371,6 @@ describe("a frame set on a work", () => {
     ).toHaveLength(0);
     // Still staged: the owner may try again.
     expect(await d.deps.storage.listObjects(set.stagingPrefix)).toHaveLength(4);
-    void archive;
   });
 
   it("replaces the set with the archive, keeps it across an edit, refuses it across a change of archive, and frees it with the work", async () => {

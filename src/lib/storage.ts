@@ -218,13 +218,12 @@ export function createS3Storage(config: {
       // pass the client-declared size — the URL cannot move more, or fewer,
       // bytes than declared), the content type, and the G2 cache header, so
       // a tampered upload fails verification at the bucket.
+      const signedLength = opts.maxBytes !== undefined;
       const command = new PutObjectCommand({
         Bucket: bucket,
         Key: key,
         ContentType: opts.contentType,
-        ...(opts.maxBytes === undefined
-          ? {}
-          : { ContentLength: opts.maxBytes }),
+        ...(signedLength ? { ContentLength: opts.maxBytes } : {}),
         CacheControl: IMMUTABLE_CACHE_CONTROL,
       });
       return getSignedUrl(client, command, {
@@ -238,7 +237,7 @@ export function createS3Storage(config: {
         // X-Amz-SignedHeaders=cache-control;content-length;content-type;host,
         // and a request differing in any of them fails verification.
         signableHeaders: new Set([
-          ...(opts.maxBytes === undefined ? [] : ["content-length"]),
+          ...(signedLength ? ["content-length"] : []),
           "content-type",
           "cache-control",
         ]),
