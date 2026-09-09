@@ -12,9 +12,12 @@ export interface SeededWork {
   name: string;
 }
 
+/** A name, or a name with a second channel on its photo (#99). */
+export type SeedWork = string | { name: string; secondChannel: true };
+
 export async function seedWorks(
   handle: string,
-  names: string[],
+  works: SeedWork[],
 ): Promise<SeededWork[]> {
   const url = process.env.DATABASE_URL_TEST?.trim();
   if (!url) throw new Error("DATABASE_URL_TEST is unset");
@@ -34,19 +37,27 @@ export async function seedWorks(
     const userId = owner.rows[0]?.user_id;
     if (!userId) throw new Error(`no profile for handle ${handle}`);
     const seeded: SeededWork[] = [];
-    for (const name of names) {
-      const file = await client.query<{ id: string }>(
-        `insert into files (user_id, sha256, size_bytes, kind, ext)
-         values ($1, $2, 1, 'work-original', 'png') returning id`,
-        [userId, randomBytes(32).toString("hex")],
-      );
+    const placeholder = async () =>
+      (
+        await client.query<{ id: string }>(
+          `insert into files (user_id, sha256, size_bytes, kind, ext)
+           values ($1, $2, 1, 'work-original', 'png') returning id`,
+          [userId, randomBytes(32).toString("hex")],
+        )
+      ).rows[0].id;
+    for (const entry of works) {
+      const name = typeof entry === "string" ? entry : entry.name;
+      const fileId = await placeholder();
+      const secondaryId =
+        typeof entry === "string" ? null : await placeholder();
       const work = await client.query<{ id: string }>(
         `insert into works (user_id, name) values ($1, $2) returning id`,
         [userId, name],
       );
       await client.query(
-        `insert into work_images (work_id, file_id, position) values ($1, $2, 0)`,
-        [work.rows[0].id, file.rows[0].id],
+        `insert into work_images (work_id, file_id, secondary_file_id, position)
+         values ($1, $2, $3, 0)`,
+        [work.rows[0].id, fileId, secondaryId],
       );
       seeded.push({ id: work.rows[0].id, name });
     }

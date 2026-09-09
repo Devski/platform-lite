@@ -548,6 +548,15 @@
       "next": "Next photo",
       "counter": "{index} / {count}",
       "hint": "Esc closes, arrows move"
+    },
+    "reveal": {
+      "label": "Channel comparison: {name}, photo {index}",
+      "secondAlt": "{name}, photo {index}, second channel",
+      "valueText": "{percent}% of the second channel",
+      "hint": "Drag across the picture or use the arrow keys",
+      "axisAcross": "Across",
+      "axisAlong": "Along",
+      "badge": "Two channels"
     }
   }
 }

@@ -21,7 +21,9 @@ type IconName =
   | "chevron-left"
   | "chevron-right"
   | "upload"
-  | "layers";
+  | "layers"
+  | "chevron-up"
+  | "chevron-down";
 
 const PATHS: Record<IconName, ReactNode> = {
   "map-pin-off": (
@@ -112,6 +114,9 @@ const PATHS: Record<IconName, ReactNode> = {
   // #72: step through a work's photos in the overlay.
   "chevron-left": <polyline points="15 5 8 12 15 19" />,
   "chevron-right": <polyline points="9 5 16 12 9 19" />,
+  // #100: the reveal slider's handle, across the picture.
+  "chevron-up": <polyline points="5 15 12 8 19 15" />,
+  "chevron-down": <polyline points="5 9 12 16 19 9" />,
   // #99: a photo's second channel.
   layers: (
     <>
