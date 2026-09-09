@@ -384,8 +384,12 @@ export function WorkForm({
       };
   // The preview stands as soon as there are frames coming, so the owner
   // watches the first one arrive in the box rather than watching a box
-  // appear late; until it does, the viewer says it is loading.
-  const previewShown = !!archive?.frames || savedUrls.length > 0;
+  // appear late; until it does, the viewer says it is loading. It then
+  // stands on the frames themselves: a finished pick replaces the archive
+  // with one that carries its set and NOT its progress, so the counter is
+  // gone by the time there is most to look at (caught by e2e on #117).
+  const previewShown =
+    localFrames !== null || !!archive?.frames || savedUrls.length > 0;
   const format = useFormatter();
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
