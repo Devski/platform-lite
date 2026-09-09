@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { ChannelReveal } from "@/components/ui/channel-reveal";
 import { Icon } from "@/components/ui/icon";
 
 // #72 / A12: a profile's works as cards — the main photo dominant (two
@@ -193,12 +194,14 @@ function WorkCard({
             key={image.url1600}
             type="button"
             onClick={(event) => onOpen(index, event.currentTarget)}
-            aria-label={t("card.enlarge", {
+            // The badge is inside the button, whose label replaces its
+            // content for the screen reader: the two channels are named here.
+            aria-label={`${t("card.enlarge", {
               index: index + 1,
               count,
               name: work.name,
-            })}
-            className={`block min-h-0 cursor-zoom-in overflow-hidden bg-n-200 focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_3px_var(--surface-card),inset_0_0_0_5px_var(--focus-ring)] ${
+            })}${image.secondary ? `, ${t("reveal.badge")}` : ""}`}
+            className={`relative block min-h-0 cursor-zoom-in overflow-hidden bg-n-200 focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_3px_var(--surface-card),inset_0_0_0_5px_var(--focus-ring)] ${
               index === 0
                 ? count === 1
                   ? "aspect-[16/9]"
@@ -217,6 +220,16 @@ function WorkCard({
               className="h-full w-full object-cover"
               loading="lazy"
             />
+            {image.secondary && (
+              <span
+                className="absolute top-1.5 right-1.5 inline-flex items-center gap-1 rounded-full bg-n-950/80 px-2 py-0.5 type-eyebrow text-white"
+                title={t("reveal.badge")}
+                aria-hidden="true"
+              >
+                <Icon name="layers" size={12} />
+                <span className="sr-only">{t("reveal.badge")}</span>
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -351,7 +364,9 @@ function LightboxOverlay({
         // never reaches the page behind it (#84 review) — where "Zapisz"
         // or another card's button would move history under the picture.
         const controls = Array.from(
-          rootRef.current?.querySelectorAll<HTMLElement>("button") ?? [],
+          rootRef.current?.querySelectorAll<HTMLElement>(
+            "button, [role=slider]",
+          ) ?? [],
         );
         if (controls.length === 0) return;
         const first = controls[0];
@@ -373,6 +388,9 @@ function LightboxOverlay({
         return;
       }
       if (event.key === "Escape") onClose();
+      // The reveal slider (#100) has the arrows while it holds the focus.
+      else if ((event.target as Element | null)?.closest?.("[role=slider]"))
+        return;
       else if (event.key === "ArrowLeft" && count > 1) step(-1);
       else if (event.key === "ArrowRight" && count > 1) step(1);
     };
@@ -398,7 +416,7 @@ function LightboxOverlay({
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[rgba(12,17,22,0.94)] px-(--sp-5) py-(--sp-8)"
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-n-950 px-(--sp-5) py-(--sp-8)"
     >
       <button
         ref={closeRef}
@@ -429,12 +447,30 @@ function LightboxOverlay({
           </button>
         </>
       )}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={image.url1600}
-        alt={t("photoAlt", { name: work.name, index: index + 1 })}
-        className="max-h-[calc(100vh-140px)] max-w-[min(96vw,1600px)] object-contain"
-      />
+      {image.secondary ? (
+        // #100: two channels — the second revealed under the first by the
+        // slider, along the picture or across it.
+        <ChannelReveal
+          key={image.url1600}
+          first={{
+            src: image.url1600,
+            alt: t("photoAlt", { name: work.name, index: index + 1 }),
+          }}
+          second={{
+            src: image.secondary.url1600,
+            alt: t("reveal.secondAlt", { name: work.name, index: index + 1 }),
+          }}
+          label={t("reveal.label", { name: work.name, index: index + 1 })}
+          imageClassName="max-h-[calc(100vh-180px)] max-w-[min(96vw,1600px)] object-contain"
+        />
+      ) : (
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img
+          src={image.url1600}
+          alt={t("photoAlt", { name: work.name, index: index + 1 })}
+          className="max-h-[calc(100vh-140px)] max-w-[min(96vw,1600px)] object-contain"
+        />
+      )}
       <p className="mt-(--sp-5) flex items-center gap-(--sp-5) type-sm text-n-300">
         <span className="font-medium text-white">{work.name}</span>
         <span className="font-mono tabular-nums">

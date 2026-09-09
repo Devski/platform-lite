@@ -548,6 +548,15 @@
       "next": "Następne zdjęcie",
       "counter": "{index} / {count}",
       "hint": "Esc zamyka, strzałki przewijają"
+    },
+    "reveal": {
+      "label": "Porównanie kanałów: {name}, zdjęcie {index}",
+      "secondAlt": "{name}, zdjęcie {index}, drugi kanał",
+      "valueText": "{percent}% drugiego kanału",
+      "hint": "Przeciągnij po zdjęciu albo użyj strzałek",
+      "axisAcross": "W poprzek",
+      "axisAlong": "Wzdłuż",
+      "badge": "Dwa kanały"
     }
   }
 }
