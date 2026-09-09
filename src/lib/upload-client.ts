@@ -10,6 +10,14 @@ import {
   IMAGE_MAX_BYTES,
   type ImagePurpose,
 } from "@/lib/image-upload-shared";
+import type {
+  FrameSetTransport,
+  PresignOutcome,
+} from "@/lib/r360/frame-pipeline";
+import {
+  R360_FRAME_CONTENT_TYPE,
+  type FrameSetPresign,
+} from "@/lib/r360/frame-set-shared";
 import { IMMUTABLE_CACHE_CONTROL } from "@/lib/storage-shared";
 
 // The #12 upload contract from the browser's side, in one place since #72
@@ -155,7 +163,7 @@ export interface UploadOptions {
 // leave an owner in (step 5 review).
 function putWithProgress(
   url: string,
-  file: File,
+  file: Blob,
   type: string,
   options: UploadOptions,
 ): Promise<"ok" | "failed" | "aborted"> {
@@ -202,6 +210,36 @@ function abandon(stagingKey: string): Promise<unknown> {
     () => undefined,
   );
 }
+
+// #102 / A13: the network side of the frame pipeline (lib/r360) — the
+// batch presign of a set, the same PUT the archive uses, and the give-up
+// by prefix. The loop itself lives in frame-pipeline.ts, without a network.
+export const frameSetTransport: FrameSetTransport = {
+  async presign(frameCount): Promise<PresignOutcome> {
+    try {
+      const response = await postJson<
+        { error?: string } & Partial<FrameSetPresign>
+      >("/api/uploads/presign-r360-set", { frameCount });
+      const { setId, stagingPrefix, urls } = response.data;
+      if (!response.ok || !setId || !stagingPrefix || !urls) {
+        const code = serverFailure(response.data.error, response.status);
+        return {
+          ok: false,
+          failure:
+            code === "quota_exceeded" || code === "rate_limited"
+              ? code
+              : "presign_failed",
+        };
+      }
+      return { ok: true, set: { setId, stagingPrefix, urls } };
+    } catch {
+      return { ok: false, failure: "presign_failed" };
+    }
+  },
+  put: (url, body, options) =>
+    putWithProgress(url, body, R360_FRAME_CONTENT_TYPE, options),
+  abandon,
+};
 
 export async function uploadArchive(
   file: File,

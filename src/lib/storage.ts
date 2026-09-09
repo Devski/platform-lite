@@ -3,6 +3,7 @@ import {
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   NoSuchKey,
   PutObjectCommand,
   S3Client,
@@ -39,10 +40,19 @@ export interface FileStorage {
    * `expiresInSeconds`), so callers must verify the uploaded bytes
    * server-side before publishing anything under a content-addressed key
    * (upload to a staging key, verify, copy — the #12 contract).
+   *
+   * Without `maxBytes` the length is not signed: the R360 frames (#102)
+   * are encoded in the browser after the set's URLs are minted, so their
+   * sizes are unknowable at presign time. The reservation carries a ceiling
+   * and the save verifies every size before anything is published.
    */
   presignUpload(
     key: string,
-    opts: { maxBytes: number; contentType: string; expiresInSeconds?: number },
+    opts: {
+      maxBytes?: number;
+      contentType: string;
+      expiresInSeconds?: number;
+    },
   ): Promise<string>;
   /**
    * Writes an object. It is PRIVATE unless `publicRead` says otherwise: the
@@ -57,8 +67,15 @@ export interface FileStorage {
     contentType: string,
     opts?: { publicRead?: boolean },
   ): Promise<void>;
-  /** Rejects with ObjectNotFoundError when the key does not exist. */
-  getObject(key: string): Promise<Buffer>;
+  /**
+   * Rejects with ObjectNotFoundError when the key does not exist. With a
+   * `range`, only those bytes — how the save of an R360 set (#102) reads
+   * twelve bytes of a frame's header without carrying the frame.
+   */
+  getObject(
+    key: string,
+    opts?: { range?: { offset: number; length: number } },
+  ): Promise<Buffer>;
   /**
    * Size, type and checksum without the body — how an archive of any size
    * is confirmed (#72 / A12): the app never reads it. `etag` is the value
@@ -70,11 +87,27 @@ export interface FileStorage {
   ): Promise<{ sizeBytes: number; contentType: string; etag: string }>;
   /**
    * A copy inside the bucket, never through this process — how a staged
-   * archive reaches its final key. The copy is PRIVATE, like every
-   * original. Rejects with ObjectNotFoundError when the source is missing.
+   * archive reaches its final key. The copy is PRIVATE unless `publicRead`
+   * says otherwise (the R360 frames of #102 are served unsigned, G3).
+   * Rejects with ObjectNotFoundError when the source is missing.
    */
-  copyObject(from: string, to: string, contentType: string): Promise<void>;
+  copyObject(
+    from: string,
+    to: string,
+    contentType: string,
+    opts?: { publicRead?: boolean },
+  ): Promise<void>;
   deleteObject(key: string): Promise<void>;
+  /**
+   * The keys under a prefix with their sizes and checksums, at most
+   * `maxKeys` (1000 by default) — one listing is how the save of an R360
+   * set (#102) learns what the browser actually uploaded. Not a walk of
+   * the bucket: callers pass a prefix they own.
+   */
+  listObjects(
+    prefix: string,
+    opts?: { maxKeys?: number },
+  ): Promise<{ key: string; sizeBytes: number; etag: string }[]>;
   /** Stable, unsigned address of a public object (G3). */
   publicUrl(key: string): string;
 }
@@ -189,7 +222,9 @@ export function createS3Storage(config: {
         Bucket: bucket,
         Key: key,
         ContentType: opts.contentType,
-        ContentLength: opts.maxBytes,
+        ...(opts.maxBytes === undefined
+          ? {}
+          : { ContentLength: opts.maxBytes }),
         CacheControl: IMMUTABLE_CACHE_CONTROL,
       });
       return getSignedUrl(client, command, {
@@ -203,7 +238,7 @@ export function createS3Storage(config: {
         // X-Amz-SignedHeaders=cache-control;content-length;content-type;host,
         // and a request differing in any of them fails verification.
         signableHeaders: new Set([
-          "content-length",
+          ...(opts.maxBytes === undefined ? [] : ["content-length"]),
           "content-type",
           "cache-control",
         ]),
@@ -224,11 +259,20 @@ export function createS3Storage(config: {
       );
     },
 
-    async getObject(key) {
+    async getObject(key, opts) {
       let response;
+      const range = opts?.range;
       try {
         response = await client.send(
-          new GetObjectCommand({ Bucket: bucket, Key: key }),
+          new GetObjectCommand({
+            Bucket: bucket,
+            Key: key,
+            ...(range
+              ? {
+                  Range: `bytes=${range.offset}-${range.offset + range.length - 1}`,
+                }
+              : {}),
+          }),
         );
       } catch (error) {
         if (isNotFound(error)) throw new ObjectNotFoundError(key);
@@ -259,10 +303,11 @@ export function createS3Storage(config: {
       }
     },
 
-    async copyObject(from, to, contentType) {
+    async copyObject(from, to, contentType, opts) {
       try {
         await client.send(
           new CopyObjectCommand({
+            ...(opts?.publicRead ? { ACL: "public-read" as const } : {}),
             Bucket: bucket,
             // The source is "bucket/key", each segment encoded as the SDK
             // encodes a signed path.
@@ -282,6 +327,35 @@ export function createS3Storage(config: {
 
     async deleteObject(key) {
       await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+    },
+
+    async listObjects(prefix, opts) {
+      const maxKeys = opts?.maxKeys ?? 1000;
+      const found: { key: string; sizeBytes: number; etag: string }[] = [];
+      let token: string | undefined;
+      // One page of a thousand covers every R360 set; the loop is for a
+      // provider that pages smaller than asked.
+      while (found.length < maxKeys) {
+        const page = await client.send(
+          new ListObjectsV2Command({
+            Bucket: bucket,
+            Prefix: prefix,
+            MaxKeys: Math.min(1000, maxKeys - found.length),
+            ContinuationToken: token,
+          }),
+        );
+        for (const object of page.Contents ?? []) {
+          if (!object.Key || found.length >= maxKeys) continue;
+          found.push({
+            key: object.Key,
+            sizeBytes: object.Size ?? 0,
+            etag: (object.ETag ?? "").replace(/"/g, ""),
+          });
+        }
+        if (!page.IsTruncated || !page.NextContinuationToken) break;
+        token = page.NextContinuationToken;
+      }
+      return found;
     },
 
     publicUrl(key) {
@@ -314,7 +388,7 @@ export function createMemoryStorage(): {
       async presignUpload(key, opts) {
         // Not fetchable — dependent tests either assert the URL or write
         // through putObject directly.
-        return `memory://upload/${key}?maxBytes=${opts.maxBytes}&contentType=${encodeURIComponent(opts.contentType)}`;
+        return `memory://upload/${key}?maxBytes=${opts.maxBytes ?? "any"}&contentType=${encodeURIComponent(opts.contentType)}`;
       },
       async putObject(key, body, contentType, opts) {
         objects.set(key, {
@@ -323,10 +397,13 @@ export function createMemoryStorage(): {
           publicRead: opts?.publicRead === true,
         });
       },
-      async getObject(key) {
+      async getObject(key, opts) {
         const stored = objects.get(key);
         if (!stored) throw new ObjectNotFoundError(key);
-        return stored.body;
+        const range = opts?.range;
+        return range
+          ? stored.body.subarray(range.offset, range.offset + range.length)
+          : stored.body;
       },
       async headObject(key) {
         const stored = objects.get(key);
@@ -337,13 +414,29 @@ export function createMemoryStorage(): {
           etag: createHash("md5").update(stored.body).digest("hex"),
         };
       },
-      async copyObject(from, to, contentType) {
+      async copyObject(from, to, contentType, opts) {
         const stored = objects.get(from);
         if (!stored) throw new ObjectNotFoundError(from);
-        objects.set(to, { body: stored.body, contentType, publicRead: false });
+        objects.set(to, {
+          body: stored.body,
+          contentType,
+          publicRead: opts?.publicRead === true,
+        });
       },
       async deleteObject(key) {
         objects.delete(key);
+      },
+      async listObjects(prefix, opts) {
+        const maxKeys = opts?.maxKeys ?? 1000;
+        return [...objects.entries()]
+          .filter(([key]) => key.startsWith(prefix))
+          .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+          .slice(0, maxKeys)
+          .map(([key, stored]) => ({
+            key,
+            sizeBytes: stored.body.length,
+            etag: createHash("md5").update(stored.body).digest("hex"),
+          }));
       },
       publicUrl(key) {
         return `memory://${key}`;

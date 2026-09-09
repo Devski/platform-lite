@@ -529,7 +529,9 @@
         "generic": "Saving failed. Try again.",
         "duplicatePhoto": "That photo is already on the list.",
         "tooManyPhotos": "You picked {offered} photos and {room, plural, one {one fits} other {# fit}}. Pick at most {room}.",
-        "invalidArchive": "The R360 archive is no longer available. Upload it again."
+        "invalidArchive": "The R360 archive is no longer available. Upload it again.",
+        "framesUploading": "Wait for the frames to finish.",
+        "invalidSet": "The frames of the archive are no longer available. Add the archive again."
       },
       "r360": {
         "label": "Render 360",
@@ -538,7 +540,34 @@
         "add": "Add an R360 zip",
         "uploaded": "Uploaded",
         "attached": "R360 archive",
-        "remove": "Remove"
+        "remove": "Remove",
+        "frames": "Frames: {done} of {total}",
+        "framesDone": "Frames ready: {total}",
+        "refused": {
+          "not_a_zip": "This is not a zip archive.",
+          "encrypted": "The archive is encrypted. Export it without a password.",
+          "multi_part": "The archive is split into parts. Export it as one file.",
+          "unsupported_method": "The archive uses a compression a browser cannot open. Export a plain zip.",
+          "corrupt": "The archive is damaged or cut short.",
+          "network": "The archive could not be read. Try again.",
+          "unsupported_format": "A browser cannot show EXR, TIFF or TGA ({files}). Export JPEG, PNG or WebP.",
+          "no_frames": "No frames found in the archive — JPEG, PNG or WebP.",
+          "too_few": "One frame is not an orbit: at least 2 are needed.",
+          "too_many": "{count} frames is more than the 360 the viewer accepts.",
+          "folders": "The frames must sit directly in the archive or in one folder ({files}).",
+          "unnumbered": "A frame without a number in its name: {files}.",
+          "numbering": "The frame numbers do not form a sequence: {files}."
+        },
+        "failed": {
+          "presign_failed": "The frames could not be prepared. Try again.",
+          "quota_exceeded": "No space left: the frames would exceed your 1 GB limit.",
+          "rate_limited": "Too many attempts. Wait a moment and try again.",
+          "read_failed": "A frame could not be read from the archive.",
+          "encode_failed": "A frame could not be decoded. Export JPEG, PNG or WebP.",
+          "webp_unsupported": "This browser cannot encode WebP. Use a current Chrome, Firefox, Edge or Safari.",
+          "frame_too_large": "A frame is too detailed to encode within the limit. Export smaller frames.",
+          "upload_failed": "A frame failed to upload. Try again."
+        }
       }
     },
     "lightbox": {

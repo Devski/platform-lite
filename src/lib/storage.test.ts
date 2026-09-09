@@ -77,6 +77,57 @@ describe("memory storage (the G1 fake for dependent code)", () => {
     ).rejects.toBeInstanceOf(ObjectNotFoundError);
   });
 
+  it("copies publicly when asked, reads a range, and lists a prefix in key order (#102)", async () => {
+    const { storage, objects } = createMemoryStorage();
+    await storage.putObject(
+      "staging/u/s/1600/002.webp",
+      Buffer.from("RIFF..bb"),
+      "image/webp",
+    );
+    await storage.putObject(
+      "staging/u/s/1600/001.webp",
+      Buffer.from("RIFF..aa"),
+      "image/webp",
+    );
+    await storage.putObject(
+      "staging/u/s/800/001.webp",
+      Buffer.from("RIFF.c"),
+      "image/webp",
+    );
+    await storage.putObject("staging/u/other", Buffer.from("x"), "text/plain");
+    await storage.copyObject(
+      "staging/u/s/1600/001.webp",
+      "u/x/r360/s/1600/001.webp",
+      "image/webp",
+      { publicRead: true },
+    );
+    expect(objects.get("u/x/r360/s/1600/001.webp")?.publicRead).toBe(true);
+    expect(
+      (
+        await storage.getObject("staging/u/s/1600/001.webp", {
+          range: { offset: 6, length: 2 },
+        })
+      ).toString(),
+    ).toBe("aa");
+    const listed = await storage.listObjects("staging/u/s/");
+    expect(listed.map((o) => o.key)).toEqual([
+      "staging/u/s/1600/001.webp",
+      "staging/u/s/1600/002.webp",
+      "staging/u/s/800/001.webp",
+    ]);
+    expect(listed[0]).toMatchObject({ sizeBytes: 8 });
+    expect(listed[0].etag).toMatch(/^[0-9a-f]{32}$/);
+    expect(
+      await storage.listObjects("staging/u/s/", { maxKeys: 2 }),
+    ).toHaveLength(2);
+    expect(await storage.listObjects("nothing/")).toEqual([]);
+    expect(
+      await storage.presignUpload("staging/u/s/1600/001.webp", {
+        contentType: "image/webp",
+      }),
+    ).toContain("maxBytes=any");
+  });
+
   it("deletes idempotently", async () => {
     const { storage } = createMemoryStorage();
     await storage.putObject("a/k2.bin", Buffer.from("x"), "text/plain");
@@ -185,6 +236,19 @@ describe("S3 storage (offline: URL composition and signing)", () => {
     // byte count, content type or cache header does not verify.
     const signedHeaders = url.searchParams.get("X-Amz-SignedHeaders") ?? "";
     expect(signedHeaders).toContain("content-length");
+    expect(signedHeaders).toContain("content-type");
+    expect(signedHeaders).toContain("cache-control");
+  });
+
+  it("leaves the length out of the signature when the caller has none (#102)", async () => {
+    const storage = createS3Storage(config);
+    const url = new URL(
+      await storage.presignUpload("devski/staging/u/s/1600/001.webp", {
+        contentType: "image/webp",
+      }),
+    );
+    const signedHeaders = url.searchParams.get("X-Amz-SignedHeaders") ?? "";
+    expect(signedHeaders).not.toContain("content-length");
     expect(signedHeaders).toContain("content-type");
     expect(signedHeaders).toContain("cache-control");
   });

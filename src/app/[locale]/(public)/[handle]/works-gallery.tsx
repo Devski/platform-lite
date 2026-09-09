@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ChannelReveal } from "@/components/ui/channel-reveal";
 import { Icon } from "@/components/ui/icon";
+import type { R360Params } from "@/lib/r360/frame-set-shared";
 
 // #72 / A12: a profile's works as cards — the main photo dominant (two
 // thirds of the width and both rows, the other one or two beside it), the
@@ -32,8 +33,12 @@ export interface GalleryWork {
   investor: string | null;
   developer: string | null;
   images: GalleryImage[];
-  /** Owner-facing; a visitor never gets it. */
-  r360?: { fileId: string; sizeBytes: number } | null;
+  /** Owner-facing; a visitor never gets it. Since #102 with its frame set. */
+  r360?: {
+    fileId: string;
+    sizeBytes: number;
+    set?: { id: string; params: R360Params; frameBase: string } | null;
+  } | null;
 }
 
 const LIGHTBOX = "__lightbox";

@@ -108,6 +108,7 @@ describe("the R360 archive on a work (step 5)", () => {
     expect((await listWorks(d.deps))[0].r360).toEqual({
       fileId: first.fileId,
       sizeBytes: first.sizeBytes,
+      set: null,
     });
 
     const second = await uploadArchive(d, "two");

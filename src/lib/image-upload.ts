@@ -92,14 +92,29 @@ function sha256(buffer: Buffer): string {
 // Deleting a staged object is always best-effort. It may never have arrived,
 // and the bucket's lifecycle rule is the backstop for a delete that fails —
 // so nothing here is worth failing a request that otherwise succeeded, and
-// every caller carries on regardless.
+// every caller carries on regardless. A key ending with a slash is an R360
+// frame set's staging prefix (#102): one reservation, up to 720 objects,
+// discarded one by one — every walk under `staging/` reaches them the way
+// it reaches a single upload.
 export async function discardStagedObject(
   storage: FileStorage,
   key: string,
 ): Promise<boolean> {
   try {
-    await storage.deleteObject(key);
-    return true;
+    if (!key.endsWith("/")) {
+      await storage.deleteObject(key);
+      return true;
+    }
+    let complete = true;
+    for (const object of await storage.listObjects(key)) {
+      try {
+        await storage.deleteObject(object.key);
+      } catch (error) {
+        console.error("[image-upload] staging cleanup failed:", error);
+        complete = false;
+      }
+    }
+    return complete;
   } catch (error) {
     console.error("[image-upload] staging cleanup failed:", error);
     return false;
@@ -176,14 +191,15 @@ export async function abandonStagedUpload(
 }
 
 /** Only this user's staging namespace: other users' keys, content keys and
- * arbitrary paths are refused unread. */
+ * arbitrary paths are refused unread. A trailing slash names a frame set's
+ * prefix (#102), abandoned the same way. */
 export function isOwnStagingKey(
   prefix: string,
   userId: string,
   key: string,
 ): boolean {
   return new RegExp(
-    `^${escapeRegExp(prefix)}staging/${escapeRegExp(userId)}/[0-9a-f]{32}$`,
+    `^${escapeRegExp(prefix)}staging/${escapeRegExp(userId)}/[0-9a-f]{32}/?$`,
   ).test(key);
 }
 

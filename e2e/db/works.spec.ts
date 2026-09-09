@@ -12,6 +12,7 @@ import {
   registerAndVerify,
   type Identity,
 } from "./account";
+import { buildZip } from "@/lib/r360/test-zip";
 import { seedWorks } from "./seed-works";
 
 // #72 / A12, step 4: the work form's wiring from the browser's side, every
@@ -38,6 +39,11 @@ const UPLOAD_URL = "/__stub-storage/staged-work";
 const STAGING_KEY = "staging/someone/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const FILE_ID = "22222222-2222-4222-8222-222222222222";
 const ARCHIVE_ID = "44444444-4444-4444-8444-444444444444";
+// #102: the frame set the batch presign hands out, and where its PUTs go.
+const SET_ID = "5".repeat(32);
+const FRAME_URL = "/__stub-storage/frames";
+const frameUrls = (width: number, count: number) =>
+  Array.from({ length: count }, (_, i) => `${FRAME_URL}/${width}/${i + 1}`);
 
 const json = (status: number, body: unknown) => (route: Route) =>
   route.fulfill({
@@ -64,6 +70,20 @@ async function pngBytes(seed = 10): Promise<Buffer> {
 // one (it dedupes by the id the server answers with).
 async function pngFile(name: string, seed: number) {
   return { name, mimeType: "image/png", buffer: await pngBytes(seed) };
+}
+
+// #102: an orbit archive of a few frames, as the owner's software would
+// export it — real PNGs, numbered, in one folder — read by the browser.
+async function orbitZip(frameCount: number, folder = "orbit/") {
+  const entries = [];
+  for (let i = 1; i <= frameCount; i++) {
+    entries.push({
+      name: `${folder}render_${String(i).padStart(4, "0")}.png`,
+      data: new Uint8Array(await pngBytes(30 + i * 10)),
+      method: 8,
+    });
+  }
+  return Buffer.from(buildZip(entries));
 }
 
 // The ids the confirm stub hands out, one per upload, in order.
@@ -142,10 +162,13 @@ test("a new work: the photo goes through the upload chain as a work, then the fo
   // The first photo is the main one, and says so.
   await expect(page.getByText("Główne", { exact: true })).toBeVisible();
 
-  // The R360 archive: its own presign and confirm, never a read by the
-  // server; the form then names the confirmed file on the work.
+  // The R360 archive: read in the browser first (#101) — what is not an
+  // archive, or holds one frame, is refused before a byte leaves, with the
+  // reason and no presign.
   const archivePresigns: Request[] = [];
   const archiveConfirms: Request[] = [];
+  const setPresigns: Request[] = [];
+  const framePuts: Request[] = [];
   await page.route("**/api/uploads/presign-archive", (route) => {
     archivePresigns.push(route.request());
     return json(200, { stagingKey: STAGING_KEY, uploadUrl: UPLOAD_URL })(route);
@@ -154,19 +177,79 @@ test("a new work: the photo goes through the upload chain as a work, then the fo
     archiveConfirms.push(route.request());
     return json(200, { fileId: ARCHIVE_ID, sizeBytes: 3 })(route);
   });
+  await page.route("**/api/uploads/presign-r360-set", (route) => {
+    setPresigns.push(route.request());
+    const { frameCount } = route.request().postDataJSON() as {
+      frameCount: number;
+    };
+    return json(200, {
+      setId: SET_ID,
+      stagingPrefix: `staging/someone/${SET_ID}/`,
+      urls: {
+        1600: frameUrls(1600, frameCount),
+        800: frameUrls(800, frameCount),
+      },
+    })(route);
+  });
+  await page.route(`**${FRAME_URL}/**`, (route) => {
+    framePuts.push(route.request());
+    return route.fulfill({ status: 200, body: "" });
+  });
   await page.getByTestId("work-r360").setInputFiles({
     name: "orbit.zip",
     mimeType: "application/zip",
     buffer: Buffer.from("PK\u0003"),
   });
+  await expect(page.getByText("To nie jest archiwum zip.")).toBeVisible();
+  await page.getByTestId("work-r360").setInputFiles({
+    name: "orbit.zip",
+    mimeType: "application/zip",
+    buffer: await orbitZip(1),
+  });
+  await expect(
+    page.getByText("Jedna klatka to nie orbita: potrzeba co najmniej 2."),
+  ).toBeVisible();
+  expect(archivePresigns).toHaveLength(0);
+  expect(setPresigns).toHaveLength(0);
+
+  // A real orbit of three frames: the archive goes through its own presign
+  // and confirm, never a read by the server, while this browser decodes the
+  // frames, encodes them as WebP at two widths and PUTs the six straight to
+  // the set's URLs (#102). The form then names the file, the set and the
+  // default parameters on the work.
+  const zip = await orbitZip(3);
+  await page.getByTestId("work-r360").setInputFiles({
+    name: "orbit.zip",
+    mimeType: "application/zip",
+    buffer: zip,
+  });
   await expect(page.getByText("Wgrany", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("work-r360-frames")).toHaveText(
+    "· Klatki gotowe: 3",
+  );
   expect(archivePresigns[0].postDataJSON()).toEqual({
-    sizeBytes: 3,
+    sizeBytes: zip.length,
     contentType: "application/zip",
   });
   expect(archiveConfirms[0].postDataJSON()).toEqual({
     stagingKey: STAGING_KEY,
   });
+  expect(setPresigns).toHaveLength(1);
+  expect(setPresigns[0].postDataJSON()).toEqual({ frameCount: 3 });
+  expect(framePuts).toHaveLength(6);
+  expect(framePuts.map((put) => new URL(put.url()).pathname).sort()).toEqual(
+    [...frameUrls(1600, 3), ...frameUrls(800, 3)].sort(),
+  );
+  for (const put of framePuts) {
+    expect(put.method()).toBe("PUT");
+    expect(put.headers()["content-type"]).toBe("image/webp");
+    expect(put.headers()["cache-control"]).toContain("immutable");
+    // Encoded here, not copied: a WebP by its header, not the PNG that
+    // went in.
+    const body = put.postDataBuffer();
+    expect(body?.subarray(0, 4).toString()).toBe("RIFF");
+    expect(body?.subarray(8, 12).toString()).toBe("WEBP");
+  }
 
   await page.getByLabel("Inwestor").fill("Archicom S.A.");
   await page.getByRole("button", { name: "Zapisz realizację" }).click();
@@ -177,6 +260,14 @@ test("a new work: the photo goes through the upload chain as a work, then the fo
     developer: "",
     imageFileIds: [FILE_ID],
     r360FileId: ARCHIVE_ID,
+    r360SetId: SET_ID,
+    r360Params: {
+      frameCount: 3,
+      direction: 1,
+      framesPerWidth: 2,
+      startFrame: 1,
+      flattening: 1,
+    },
   });
   // Saved: the form folds away.
   await expect(
@@ -293,6 +384,8 @@ test("several at once (#79, #93): a pick that does not fit is refused, replace k
     developer: "",
     imageFileIds: [fileIdAt(5), fileIdAt(2), fileIdAt(4)],
     r360FileId: null,
+    r360SetId: null,
+    r360Params: null,
   });
   await expect(
     page.getByRole("heading", { name: "Nowa realizacja" }),
@@ -328,6 +421,19 @@ test("the page's Zapisz waits for the archive, then saves the open form (#85)", 
     "**/api/uploads/confirm-archive",
     json(200, { fileId: ARCHIVE_ID, sizeBytes: 3 }),
   );
+  // #102: the frames go their own way meanwhile; here they are done long
+  // before the archive's PUT is released.
+  await page.route(
+    "**/api/uploads/presign-r360-set",
+    json(200, {
+      setId: SET_ID,
+      stagingPrefix: `staging/someone/${SET_ID}/`,
+      urls: { 1600: frameUrls(1600, 2), 800: frameUrls(800, 2) },
+    }),
+  );
+  await page.route(`**${FRAME_URL}/**`, (route) =>
+    route.fulfill({ status: 200, body: "" }),
+  );
 
   await page.getByLabel("Nazwa", { exact: true }).fill("Z orbitą");
   await page
@@ -339,7 +445,7 @@ test("the page's Zapisz waits for the archive, then saves the open form (#85)", 
   await page.getByTestId("work-r360").setInputFiles({
     name: "orbit.zip",
     mimeType: "application/zip",
-    buffer: Buffer.from("PK\u0003"),
+    buffer: await orbitZip(2),
   });
 
   // The bytes on their way: the shared bar (#80), with a cancel.
@@ -367,6 +473,14 @@ test("the page's Zapisz waits for the archive, then saves the open form (#85)", 
     developer: "",
     imageFileIds: [FILE_ID],
     r360FileId: ARCHIVE_ID,
+    r360SetId: SET_ID,
+    r360Params: {
+      frameCount: 2,
+      direction: 1,
+      framesPerWidth: 1,
+      startFrame: 1,
+      flattening: 1,
+    },
   });
   // The form is saved and gone, and editing has ended.
   await expect(
@@ -478,6 +592,8 @@ test("a photo's second channel (#99): uploaded through the same chain, posted by
     imageFileIds: [fileIdAt(4), fileIdAt(2)],
     secondaryFileIds: [fileIdAt(3), null],
     r360FileId: null,
+    r360SetId: null,
+    r360Params: null,
   });
   await expect(
     page.getByRole("heading", { name: "Nowa realizacja" }),
@@ -509,6 +625,8 @@ test("a photo's second channel (#99): uploaded through the same chain, posted by
     developer: "",
     imageFileIds: [fileIdAt(5)],
     r360FileId: null,
+    r360SetId: null,
+    r360Params: null,
   });
 });
 

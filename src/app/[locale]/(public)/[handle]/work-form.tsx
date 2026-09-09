@@ -17,7 +17,16 @@ import { Input } from "@/components/ui/input";
 import { UploadProgress } from "@/components/ui/upload-progress";
 import { postJson } from "@/lib/api-client";
 import { IMAGE_CONTENT_TYPES } from "@/lib/image-upload-shared";
+import { browserFrameEncoder } from "@/lib/r360/browser-frame-encoder";
+import { orderFrames } from "@/lib/r360/frame-names";
+import { produceFrameSet } from "@/lib/r360/frame-pipeline";
 import {
+  defaultR360Params,
+  type R360Params,
+} from "@/lib/r360/frame-set-shared";
+import { fileSource, openZip, ZipError } from "@/lib/r360/zip-reader";
+import {
+  frameSetTransport,
   uploadArchive,
   uploadImage,
   type UploadFailure,
@@ -46,6 +55,25 @@ interface Archive {
   uploading: boolean;
   /** 0..1 while uploading. */
   progress?: number;
+  /** #102: the frames produced in this browser, as they go. */
+  frames?: { done: number; total: number };
+  /** #102: the set the work names — produced now, or saved before. */
+  set?: { id: string; params: R360Params };
+}
+
+/** The dictionary key for an archive the reader refused (#101). */
+function zipRefusal(error: unknown): string {
+  if (error instanceof ZipError) {
+    switch (error.reason) {
+      case "not_a_zip":
+      case "encrypted":
+      case "multi_part":
+      case "unsupported_method":
+      case "corrupt":
+        return error.reason;
+    }
+  }
+  return "network";
 }
 
 interface Slot {
@@ -109,6 +137,7 @@ type FormErrorKey =
   | "limit"
   | "invalidImage"
   | "invalidArchive"
+  | "invalidSet"
   | "rateLimited"
   | "generic";
 
@@ -177,6 +206,9 @@ export function WorkForm({
           sizeBytes: work.r360.sizeBytes,
           name: "",
           uploading: false,
+          set: work.r360.set
+            ? { id: work.r360.set.id, params: work.r360.set.params }
+            : undefined,
         }
       : null,
   );
@@ -483,35 +515,82 @@ export function WorkForm({
   async function pickArchive(file: File, input: HTMLInputElement) {
     input.value = "";
     setError(null);
+    // #102 (A13): the archive is read here, before a byte leaves — the
+    // frames named, ordered and counted, or the archive refused with the
+    // reason. Then the frames are produced in this browser and uploaded in
+    // parallel with the archive itself; the work names both on save.
+    let zip;
+    try {
+      zip = await openZip(fileSource(file));
+    } catch (error) {
+      setError(t(`r360.refused.${zipRefusal(error)}`));
+      return;
+    }
+    const order = orderFrames(zip.entries);
+    if (!order.ok) {
+      setError(
+        t(`r360.refused.${order.reason}`, {
+          files: order.files.join(", "),
+          count: order.count,
+        }),
+      );
+      return;
+    }
     const pendingId = `pending:${file.name}:${file.size}`;
+    const patchPending = (change: Partial<Archive>) =>
+      commitArchive((current) =>
+        current?.fileId === pendingId ? { ...current, ...change } : current,
+      );
     commitArchive({
       fileId: pendingId,
       sizeBytes: file.size,
       name: file.name,
       uploading: true,
       progress: 0,
+      frames: { done: 0, total: order.frames.length },
     });
     const controller = new AbortController();
     archiveAbort.current = controller;
-    const result = await uploadArchive(file, {
-      signal: controller.signal,
-      onProgress: (fraction) =>
-        commitArchive((current) =>
-          current?.fileId === pendingId
-            ? { ...current, progress: fraction }
-            : current,
-        ),
-    });
+    // Either half failing stops the other: a set without its archive, or
+    // an archive without its frames, is nothing the save could use.
+    const [result, set] = await Promise.all([
+      uploadArchive(file, {
+        signal: controller.signal,
+        onProgress: (fraction) => patchPending({ progress: fraction }),
+      }).then((outcome) => {
+        if (!outcome.ok) controller.abort();
+        return outcome;
+      }),
+      produceFrameSet({
+        archive: zip,
+        frames: order.frames,
+        encoder: browserFrameEncoder(),
+        transport: frameSetTransport,
+        signal: controller.signal,
+        onProgress: (p) =>
+          patchPending({
+            frames: { done: p.framesDone, total: p.framesTotal },
+          }),
+      }).then((outcome) => {
+        if (!outcome.ok) controller.abort();
+        return outcome;
+      }),
+    ]);
     archiveAbort.current = null;
-    if (result.ok && closed.current) {
-      void discardFile(result.fileId);
+    if (closed.current) {
+      if (result.ok) void discardFile(result.fileId);
       return;
     }
-    if (!result.ok) {
+    if (!result.ok || !set.ok) {
       commitArchive((current) =>
         current?.fileId === pendingId ? null : current,
       );
-      if (result.failure !== "aborted") uploadFail(result.failure);
+      if (result.ok) void discardFile(result.fileId);
+      if (!set.ok && set.failure !== "aborted") {
+        setError(t(`r360.failed.${set.failure}`));
+      } else if (!result.ok && result.failure !== "aborted") {
+        uploadFail(result.failure);
+      }
       return;
     }
     unsaved.current.add(result.fileId);
@@ -520,6 +599,7 @@ export function WorkForm({
       sizeBytes: result.sizeBytes,
       name: file.name,
       uploading: false,
+      set: { id: set.setId, params: defaultR360Params(set.frameCount) },
     });
   }
 
@@ -595,6 +675,8 @@ export function WorkForm({
           }
         : {}),
       r360FileId: zip?.fileId ?? null,
+      r360SetId: zip?.set?.id ?? null,
+      r360Params: zip?.set?.params ?? null,
     });
     if (!parsed.success) {
       const path = parsed.error.issues[0]?.path[0];
@@ -626,6 +708,16 @@ export function WorkForm({
           return fail("invalidImage");
         if (response.data.error === "invalid_archive") {
           return fail("invalidArchive");
+        }
+        if (
+          [
+            "invalid_set",
+            "incomplete_set",
+            "frame_too_large",
+            "not_webp",
+          ].includes(response.data.error ?? "")
+        ) {
+          return fail("invalidSet");
         }
         return fail("generic");
       }
@@ -967,6 +1059,25 @@ export function WorkForm({
               {archive.name || t("r360.attached")}
               {" · "}
               {formatBytes(archive.sizeBytes, format)}
+              {archive.uploading && archive.frames ? (
+                <span
+                  className="font-sans text-(--text-muted)"
+                  data-testid="work-r360-frames"
+                >
+                  {" · "}
+                  {t("r360.frames", archive.frames)}
+                </span>
+              ) : archive.set ? (
+                <span
+                  className="font-sans text-(--text-muted)"
+                  data-testid="work-r360-frames"
+                >
+                  {" · "}
+                  {t("r360.framesDone", {
+                    total: archive.set.params.frameCount,
+                  })}
+                </span>
+              ) : null}
             </span>
             {archive.uploading ? (
               <UploadProgress
