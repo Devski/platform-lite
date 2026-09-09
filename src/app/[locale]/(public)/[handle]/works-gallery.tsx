@@ -191,9 +191,19 @@ function WorkCard({
           others stack beside it. Alone, it takes the whole strip. */}
       <div
         className={`grid gap-[2px] bg-(--border-hairline) ${
-          count === 1 ? "grid-cols-1" : "grid-cols-[2fr_1fr] grid-rows-2"
+          count <= 1 ? "grid-cols-1" : "grid-cols-[2fr_1fr] grid-rows-2"
         }`}
       >
+        {count === 0 && (
+          // #103: a work may carry an R360 and no photo; its start frame
+          // stands here from #104 on.
+          <div
+            className="flex aspect-[16/9] items-center justify-center bg-(--surface-sunken) type-eyebrow text-(--text-muted)"
+            data-testid="work-card-no-photo"
+          >
+            {t("card.r360Uploaded")}
+          </div>
+        )}
         {work.images.map((image, index) => (
           <button
             key={image.url1600}

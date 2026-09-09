@@ -12,8 +12,15 @@ export interface SeededWork {
   name: string;
 }
 
-/** A name, or a name with a second channel on its photo (#99). */
-export type SeedWork = string | { name: string; secondChannel: true };
+/**
+ * A name, a name with a second channel on its photo (#99), or a name with
+ * an R360 set of N frames and no photo (#103) — the archive row and the
+ * set id are placeholders, the frames have no objects behind them.
+ */
+export type SeedWork =
+  | string
+  | { name: string; secondChannel: true }
+  | { name: string; r360: { frameCount: number; startFrame?: number } };
 
 export async function seedWorks(
   handle: string,
@@ -47,6 +54,30 @@ export async function seedWorks(
       ).rows[0].id;
     for (const entry of works) {
       const name = typeof entry === "string" ? entry : entry.name;
+      if (typeof entry !== "string" && "r360" in entry) {
+        const archiveId = (
+          await client.query<{ id: string }>(
+            `insert into files (user_id, sha256, size_bytes, kind, ext)
+             values ($1, $2, 1, 'r360-zip', 'zip') returning id`,
+            [userId, `md5-${randomBytes(16).toString("hex")}`],
+          )
+        ).rows[0].id;
+        const { frameCount, startFrame = 1 } = entry.r360;
+        const params = {
+          frameCount,
+          direction: 1,
+          framesPerWidth: Math.max(1, Math.round(frameCount / 2)),
+          startFrame,
+          flattening: 1,
+        };
+        const work = await client.query<{ id: string }>(
+          `insert into works (user_id, name, r360_file_id, r360_set_id, r360_params)
+           values ($1, $2, $3, $4, $5) returning id`,
+          [userId, name, archiveId, randomBytes(16).toString("hex"), params],
+        );
+        seeded.push({ id: work.rows[0].id, name });
+        continue;
+      }
       const fileId = await placeholder();
       const secondaryId =
         typeof entry === "string" ? null : await placeholder();

@@ -544,6 +544,23 @@
         "remove": "Usuń",
         "frames": "Klatki: {done} z {total}",
         "framesDone": "Klatki gotowe: {total}",
+        "stageArchive": "Archiwum {percent}%",
+        "stageFrames": "Klatki {done} z {total}",
+        "stageUpload": "Bajty klatek {percent}%",
+        "progressLabel": "Wysyłanie R360",
+        "previewLabel": "Podgląd orbity: przeciągnij po obrazie, by go obrócić",
+        "previewAlt": "Klatka orbity",
+        "previewHint": "Przeciągnij po obrazie, by obrócić budynek.",
+        "paramFrameCount": "Klatki",
+        "paramDirection": "Kierunek",
+        "directionForward": "Jak w eksporcie",
+        "directionReverse": "Odwrotnie",
+        "paramFramesPerWidth": "Klatek na szerokość obrazu",
+        "paramStartFrame": "Klatka startowa",
+        "useThisFrame": "Użyj tej klatki",
+        "paramFlattening": "Spłaszczenie pierścienia",
+        "flatteningCircle": "Okrąg",
+        "flatteningHint": "Zadziała, gdy pojawi się pierścień.",
         "refused": {
           "not_a_zip": "To nie jest archiwum zip.",
           "encrypted": "Archiwum jest zaszyfrowane. Wyeksportuj je bez hasła.",
@@ -578,6 +595,10 @@
       "next": "Następne zdjęcie",
       "counter": "{index} / {count}",
       "hint": "Esc zamyka, strzałki przewijają"
+    },
+    "orbit": {
+      "frameOf": "Klatka {frame} z {total}",
+      "loading": "Wczytywanie klatek…"
     },
     "reveal": {
       "label": "Porównanie kanałów: {name}, zdjęcie {index}",

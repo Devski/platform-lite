@@ -356,7 +356,8 @@ export async function createWork(
         .insert(works)
         .values({ userId, ...workColumnsOf(parsed) })
         .returning({ id: works.id });
-      await tx.insert(workImages).values(imageRowsOf(created.id, parsed));
+      const images = imageRowsOf(created.id, parsed);
+      if (images.length > 0) await tx.insert(workImages).values(images);
       if (verified && parsed.r360FileId) {
         await insertFrameRows(tx, userId, parsed.r360FileId, verified);
       }
@@ -436,7 +437,8 @@ export async function updateWork(
         .from(workImages)
         .where(eq(workImages.workId, workId));
       await tx.delete(workImages).where(eq(workImages.workId, workId));
-      await tx.insert(workImages).values(imageRowsOf(workId, parsed));
+      const images = imageRowsOf(workId, parsed);
+      if (images.length > 0) await tx.insert(workImages).values(images);
       await tx
         .update(works)
         .set({ ...workColumnsOf(parsed), updatedAt: sql`now()` })

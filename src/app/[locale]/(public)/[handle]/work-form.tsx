@@ -14,7 +14,9 @@ import { Button, buttonClassName } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
+import { OrbitViewer } from "@/components/ui/orbit-viewer";
 import { UploadProgress } from "@/components/ui/upload-progress";
+import { useOrbit } from "@/components/ui/use-orbit";
 import { postJson } from "@/lib/api-client";
 import { IMAGE_CONTENT_TYPES } from "@/lib/image-upload-shared";
 import {
@@ -25,6 +27,8 @@ import { orderFrames } from "@/lib/r360/frame-names";
 import { produceFrameSet } from "@/lib/r360/frame-pipeline";
 import {
   defaultR360Params,
+  frameUrl,
+  R360_WIDTHS,
   type R360Params,
 } from "@/lib/r360/frame-set-shared";
 import { fileSource, openZip, ZipError } from "@/lib/r360/zip-reader";
@@ -59,8 +63,14 @@ interface Archive {
   uploading: boolean;
   /** 0..1 while uploading. */
   progress?: number;
-  /** #102: the frames produced in this browser, as they go. */
-  frames?: { done: number; total: number };
+  /** #102: the frames produced in this browser, as they go (#103: with
+   * their bytes, for the one composite bar). */
+  frames?: {
+    done: number;
+    total: number;
+    bytesSent?: number;
+    bytesQueued?: number;
+  };
   /**
    * #102: the set the work names — produced now (with the staging prefix
    * to abandon if the form closes unsaved), or saved before.
@@ -117,6 +127,16 @@ function discardFile(fileId: string): Promise<unknown> {
   return postJson("/api/uploads/discard", { fileId }).catch(() => undefined);
 }
 
+/** The public addresses of a saved set's 800 px frames (#103). */
+function savedFrames(
+  set: { params: R360Params; frameBase: string } | null,
+): (string | null)[] {
+  if (!set) return [];
+  return Array.from({ length: set.params.frameCount }, (_, i) =>
+    frameUrl(set.frameBase, R360_WIDTHS[1], i + 1),
+  );
+}
+
 // "412 MB", "3,2 GB": enough precision for a badge, the decimal separator
 // the page's locale uses.
 function formatBytes(
@@ -132,6 +152,25 @@ function formatBytes(
   }
   const digits = value < 10 && unit > 0 ? 1 : 0;
   return `${format.number(value, { maximumFractionDigits: digits })} ${units[unit]}`;
+}
+
+// #103: one bar for the whole R360 flow — the archive's bytes, the
+// frames processed, the frames' bytes — weighted so it moves steadily:
+// the archive is the long transfer, the frames the long computation.
+function uploadFraction(frames: NonNullable<Archive["frames"]>): number {
+  if (!frames.bytesQueued) return 0;
+  const ofQueued = (frames.bytesSent ?? 0) / frames.bytesQueued;
+  return frames.total === 0 ? 0 : ofQueued * (frames.done / frames.total);
+}
+function compositeFraction(archive: Archive): number {
+  const bytes = archive.progress ?? 0;
+  if (!archive.frames) return bytes;
+  const processed =
+    archive.frames.total === 0 ? 0 : archive.frames.done / archive.frames.total;
+  return Math.min(
+    1,
+    0.5 * bytes + 0.3 * processed + 0.2 * uploadFraction(archive.frames),
+  );
 }
 
 type FormErrorKey =
@@ -232,6 +271,31 @@ export function WorkForm({
   }
   // The archive transfer in flight, to stop it on remove or unmount.
   const archiveAbort = useRef<AbortController | null>(null);
+  // #103: the preview's frames — object URLs of the 800 px encodings as
+  // the pipeline produces them (revoked with the form), or the saved set's
+  // public addresses. `previewFrames[ordinal - 1]`.
+  const [previewFrames, setPreviewFrames] = useState<(string | null)[]>(() =>
+    savedFrames(work?.r360?.set ?? null),
+  );
+  const previewFramesRef = useRef(previewFrames);
+  function commitPreview(
+    next: (current: (string | null)[]) => (string | null)[],
+  ) {
+    previewFramesRef.current = next(previewFramesRef.current);
+    setPreviewFrames(previewFramesRef.current);
+  }
+  function dropPreview() {
+    for (const url of previewFramesRef.current) {
+      if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
+    }
+    commitPreview(() => []);
+  }
+  // The hand on the preview: the parameters as the owner has them so far,
+  // or the defaults for the count while the set is still being produced.
+  const previewParams =
+    archive?.set?.params ??
+    defaultR360Params(Math.max(2, archive?.frames?.total ?? 2));
+  const previewOrbit = useOrbit(previewParams);
   const format = useFormatter();
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -265,6 +329,9 @@ export function WorkForm({
         slot.secondary?.abort?.abort();
       }
       for (const url of urls) URL.revokeObjectURL(url);
+      for (const url of previewFramesRef.current) {
+        if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
+      }
       // Whatever this form uploaded and did not save goes back off the
       // quota — however the form went away: cancel, another work's edit,
       // editing switched off, the work deleted under it.
@@ -560,6 +627,9 @@ export function WorkForm({
       progress: 0,
       frames: { done: 0, total: order.frames.length },
     });
+    dropPreview();
+    commitPreview(() => order.frames.map(() => null));
+    previewOrbit.setFrame(1);
     // The archive's failure stops the frames; the frames' failure does
     // not stop the archive — an archive that landed is what #105 resumes
     // from, and a work may carry an archive without its frames.
@@ -587,12 +657,30 @@ export function WorkForm({
               encoder: browserFrameEncoder(),
               transport: frameSetTransport,
               signal: frames.signal,
+              onFrame: (ordinal, encoded) => {
+                // The preview shows the very frames being uploaded (#103).
+                const url = URL.createObjectURL(encoded[R360_WIDTHS[1]]);
+                commitPreview((current) =>
+                  current.map((entry, index) =>
+                    index === ordinal - 1 ? url : entry,
+                  ),
+                );
+              },
               onProgress: (p) => {
-                // A render per frame, not per progress event of 720 PUTs.
-                if (p.framesDone === framesDone) return;
-                framesDone = p.framesDone;
+                // A render per frame or per whole percent of the bytes, not
+                // per progress event of 720 PUTs.
+                const bucket =
+                  p.framesDone * 1000 +
+                  Math.floor((p.bytesSent / Math.max(1, p.bytesQueued)) * 100);
+                if (bucket === framesDone) return;
+                framesDone = bucket;
                 patchPending({
-                  frames: { done: p.framesDone, total: p.framesTotal },
+                  frames: {
+                    done: p.framesDone,
+                    total: p.framesTotal,
+                    bytesSent: p.bytesSent,
+                    bytesQueued: p.bytesQueued,
+                  },
                 });
               },
             })
@@ -653,6 +741,22 @@ export function WorkForm({
     if (archive) void discard(archive.fileId);
     abandonUnsavedSet(archive);
     commitArchive(null);
+    dropPreview();
+  }
+
+  // #103: the owner's four parameters, on the set the work will name.
+  function setParams(change: Partial<R360Params>) {
+    commitArchive((current) =>
+      current?.set
+        ? {
+            ...current,
+            set: {
+              ...current.set,
+              params: { ...current.set.params, ...change },
+            },
+          }
+        : current,
+    );
   }
 
   function removePhoto(fileId: string) {
@@ -702,7 +806,9 @@ export function WorkForm({
     }
     const trimmedName = name.trim();
     if (!trimmedName) return fail("nameRequired");
-    if (tiles.length === 0) return fail("photoRequired");
+    // A work with an R360 set needs no photo (A12): its start frame stands
+    // for it (#104).
+    if (tiles.length === 0 && !zip?.set) return fail("photoRequired");
     const parsed = workInputSchema.safeParse({
       name: trimmedName,
       investor,
@@ -790,6 +896,10 @@ export function WorkForm({
       .map((slot) => `${slot.fileId}+${slot.secondary?.fileId ?? ""}`)
       .join(",");
     const archiveId = archiveRef.current?.fileId ?? null;
+    const params = JSON.stringify(archiveRef.current?.set?.params ?? null);
+    if (work && params !== JSON.stringify(work.r360?.set?.params ?? null)) {
+      return false;
+    }
     if (!work) {
       return (
         name.trim() === "" &&
@@ -1131,12 +1241,42 @@ export function WorkForm({
               ) : null}
             </span>
             {archive.uploading ? (
-              <UploadProgress
-                label={t("r360.label")}
-                fraction={archive.progress ?? 0}
-                onCancel={removeArchive}
-                className="basis-full sm:basis-auto sm:min-w-56"
-              />
+              <div className="flex basis-full flex-col gap-(--sp-2)">
+                <UploadProgress
+                  label={t("r360.progressLabel")}
+                  fraction={compositeFraction(archive)}
+                  onCancel={removeArchive}
+                />
+                {/* The stages under the one bar (#103): the archive's bytes,
+                    the frames processed, the frames' bytes. */}
+                <ul
+                  className="flex flex-wrap gap-x-(--sp-4) gap-y-(--sp-1) type-sm text-(--text-muted)"
+                  data-testid="work-r360-stages"
+                >
+                  <li>
+                    {t("r360.stageArchive", {
+                      percent: Math.floor((archive.progress ?? 0) * 100),
+                    })}
+                  </li>
+                  {archive.frames && (
+                    <li>
+                      {t("r360.stageFrames", {
+                        done: archive.frames.done,
+                        total: archive.frames.total,
+                      })}
+                    </li>
+                  )}
+                  {archive.frames && (
+                    <li>
+                      {t("r360.stageUpload", {
+                        percent: Math.floor(
+                          uploadFraction(archive.frames) * 100,
+                        ),
+                      })}
+                    </li>
+                  )}
+                </ul>
+              </div>
             ) : (
               <Button variant="quiet" onClick={removeArchive} disabled={saving}>
                 {t("r360.remove")}
@@ -1160,6 +1300,139 @@ export function WorkForm({
           </label>
         )}
         <p className="type-sm text-(--text-muted)">{t("r360.hint")}</p>
+        {archive && previewFrames.length > 0 && (
+          <div
+            className="flex flex-col gap-(--sp-4)"
+            data-testid="work-r360-preview"
+          >
+            {/* #103: the preview from the frames themselves — local ones
+                the moment they are encoded, the saved set's otherwise. */}
+            <OrbitViewer
+              frames={previewFrames}
+              params={previewParams}
+              orbit={previewOrbit}
+              alt={t("r360.previewAlt")}
+              label={t("r360.previewLabel")}
+              className="aspect-[16/9] overflow-hidden rounded-sm border border-(--border-hairline) bg-(--surface-sunken)"
+            />
+            <p className="type-sm text-(--text-muted)">
+              {t("r360.previewHint")}
+              {" · "}
+              <span data-testid="work-r360-frame-count">
+                {t("r360.paramFrameCount")}
+                {": "}
+                {previewParams.frameCount}
+              </span>
+            </p>
+            {archive.set && (
+              <div className="grid gap-(--sp-4) sm:grid-cols-2">
+                <fieldset className="flex flex-col gap-(--sp-2)">
+                  <legend className="type-label text-(--text-body)">
+                    {t("r360.paramDirection")}
+                  </legend>
+                  <div className="flex gap-(--sp-2)">
+                    {([1, -1] as const).map((direction) => (
+                      <Button
+                        key={direction}
+                        variant={
+                          archive.set?.params.direction === direction
+                            ? "solid"
+                            : "quiet"
+                        }
+                        aria-pressed={
+                          archive.set?.params.direction === direction
+                        }
+                        onClick={() => setParams({ direction })}
+                        disabled={saving}
+                      >
+                        {direction === 1
+                          ? t("r360.directionForward")
+                          : t("r360.directionReverse")}
+                      </Button>
+                    ))}
+                  </div>
+                </fieldset>
+                <label className="flex flex-col gap-(--sp-2)">
+                  <span className="type-label text-(--text-body)">
+                    {t("r360.paramFramesPerWidth")}
+                    {": "}
+                    <span className="font-normal tabular-nums">
+                      {archive.set.params.framesPerWidth}
+                    </span>
+                  </span>
+                  <input
+                    type="range"
+                    min={1}
+                    max={archive.set.params.frameCount}
+                    step={1}
+                    value={archive.set.params.framesPerWidth}
+                    onChange={(event) =>
+                      setParams({ framesPerWidth: Number(event.target.value) })
+                    }
+                    disabled={saving}
+                    data-testid="work-r360-frames-per-width"
+                    className="accent-(--action-solid)"
+                  />
+                </label>
+                <div className="flex flex-col gap-(--sp-2)">
+                  <span className="type-label text-(--text-body)">
+                    {t("r360.paramStartFrame")}
+                    {": "}
+                    <span
+                      className="font-normal tabular-nums"
+                      data-testid="work-r360-start-frame"
+                    >
+                      {archive.set.params.startFrame}
+                    </span>
+                  </span>
+                  <div>
+                    <Button
+                      variant="quiet"
+                      onClick={() =>
+                        setParams({ startFrame: previewOrbit.frame })
+                      }
+                      disabled={saving}
+                    >
+                      {t("r360.useThisFrame")}
+                    </Button>
+                  </div>
+                </div>
+                <label className="flex flex-col gap-(--sp-2)">
+                  <span className="type-label text-(--text-body)">
+                    {t("r360.paramFlattening")}
+                    {": "}
+                    <span className="font-normal tabular-nums">
+                      {archive.set.params.flattening.toFixed(2)}
+                    </span>
+                  </span>
+                  <input
+                    type="range"
+                    min={0.15}
+                    max={1}
+                    step={0.01}
+                    value={archive.set.params.flattening}
+                    onChange={(event) =>
+                      setParams({ flattening: Number(event.target.value) })
+                    }
+                    disabled={saving}
+                    data-testid="work-r360-flattening"
+                    className="accent-(--action-solid)"
+                  />
+                  <span className="flex items-center gap-(--sp-3) type-sm text-(--text-muted)">
+                    <Button
+                      variant="quiet"
+                      onClick={() => setParams({ flattening: 1 })}
+                      disabled={saving || archive.set.params.flattening === 1}
+                    >
+                      {t("r360.flatteningCircle")}
+                    </Button>
+                    {t("r360.flatteningHint")}
+                  </span>
+                </label>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-(--sp-3)">

@@ -73,6 +73,11 @@ export interface ProduceFrameSetOptions {
   encoder: FrameEncoder;
   transport: FrameSetTransport;
   onProgress?: (progress: FrameSetProgress) => void;
+  /**
+   * Each frame's encodings the moment they exist (#103): the owner's
+   * preview shows the very frames being uploaded, before any lands.
+   */
+  onFrame?: (ordinal: number, encoded: Record<R360Width, Blob>) => void;
   signal?: AbortSignal;
   /** Uploads in flight at once while the next frame is being encoded. */
   concurrency?: number;
@@ -165,6 +170,7 @@ export async function produceFrameSet(
       }
     }
     progress.framesDone = index + 1;
+    options.onFrame?.(index + 1, encoded);
     for (const width of R360_WIDTHS) {
       await waitForRoom();
       if (failure) break;

@@ -13,6 +13,7 @@ import {
   type Identity,
 } from "./account";
 import { buildZip } from "@/lib/r360/test-zip";
+import { expectNoAxeViolations } from "../axe";
 import { seedWorks } from "./seed-works";
 
 // #72 / A12, step 4: the work form's wiring from the browser's side, every
@@ -74,9 +75,14 @@ async function pngFile(name: string, seed: number) {
 
 // #102: an orbit archive of a few frames, as the owner's software would
 // export it — real PNGs, numbered, in one folder — read by the browser.
-async function orbitZip(frameCount: number, folder = "orbit/") {
+async function orbitZip(
+  frameCount: number,
+  folder = "orbit/",
+  numbers?: number[],
+) {
   const entries = [];
-  for (let i = 1; i <= frameCount; i++) {
+  for (const i of numbers ??
+    Array.from({ length: frameCount }, (_, k) => k + 1)) {
     entries.push({
       name: `${folder}render_${String(i).padStart(4, "0")}.png`,
       data: new Uint8Array(await pngBytes(30 + i * 10)),
@@ -94,7 +100,8 @@ let page: Page;
 let identity: Identity;
 
 test.beforeAll(async ({ browser }) => {
-  page = await browser.newPage({ locale: "pl-PL" });
+  // A page of its own context: axe (#103) refuses one from browser.newPage.
+  page = await (await browser.newContext({ locale: "pl-PL" })).newPage();
   identity = newIdentity();
   await registerAndVerify(page, identity);
   await logIn(page, identity);
@@ -102,7 +109,7 @@ test.beforeAll(async ({ browser }) => {
 });
 
 test.afterAll(async () => {
-  await page.close();
+  await page.context().close();
 });
 
 test.beforeEach(async () => {
@@ -227,6 +234,29 @@ test("a new work: the photo goes through the upload chain as a work, then the fo
   await expect(page.getByTestId("work-r360-frames")).toHaveText(
     "· Klatki gotowe: 3",
   );
+  // #103: the preview from the frames themselves, "3 frames", a drag by
+  // half the width at k = 2 turns one frame, "use this frame" sets the
+  // start frame, and the form with the preview open passes axe.
+  await expect(page.getByTestId("work-r360-frame-count")).toHaveText(
+    "Klatki: 3",
+  );
+  const viewer = page.getByTestId("orbit-viewer");
+  await expect(viewer).toHaveAttribute("data-frame", "1");
+  await expect(viewer.locator("img")).toHaveAttribute("src", /^blob:/);
+  // The mouse moves in viewport coordinates: the preview has to be in view.
+  await viewer.scrollIntoViewIfNeeded();
+  const box = await viewer.boundingBox();
+  if (!box) throw new Error("no preview box");
+  await page.mouse.move(box.x + box.width * 0.25, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.75, box.y + box.height / 2, {
+    steps: 4,
+  });
+  await page.mouse.up();
+  await expect(viewer).toHaveAttribute("data-frame", "2");
+  await page.getByRole("button", { name: "Użyj tej klatki" }).click();
+  await expect(page.getByTestId("work-r360-start-frame")).toHaveText("2");
+  await expectNoAxeViolations(page, test.info(), "work-form-r360-preview");
   expect(archivePresigns[0].postDataJSON()).toEqual({
     sizeBytes: zip.length,
     contentType: "application/zip",
@@ -265,7 +295,7 @@ test("a new work: the photo goes through the upload chain as a work, then the fo
       frameCount: 3,
       direction: 1,
       framesPerWidth: 2,
-      startFrame: 1,
+      startFrame: 2,
       flattening: 1,
     },
   });
@@ -751,4 +781,58 @@ test("editing a work puts its form where its card was (#86); cancel and save put
     items.nth(1).getByRole("heading", { level: 3, name: second.name }),
   ).toBeVisible({ timeout: 15_000 });
   await expect(items).toHaveCount(2);
+});
+
+// After the seeded pair above: this one seeds a work of its own and leaves it.
+test("an archive with a gap is refused on the page and sends nothing; a saved set shows its parameters again (#103)", async () => {
+  const presigns: Request[] = [];
+  await page.route("**/api/uploads/presign-archive", (route) => {
+    presigns.push(route.request());
+    return json(200, { stagingKey: STAGING_KEY, uploadUrl: UPLOAD_URL })(route);
+  });
+  await page.route("**/api/uploads/presign-r360-set", (route) => {
+    presigns.push(route.request());
+    return json(400, { error: "invalid_request" })(route);
+  });
+  await page.getByTestId("work-r360").setInputFiles({
+    name: "orbit.zip",
+    mimeType: "application/zip",
+    buffer: await orbitZip(3, "orbit/", [1, 2, 4]),
+  });
+  await expect(
+    page.getByText(
+      "Numery klatek nie tworzą ciągu: orbit/render_0002.png, orbit/render_0004.png.",
+    ),
+  ).toBeVisible();
+  await page.waitForTimeout(200);
+  expect(presigns).toHaveLength(0);
+  await expect(page.getByTestId("work-r360-preview")).toHaveCount(0);
+
+  // A work saved with a set: its parameters come back in edit mode, with
+  // no photo to require.
+  await page.getByRole("button", { name: "Anuluj" }).click();
+  // Out of edit mode before the reload: the leave guard (#83) would hold
+  // the page otherwise.
+  await page.getByRole("button", { name: "Zapisz", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Edytuj profil" }),
+  ).toBeVisible();
+  const [seeded] = await seedWorks(identity.handle, [
+    { name: "Orbita zapisana", r360: { frameCount: 4, startFrame: 3 } },
+  ]);
+  await page.reload();
+  await page.getByRole("button", { name: "Edytuj profil" }).click();
+  const card = page.getByRole("article").filter({ hasText: seeded.name });
+  await expect(card.getByTestId("work-card-no-photo")).toBeVisible();
+  await card.getByRole("button", { name: "Edytuj" }).click();
+  await expect(page.getByTestId("work-r360-frame-count")).toHaveText(
+    "Klatki: 4",
+  );
+  await expect(page.getByTestId("work-r360-start-frame")).toHaveText("3");
+  await expect(page.getByTestId("orbit-viewer")).toHaveAttribute(
+    "data-frame",
+    "3",
+  );
+  await expect(page.getByTestId("work-r360-frames-per-width")).toHaveValue("2");
+  await page.getByRole("button", { name: "Anuluj" }).click();
 });

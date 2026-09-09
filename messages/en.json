@@ -544,6 +544,23 @@
         "remove": "Remove",
         "frames": "Frames: {done} of {total}",
         "framesDone": "Frames ready: {total}",
+        "stageArchive": "Archive {percent}%",
+        "stageFrames": "Frames {done} of {total}",
+        "stageUpload": "Frame bytes {percent}%",
+        "progressLabel": "R360 upload",
+        "previewLabel": "Orbit preview: drag across the picture to turn it",
+        "previewAlt": "Orbit frame",
+        "previewHint": "Drag across the picture to turn the building.",
+        "paramFrameCount": "Frames",
+        "paramDirection": "Direction",
+        "directionForward": "As exported",
+        "directionReverse": "Reversed",
+        "paramFramesPerWidth": "Frames per picture width",
+        "paramStartFrame": "Start frame",
+        "useThisFrame": "Use this frame",
+        "paramFlattening": "Ring flattening",
+        "flatteningCircle": "Circle",
+        "flatteningHint": "Takes effect once the ring dial arrives.",
         "refused": {
           "not_a_zip": "This is not a zip archive.",
           "encrypted": "The archive is encrypted. Export it without a password.",
@@ -578,6 +595,10 @@
       "next": "Next photo",
       "counter": "{index} / {count}",
       "hint": "Esc closes, arrows move"
+    },
+    "orbit": {
+      "frameOf": "Frame {frame} of {total}",
+      "loading": "Loading frames…"
     },
     "reveal": {
       "label": "Channel comparison: {name}, photo {index}",
