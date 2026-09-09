@@ -17,7 +17,10 @@ import { Input } from "@/components/ui/input";
 import { UploadProgress } from "@/components/ui/upload-progress";
 import { postJson } from "@/lib/api-client";
 import { IMAGE_CONTENT_TYPES } from "@/lib/image-upload-shared";
-import { browserFrameEncoder } from "@/lib/r360/browser-frame-encoder";
+import {
+  browserFrameEncoder,
+  canEncodeWebp,
+} from "@/lib/r360/browser-frame-encoder";
 import { orderFrames } from "@/lib/r360/frame-names";
 import { produceFrameSet } from "@/lib/r360/frame-pipeline";
 import {
@@ -26,6 +29,7 @@ import {
 } from "@/lib/r360/frame-set-shared";
 import { fileSource, openZip, ZipError } from "@/lib/r360/zip-reader";
 import {
+  abandon,
   frameSetTransport,
   uploadArchive,
   uploadImage,
@@ -57,8 +61,11 @@ interface Archive {
   progress?: number;
   /** #102: the frames produced in this browser, as they go. */
   frames?: { done: number; total: number };
-  /** #102: the set the work names — produced now, or saved before. */
-  set?: { id: string; params: R360Params };
+  /**
+   * #102: the set the work names — produced now (with the staging prefix
+   * to abandon if the form closes unsaved), or saved before.
+   */
+  set?: { id: string; params: R360Params; stagingPrefix?: string };
 }
 
 /** The dictionary key for an archive the reader refused (#101). */
@@ -138,6 +145,7 @@ type FormErrorKey =
   | "invalidImage"
   | "invalidArchive"
   | "invalidSet"
+  | "framesExpired"
   | "rateLimited"
   | "generic";
 
@@ -248,6 +256,9 @@ export function WorkForm({
     return () => {
       closed.current = true;
       archiveAbort.current?.abort();
+      // A set produced here and never saved stops counting now (#102).
+      const staged = archiveRef.current?.set?.stagingPrefix;
+      if (staged) void abandon(staged);
       // Photos still on their way go with the form too (#80 review).
       for (const slot of slotsRef.current) {
         slot.abort?.abort();
@@ -549,63 +560,87 @@ export function WorkForm({
       progress: 0,
       frames: { done: 0, total: order.frames.length },
     });
+    // The archive's failure stops the frames; the frames' failure does
+    // not stop the archive — an archive that landed is what #105 resumes
+    // from, and a work may carry an archive without its frames.
     const controller = new AbortController();
     archiveAbort.current = controller;
-    // Either half failing stops the other: a set without its archive, or
-    // an archive without its frames, is nothing the save could use.
-    const stopOthersOnFailure = <T extends { ok: boolean }>(
-      half: Promise<T>,
-    ): Promise<T> =>
-      half.then((outcome) => {
-        if (!outcome.ok) controller.abort();
-        return outcome;
-      });
+    const frames = new AbortController();
+    controller.signal.addEventListener("abort", () => frames.abort(), {
+      once: true,
+    });
+    let framesDone = -1;
     const [result, set] = await Promise.all([
-      stopOthersOnFailure(
-        uploadArchive(file, {
-          signal: controller.signal,
-          onProgress: (fraction) => patchPending({ progress: fraction }),
-        }),
-      ),
-      stopOthersOnFailure(
-        produceFrameSet({
-          archive: zip,
-          frames: order.frames,
-          encoder: browserFrameEncoder(),
-          transport: frameSetTransport,
-          signal: controller.signal,
-          onProgress: (p) =>
-            patchPending({
-              frames: { done: p.framesDone, total: p.framesTotal },
-            }),
-        }),
-      ),
+      uploadArchive(file, {
+        signal: controller.signal,
+        onProgress: (fraction) => patchPending({ progress: fraction }),
+      }).then((outcome) => {
+        if (!outcome.ok) frames.abort();
+        return outcome;
+      }),
+      // A browser whose canvas encodes no WebP takes no reservation.
+      (async () =>
+        (await canEncodeWebp())
+          ? produceFrameSet({
+              archive: zip,
+              frames: order.frames,
+              encoder: browserFrameEncoder(),
+              transport: frameSetTransport,
+              signal: frames.signal,
+              onProgress: (p) => {
+                // A render per frame, not per progress event of 720 PUTs.
+                if (p.framesDone === framesDone) return;
+                framesDone = p.framesDone;
+                patchPending({
+                  frames: { done: p.framesDone, total: p.framesTotal },
+                });
+              },
+            })
+          : { ok: false as const, failure: "webp_unsupported" as const })(),
     ]);
     archiveAbort.current = null;
     if (closed.current) {
       if (result.ok) void discardFile(result.fileId);
+      if (set.ok) void abandon(set.stagingPrefix);
       return;
     }
-    if (!result.ok || !set.ok) {
+    if (!result.ok) {
       commitArchive((current) =>
         current?.fileId === pendingId ? null : current,
       );
-      if (result.ok) void discardFile(result.fileId);
-      if (!set.ok && set.failure !== "aborted") {
-        setError(t(`r360.failed.${set.failure}`));
-      } else if (!result.ok && result.failure !== "aborted") {
-        uploadFail(result.failure);
-      }
+      if (set.ok) void abandon(set.stagingPrefix);
+      if (result.failure !== "aborted") uploadFail(result.failure);
       return;
     }
     unsaved.current.add(result.fileId);
+    if (!set.ok) {
+      // The archive stays, without its frames, and the reason is told.
+      commitArchive({
+        fileId: result.fileId,
+        sizeBytes: result.sizeBytes,
+        name: file.name,
+        uploading: false,
+      });
+      if (set.failure !== "aborted") setError(t(`r360.failed.${set.failure}`));
+      return;
+    }
     commitArchive({
       fileId: result.fileId,
       sizeBytes: result.sizeBytes,
       name: file.name,
       uploading: false,
-      set: { id: set.setId, params: defaultR360Params(set.frameCount) },
+      set: {
+        id: set.setId,
+        params: defaultR360Params(set.frameCount),
+        stagingPrefix: set.stagingPrefix,
+      },
     });
+  }
+
+  // A set produced here and not saved is abandoned, so its ceiling stops
+  // counting against the quota now rather than in two hours (#102 review).
+  function abandonUnsavedSet(current: Archive | null) {
+    if (current?.set?.stagingPrefix) void abandon(current.set.stagingPrefix);
   }
 
   function removeArchive() {
@@ -616,6 +651,7 @@ export function WorkForm({
       return;
     }
     if (archive) void discard(archive.fileId);
+    abandonUnsavedSet(archive);
     commitArchive(null);
   }
 
@@ -714,6 +750,11 @@ export function WorkForm({
         if (response.data.error === "invalid_archive") {
           return fail("invalidArchive");
         }
+        if (response.data.error === "set_expired") return fail("framesExpired");
+        if (response.data.error === "quota_exceeded") {
+          uploadFail("quota_exceeded");
+          return false;
+        }
         if (
           [
             "invalid_set",
@@ -726,8 +767,13 @@ export function WorkForm({
         }
         return fail("generic");
       }
-      // Saved: the photos belong to the work now.
+      // Saved: the photos and the set belong to the work now.
       unsaved.current.clear();
+      commitArchive((current) =>
+        current?.set
+          ? { ...current, set: { ...current.set, stagingPrefix: undefined } }
+          : current,
+      );
       onSaved();
       return true;
     } catch {

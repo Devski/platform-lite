@@ -1,6 +1,7 @@
 import {
   CopyObjectCommand,
   DeleteObjectCommand,
+  DeleteObjectsCommand,
   GetObjectCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
@@ -98,6 +99,13 @@ export interface FileStorage {
     opts?: { publicRead?: boolean },
   ): Promise<void>;
   deleteObject(key: string): Promise<void>;
+  /**
+   * Many keys in one round trip (a thousand a call) — an R360 set is up
+   * to 720 objects, and deleting them one by one inside a request is
+   * half a minute on the one-core instance (#102 review). Missing keys
+   * are not an error.
+   */
+  deleteObjects(keys: string[]): Promise<void>;
   /**
    * The keys under a prefix with their sizes and checksums, at most
    * `maxKeys` (1000 by default) — one listing is how the save of an R360
@@ -328,6 +336,30 @@ export function createS3Storage(config: {
       await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
     },
 
+    async deleteObjects(keys) {
+      for (let at = 0; at < keys.length; at += 1000) {
+        const page = keys.slice(at, at + 1000);
+        try {
+          await client.send(
+            new DeleteObjectsCommand({
+              Bucket: bucket,
+              Delete: { Objects: page.map((Key) => ({ Key })), Quiet: true },
+            }),
+          );
+        } catch (error) {
+          // A provider without the multi-object delete (OVHcloud leaves
+          // some calls unimplemented, docs/dev-environment.md) still gets
+          // the objects deleted — one by one, as before.
+          console.error("[storage] bulk delete failed, one by one:", error);
+          for (const key of page) {
+            await client.send(
+              new DeleteObjectCommand({ Bucket: bucket, Key: key }),
+            );
+          }
+        }
+      }
+    },
+
     async listObjects(prefix, opts) {
       const maxKeys = opts?.maxKeys ?? 1000;
       const found: { key: string; sizeBytes: number; etag: string }[] = [];
@@ -424,6 +456,9 @@ export function createMemoryStorage(): {
       },
       async deleteObject(key) {
         objects.delete(key);
+      },
+      async deleteObjects(keys) {
+        for (const key of keys) objects.delete(key);
       },
       async listObjects(prefix, opts) {
         const maxKeys = opts?.maxKeys ?? 1000;

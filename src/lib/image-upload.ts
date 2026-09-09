@@ -100,25 +100,18 @@ export async function discardStagedObject(
   storage: FileStorage,
   key: string,
 ): Promise<boolean> {
-  let keys: string[];
   try {
-    keys = key.endsWith("/")
-      ? (await storage.listObjects(key)).map((object) => object.key)
-      : [key];
+    if (key.endsWith("/")) {
+      const listed = await storage.listObjects(key);
+      await storage.deleteObjects(listed.map((object) => object.key));
+    } else {
+      await storage.deleteObject(key);
+    }
+    return true;
   } catch (error) {
     console.error("[image-upload] staging cleanup failed:", error);
     return false;
   }
-  let complete = true;
-  for (const each of keys) {
-    try {
-      await storage.deleteObject(each);
-    } catch (error) {
-      console.error("[image-upload] staging cleanup failed:", error);
-      complete = false;
-    }
-  }
-  return complete;
 }
 
 // #30: staged uploads are swept by the APPLICATION, lazily, on the next
@@ -144,7 +137,7 @@ export async function sweepExpiredUploads(
         // every PR preview share one database and one bucket, separated only
         // by prefix (SPEC §4), so an unscoped sweep would let one deployment
         // delete the same user's staged objects in another.
-        like(pendingUploads.stagingKey, `${deps.prefix}staging/%`),
+        like(pendingUploads.stagingKey, `${escapeLike(deps.prefix)}staging/%`),
       ),
     );
   // Load-bearing, not an optimization: inArray() on an empty list has no
@@ -516,4 +509,9 @@ export async function confirmImageUpload(
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** A literal for a LIKE pattern: `%`, `_` and the escape itself escaped. */
+export function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, "\\$&");
 }

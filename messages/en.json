@@ -531,7 +531,8 @@
         "tooManyPhotos": "You picked {offered} photos and {room, plural, one {one fits} other {# fit}}. Pick at most {room}.",
         "invalidArchive": "The R360 archive is no longer available. Upload it again.",
         "framesUploading": "Wait for the frames to finish.",
-        "invalidSet": "The frames of the archive are no longer available. Add the archive again."
+        "invalidSet": "The frames of the archive are no longer available. Add the archive again.",
+        "framesExpired": "The frames ran out of time before the save. Add the archive again."
       },
       "r360": {
         "label": "Render 360",

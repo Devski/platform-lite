@@ -290,6 +290,8 @@ describe("generated migration SQL (G6 — migrations are the source of truth)", 
       'CREATE INDEX "profiles_cover_file_id_idx" ON "profiles" USING btree ("cover_file_id")',
       'CREATE INDEX "works_user_id_created_at_idx" ON "works" USING btree ("user_id","created_at")',
       'CREATE INDEX "works_r360_file_id_idx" ON "works" USING btree ("r360_file_id")',
+      // #102 review: one set, one work.
+      'CREATE UNIQUE INDEX "works_r360_set_id_unique" ON "works" USING btree ("r360_set_id")',
       'CREATE UNIQUE INDEX "work_images_work_id_file_id_unique" ON "work_images" USING btree ("work_id","file_id")',
       'CREATE INDEX "work_images_file_id_idx" ON "work_images" USING btree ("file_id")',
       'CREATE INDEX "work_images_secondary_file_id_idx" ON "work_images" USING btree ("secondary_file_id")',

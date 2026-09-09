@@ -13,10 +13,13 @@ import sharp from "sharp";
 import {
   FrameSetError,
   frameSetReservationSeconds,
+  frameSetUrlSeconds,
   isWebpHeader,
   presignFrameSet,
   verifyFrameSet,
 } from "./frame-set";
+import { imageWidthOf } from "./browser-frame-encoder";
+import { escapeLike } from "@/lib/image-upload";
 import {
   defaultR360Params,
   frameKey,
@@ -124,7 +127,10 @@ describe("presignFrameSet", () => {
     expect(await quotaUsageBytes(testDb.db, userId)).toBe(
       frameSetBytesCeiling(3),
     );
-    expect(frameSetReservationSeconds(120)).toBe(1500);
+    // A session, not a transfer: two hours plus five seconds a frame for
+    // the URLs, and a grace on the reservation past them.
+    expect(frameSetUrlSeconds(120)).toBe(7800);
+    expect(frameSetReservationSeconds(120)).toBe(8100);
   });
 
   it("refuses a set the quota cannot hold, and refuses a count outside 2..360", async () => {
@@ -237,6 +243,31 @@ describe("verifyFrameSet", () => {
         verifyFrameSet(d.deps, { setId: fake.setId, frameCount: 3 }),
       ),
     ).toBe("not_webp");
+    // A frame renamed to .webp on a non-sampled ordinal: every frame's
+    // header is read, and a refusal on the bytes clears the staging.
+    const renamed = await stageSet(d, 4, { notWebp: "800/3" });
+    expect(
+      await refusal(() =>
+        verifyFrameSet(d.deps, { setId: renamed.setId, frameCount: 4 }),
+      ),
+    ).toBe("not_webp");
+    expect(
+      await d.deps.storage.listObjects(renamed.stagingPrefix),
+    ).toHaveLength(0);
+    // A reservation that ran out: the frames may be swept any moment.
+    const stale = await stageSet(d, 2);
+    await testDb.db
+      .update(pendingUploads)
+      .set({
+        createdAt: sql`now() - interval '2 minutes'`,
+        expiresAt: sql`now() - interval '1 minute'`,
+      })
+      .where(eq(pendingUploads.stagingKey, stale.stagingPrefix));
+    expect(
+      await refusal(() =>
+        verifyFrameSet(d.deps, { setId: stale.setId, frameCount: 2 }),
+      ),
+    ).toBe("set_expired");
     // Another user's set under the same id: the reservation is theirs.
     const other = await insertTestAccount(testDb.db, {
       email: "other-r360@example.com",
@@ -251,10 +282,31 @@ describe("verifyFrameSet", () => {
     ).toBe("invalid_set");
   });
 
-  it("reads WebP headers by their RIFF signature", () => {
+  it("reads WebP headers by their RIFF container: signature, size field, first chunk", async () => {
+    const real = await webp(64, 1);
+    expect(isWebpHeader(real.subarray(0, 16), real.length)).toBe(true);
+    expect(isWebpHeader(real.subarray(0, 16), real.length + 1)).toBe(false);
     expect(isWebpHeader(Buffer.from("RIFF\0\0\0\0WEBPVP8 "))).toBe(true);
+    expect(isWebpHeader(Buffer.from("RIFF\0\0\0\0WEBPJUNK"))).toBe(false);
     expect(isWebpHeader(Buffer.from("RIFF\0\0\0\0WAVE"))).toBe(false);
     expect(isWebpHeader(Buffer.from("\x89PNG"))).toBe(false);
+  });
+
+  it("reads a frame's width from its header — PNG, JPEG, WebP — for the decode hint", async () => {
+    const picture = sharp({
+      create: { width: 123, height: 45, channels: 3, background: "#123456" },
+    });
+    expect(imageWidthOf(await picture.clone().png().toBuffer())).toBe(123);
+    expect(imageWidthOf(await picture.clone().jpeg().toBuffer())).toBe(123);
+    expect(imageWidthOf(await picture.clone().webp().toBuffer())).toBe(123);
+    expect(
+      imageWidthOf(await picture.clone().webp({ lossless: true }).toBuffer()),
+    ).toBe(123);
+    expect(imageWidthOf(Buffer.from("not a picture"))).toBeNull();
+  });
+
+  it("escapes LIKE wildcards in a prefix", () => {
+    expect(escapeLike("pr_7/u/x%")).toBe("pr\\_7/u/x\\%");
   });
 });
 
@@ -373,6 +425,92 @@ describe("a frame set on a work", () => {
     expect(await d.deps.storage.listObjects(set.stagingPrefix)).toHaveLength(4);
   });
 
+  it("refuses a second save of the same set, and a save that lost the race keeps the winner's frames", async () => {
+    const d = makeDeps();
+    const photo = await uploadPhoto(d);
+    const archive = await uploadArchive(d, "one");
+    const set = await stageSet(d, 2);
+    const input = {
+      name: "Raz",
+      imageFileIds: [photo.original.fileId],
+      r360FileId: archive.fileId,
+      r360SetId: set.setId,
+      r360Params: defaultR360Params(2),
+    };
+    // Two saves at once: both verify against a live reservation, both copy
+    // the same keys; the second finds the set recorded under the lock.
+    const outcomes = await Promise.allSettled([
+      createWork(d.deps, input),
+      createWork(d.deps, { ...input, name: "Dwa" }),
+    ]);
+    expect(outcomes.filter((o) => o.status === "fulfilled")).toHaveLength(1);
+    const lost = outcomes.find((o) => o.status === "rejected");
+    expect(lost && "reason" in lost && lost.reason).toMatchObject({
+      code: "invalid_set",
+    });
+    const finalPrefix = frameSetPrefix(PREFIX, userId, set.setId);
+    expect(await d.deps.storage.listObjects(finalPrefix)).toHaveLength(4);
+    // A replay after the save: the reservation is settled.
+    await expect(
+      createWork(d.deps, { ...input, name: "Trzy" }),
+    ).rejects.toMatchObject({ code: "invalid_set" });
+    expect(await d.deps.storage.listObjects(finalPrefix)).toHaveLength(4);
+  });
+
+  it("a copy that fails midway leaves no public object, and a settle that fails does not fail the save", async () => {
+    const d = makeDeps();
+    const photo = await uploadPhoto(d);
+    const archive = await uploadArchive(d, "one");
+    const set = await stageSet(d, 3);
+    const finalPrefix = frameSetPrefix(PREFIX, userId, set.setId);
+    const storage = d.deps.storage;
+    let copies = 0;
+    const flaky = {
+      ...storage,
+      async copyObject(...args: Parameters<typeof storage.copyObject>) {
+        if (++copies === 4) throw new Error("503 from the bucket");
+        return storage.copyObject(...args);
+      },
+    };
+    await expect(
+      createWork(
+        { ...d.deps, storage: flaky },
+        {
+          name: "Urwana kopia",
+          imageFileIds: [photo.original.fileId],
+          r360FileId: archive.fileId,
+          r360SetId: set.setId,
+          r360Params: defaultR360Params(3),
+        },
+      ),
+    ).rejects.toThrow("503");
+    expect(await storage.listObjects(finalPrefix)).toHaveLength(0);
+    // Still staged and still reserved: the owner can save again.
+    expect(await storage.listObjects(set.stagingPrefix)).toHaveLength(6);
+    // The save lists the staging prefix once to verify; the settle lists
+    // it again to discard — that second listing fails.
+    let listings = 0;
+    const deaf = {
+      ...storage,
+      async listObjects(...args: Parameters<typeof storage.listObjects>) {
+        if (++listings === 2) throw new Error("timeout");
+        return storage.listObjects(...args);
+      },
+    };
+    const { id } = await createWork(
+      { ...d.deps, storage: deaf },
+      {
+        name: "Zapisana mimo to",
+        imageFileIds: [photo.original.fileId],
+        r360FileId: archive.fileId,
+        r360SetId: set.setId,
+        r360Params: defaultR360Params(3),
+      },
+    );
+    expect(id).toBeTruthy();
+    expect(await storage.listObjects(finalPrefix)).toHaveLength(6);
+  });
+
   it("replaces the set with the archive, keeps it across an edit, refuses it across a change of archive, and frees it with the work", async () => {
     const d = makeDeps();
     const photo = await uploadPhoto(d);
@@ -398,6 +536,17 @@ describe("a frame set on a work", () => {
     });
     expect((await listWorks(d.deps))[0].r360?.set?.params).toEqual(turned);
     expect(await d.deps.storage.listObjects(firstPrefix)).toHaveLength(4);
+
+    // The set kept with another count: the count is detected, not chosen.
+    await expect(
+      updateWork(d.deps, id, {
+        name: "Z orbitą",
+        imageFileIds: [photo.original.fileId],
+        r360FileId: first.fileId,
+        r360SetId: firstSet.setId,
+        r360Params: defaultR360Params(3),
+      }),
+    ).rejects.toMatchObject({ code: "invalid_set" });
 
     // The set kept while the archive changes: refused.
     const second = await uploadArchive(d, "two");

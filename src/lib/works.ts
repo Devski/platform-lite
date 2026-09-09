@@ -10,11 +10,12 @@ import {
   type ProfileReadDeps,
 } from "@/lib/profile";
 import {
+  assertNotRecorded,
   copyFrameSet,
-  deleteFrameObjects,
   insertFrameRows,
   removeFrameSetRows,
   settleFrameSet,
+  takeBackCopies,
   verifyFrameSet,
   type VerifiedFrameSet,
 } from "@/lib/r360/frame-set";
@@ -231,11 +232,35 @@ async function withFrameSet<T>(
   try {
     result = await run(verified);
   } catch (error) {
-    await deleteFrameObjects(deps.storage, copied);
+    // Only the copies no row names by now: a second save of the same set
+    // that lost the race must not delete the winner's frames.
+    await takeBackCopies(deps, copied);
     throw error;
   }
   await settleFrameSet(deps, verified);
   return result;
+}
+
+/**
+ * The cheap refusals before a set is copied (#102 review): the works
+ * limit and the ownership of every file, read without the lock — the
+ * transaction repeats them under it; this only spares a few hundred
+ * copies and deletes for a save that was never going to go through.
+ */
+async function assertCouldSave(
+  db: Database,
+  userId: string,
+  parsed: ReturnType<typeof workInputSchema.parse>,
+  creating: boolean,
+): Promise<void> {
+  if (creating) {
+    const [{ count }] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(works)
+      .where(eq(works.userId, userId));
+    if (count >= WORKS_MAX) throw new WorksError("limit");
+  }
+  await assertOwnInput(db, userId, parsed);
 }
 
 /** The work's own columns as the form sends them; blank text is null. */
@@ -316,6 +341,7 @@ export async function createWork(
 ): Promise<{ id: string }> {
   const parsed = workInputSchema.parse(input);
   const { db, userId } = deps;
+  if (parsed.r360SetId) await assertCouldSave(db, userId, parsed, true);
   return withFrameSet(deps, parsed, (verified) =>
     db.transaction(async (tx) => {
       await lockUser(tx, userId);
@@ -325,6 +351,7 @@ export async function createWork(
         .where(eq(works.userId, userId));
       if (count >= WORKS_MAX) throw new WorksError("limit");
       await assertOwnInput(tx, userId, parsed);
+      if (verified) await assertNotRecorded(tx, userId, verified.setId);
       const [created] = await tx
         .insert(works)
         .values({ userId, ...workColumnsOf(parsed) })
@@ -357,17 +384,26 @@ export async function updateWork(
   // across a change of archive is refused — the frames belong to the bytes
   // they were derived from.
   const [current] = await db
-    .select({ r360FileId: works.r360FileId, r360SetId: works.r360SetId })
+    .select({
+      r360FileId: works.r360FileId,
+      r360SetId: works.r360SetId,
+      r360Params: works.r360Params,
+    })
     .from(works)
     .where(and(eq(works.id, workId), eq(works.userId, userId)));
   if (!current) throw new WorksError("not_found");
   const setChanges = parsed.r360SetId !== current.r360SetId;
-  if (
-    !setChanges &&
-    parsed.r360SetId !== null &&
-    parsed.r360FileId !== current.r360FileId
-  ) {
-    throw new WorksError("invalid_set");
+  if (!setChanges && parsed.r360SetId !== null) {
+    if (parsed.r360FileId !== current.r360FileId) {
+      throw new WorksError("invalid_set");
+    }
+    // The count is detected, not chosen (A13): a kept set keeps its N.
+    if (parsed.r360Params?.frameCount !== current.r360Params?.frameCount) {
+      throw new WorksError("invalid_set");
+    }
+  }
+  if (setChanges && parsed.r360SetId) {
+    await assertCouldSave(db, userId, parsed, false);
   }
   // Only a set the work did not have is staged; one kept is left alone.
   const staging = setChanges ? parsed : null;
@@ -391,6 +427,7 @@ export async function updateWork(
       if (own.r360SetId !== current.r360SetId)
         throw new WorksError("invalid_set");
       await assertOwnInput(tx, userId, parsed);
+      if (verified) await assertNotRecorded(tx, userId, verified.setId);
       const before = await tx
         .select({
           fileId: workImages.fileId,

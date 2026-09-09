@@ -55,6 +55,15 @@ export function frameSetPrefix(
   return `${prefix}u/${userId}/r360/${setId}/`;
 }
 
+/** A frame's public address from the work's `frameBase` (#104). */
+export function frameUrl(
+  frameBase: string,
+  width: R360Width,
+  ordinal: number,
+): string {
+  return frameKey(frameBase, width, ordinal);
+}
+
 /** One frame's key under either prefix: `<width>/<ordinal>.webp`. */
 export function frameKey(
   base: string,

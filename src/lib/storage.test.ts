@@ -121,6 +121,14 @@ describe("memory storage (the G1 fake for dependent code)", () => {
       await storage.listObjects("staging/u/s/", { maxKeys: 2 }),
     ).toHaveLength(2);
     expect(await storage.listObjects("nothing/")).toEqual([]);
+    await storage.deleteObjects([
+      "staging/u/s/1600/001.webp",
+      "staging/u/s/800/001.webp",
+      "never/there",
+    ]);
+    expect(
+      (await storage.listObjects("staging/u/s/")).map((o) => o.key),
+    ).toEqual(["staging/u/s/1600/002.webp"]);
     expect(
       await storage.presignUpload("staging/u/s/1600/001.webp", {
         contentType: "image/webp",

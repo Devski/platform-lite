@@ -17,7 +17,10 @@ import {
 
 /** Turns one frame's bytes into a WebP per width; the browser's canvas. */
 export interface FrameEncoder {
-  encode(bytes: Uint8Array, name: string): Promise<Record<R360Width, Blob>>;
+  encode(
+    bytes: Uint8Array<ArrayBuffer>,
+    name: string,
+  ): Promise<Record<R360Width, Blob>>;
 }
 
 export type FrameSetFailure =
@@ -60,7 +63,7 @@ export interface FrameSetProgress {
 }
 
 export type FrameSetOutcome =
-  | { ok: true; setId: string; frameCount: number }
+  | { ok: true; setId: string; stagingPrefix: string; frameCount: number }
   | { ok: false; failure: FrameSetFailure };
 
 export interface ProduceFrameSetOptions {
@@ -104,7 +107,10 @@ export async function produceFrameSet(
   let failure: FrameSetFailure | null = null;
   const upload = (url: string, blob: Blob) => {
     let sentOfThis = 0;
-    const task: Promise<void> = transport
+    // Declared before the PUT starts: a transport reporting progress
+    // synchronously must find the task already in the set.
+    let task: Promise<void> = Promise.resolve();
+    task = transport
       .put(url, blob, {
         signal,
         onProgress: (fraction) => {
@@ -138,7 +144,7 @@ export async function produceFrameSet(
   for (const [index, frame] of frames.entries()) {
     if (signal?.aborted) return giveUp("aborted");
     if (failure) return giveUp(failure);
-    let bytes: Uint8Array;
+    let bytes: Uint8Array<ArrayBuffer>;
     try {
       bytes = await archive.readEntry(frame);
     } catch {
@@ -170,5 +176,10 @@ export async function produceFrameSet(
   await Promise.allSettled(inFlight);
   if (failure) return giveUp(failure);
   if (signal?.aborted) return giveUp("aborted");
-  return { ok: true, setId: set.setId, frameCount: frames.length };
+  return {
+    ok: true,
+    setId: set.setId,
+    stagingPrefix: set.stagingPrefix,
+    frameCount: frames.length,
+  };
 }

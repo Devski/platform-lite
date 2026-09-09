@@ -126,7 +126,12 @@ describe("produceFrameSet", () => {
       onProgress: (p) => reports.push(p),
       concurrency: 2,
     });
-    expect(outcome).toEqual({ ok: true, setId: "s".repeat(32), frameCount: 5 });
+    expect(outcome).toEqual({
+      ok: true,
+      setId: "s".repeat(32),
+      stagingPrefix: "devski/staging/u/s/",
+      frameCount: 5,
+    });
     expect(encoder.encoded).toEqual(frames.map((f) => f.name));
     expect(transport.puts).toHaveLength(10);
     const at = (url: string) => transport.puts.find((p) => p.url === url)?.body;

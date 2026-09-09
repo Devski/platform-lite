@@ -204,8 +204,10 @@ function putWithProgress(
 }
 
 // Tells the server the staged upload is not coming, so the reserved bytes
-// stop counting now rather than at the window's end. Best-effort.
-function abandon(stagingKey: string): Promise<unknown> {
+// stop counting now rather than at the window's end. Best-effort. A key
+// ending with a slash is an R360 set's prefix (#102): the form abandons a
+// set it produced and did not save, so its ceiling stops counting.
+export function abandon(stagingKey: string): Promise<unknown> {
   return postJson("/api/uploads/abandon", { stagingKey }).catch(
     () => undefined,
   );

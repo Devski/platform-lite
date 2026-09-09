@@ -531,7 +531,8 @@
         "tooManyPhotos": "Wybrano {offered, plural, one {# zdjęcie} few {# zdjęcia} many {# zdjęć} other {# zdjęcia}}, a {room, plural, one {zmieści się jedno} other {zmieszczą się #}}. Wybierz najwyżej {room}.",
         "invalidArchive": "Archiwum R360 nie jest już dostępne. Wgraj je ponownie.",
         "framesUploading": "Poczekaj, aż klatki się przygotują.",
-        "invalidSet": "Klatki archiwum nie są już dostępne. Dodaj archiwum ponownie."
+        "invalidSet": "Klatki archiwum nie są już dostępne. Dodaj archiwum ponownie.",
+        "framesExpired": "Klatki straciły ważność przed zapisem. Dodaj archiwum ponownie."
       },
       "r360": {
         "label": "Render 360",

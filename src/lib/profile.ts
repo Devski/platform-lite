@@ -404,11 +404,11 @@ export async function deleteObjects(
   keys: string[],
   purpose: ImagePurpose,
 ): Promise<void> {
-  for (const key of new Set(keys)) {
-    try {
-      await deps.storage.deleteObject(key);
-    } catch (error) {
-      console.error(`[profile] ${purpose} object cleanup failed:`, error);
-    }
+  const unique = [...new Set(keys)];
+  if (unique.length === 0) return;
+  try {
+    await deps.storage.deleteObjects(unique);
+  } catch (error) {
+    console.error(`[profile] ${purpose} object cleanup failed:`, error);
   }
 }

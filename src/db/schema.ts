@@ -296,6 +296,9 @@ export const works = pgTable(
     // The profile page lists a user's works in adding order.
     index("works_user_id_created_at_idx").on(table.userId, table.createdAt),
     index("works_r360_file_id_idx").on(table.r360FileId),
+    // #102 review: a set belongs to one work — the second save of one set
+    // is refused by the code and, should it slip past, by the database.
+    uniqueIndex("works_r360_set_id_unique").on(table.r360SetId),
     check(
       "works_r360_set_pairing",
       sql`(${table.r360SetId} IS NULL) = (${table.r360Params} IS NULL)`,

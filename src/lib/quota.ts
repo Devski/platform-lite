@@ -22,7 +22,10 @@ export async function quotaUsageBytes(
   // bucket, so leaving it out let a user park unaccounted gigabytes there —
   // presign is capped at 10/min at 10 MB each, and the bucket lifecycle rule
   // only sweeps a day later. The presign signature pins content-length, so the
-  // declared size cannot differ from what the bucket accepts.
+  // declared size cannot differ from what the bucket accepts — except for the
+  // R360 frames (#102), whose sizes are unknowable at presign: their
+  // reservation is a ceiling, the save checks the real sizes, and SPEC §10
+  // carries the residual.
   const [stored] = await db
     .select({ total: sum(files.sizeBytes) })
     .from(files)
