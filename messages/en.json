@@ -271,7 +271,7 @@
           "file_type": "That format is not supported — choose JPEG, PNG or WebP.",
           "file_size": "The file needs to be between 1 byte and 10 MB.",
           "upload_failed": "The file upload failed. Try again.",
-          "quota_exceeded": "No space left: this photo would exceed your 1 GB limit.",
+          "quota_exceeded": "No space left: this photo would exceed your 10 GB limit.",
           "too_large": "The photo is too large (10 MB and 64 megapixels are the limits).",
           "not_an_image": "This file does not look like a valid image.",
           "unsupported_format": "That format is not supported — choose JPEG, PNG or WebP.",
@@ -584,7 +584,7 @@
         },
         "failed": {
           "presign_failed": "The frames could not be prepared. Try again.",
-          "quota_exceeded": "No space left: the frames would exceed your 1 GB limit.",
+          "quota_exceeded": "No space left: the frames would exceed your 10 GB limit.",
           "rate_limited": "Too many attempts. Wait a moment and try again.",
           "read_failed": "A frame could not be read from the archive.",
           "encode_failed": "A frame could not be decoded. Export JPEG, PNG or WebP.",

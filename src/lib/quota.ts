@@ -2,12 +2,17 @@ import { and, eq, gt, ne, sql, sum } from "drizzle-orm";
 import type { Database } from "@/db/client";
 import { files, pendingUploads } from "@/db/schema";
 
-// A9: 1 GB per user, free in the MVP. Usage is computed in the database as
+// A9: 10 GB per user, free in the MVP. Usage is computed in the database as
 // the per-user SUM over files.size_bytes — the files(user_id, size_bytes)
 // covering index makes it an index-only scan. Safe thanks to OVH's zero
 // egress; the pain threshold and the paid-model conversation live in SPEC §10.
+//
+// 1 GB until 09.09.2026, when the first real orbit archive (1.8 GB of PNG
+// frames, which a zip cannot shrink) could not be uploaded on dev. Raised
+// tenfold for now; #115 revisits the figure once photo processing is
+// global (#71) and #69 has taken the archive out of the sum.
 
-export const QUOTA_BYTES = 1024 * 1024 * 1024;
+export const QUOTA_BYTES = 10 * 1024 * 1024 * 1024;
 
 export async function quotaUsageBytes(
   db: Database,

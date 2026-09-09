@@ -281,6 +281,11 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # --with-deps runs apt-get update, which fails when any configured source
+      # is broken: on 09.09.2026 the Google Chrome index on the runner image
+      # answered "Hash Sum mismatch" for hours. Playwright brings its own
+      # Chromium, so that source is dead weight here.
+      - run: sudo rm -f /etc/apt/sources.list.d/google-chrome*
       - run: pnpm exec playwright install chromium --with-deps
       - run: pnpm test:e2e --project=chromium
       # The log is the server's whole stdout, and the dev e-mail transport
@@ -353,6 +358,11 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # --with-deps runs apt-get update, which fails when any configured source
+      # is broken: on 09.09.2026 the Google Chrome index on the runner image
+      # answered "Hash Sum mismatch" for hours. Playwright brings its own
+      # Chromium, so that source is dead weight here.
+      - run: sudo rm -f /etc/apt/sources.list.d/google-chrome*
       - run: pnpm exec playwright install chromium --with-deps
       # Migrations first: the journey signs an account up against these
       # relations, so they must exist before the web server takes a request.
