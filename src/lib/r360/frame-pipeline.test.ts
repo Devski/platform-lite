@@ -145,11 +145,16 @@ describe("produceFrameSet", () => {
     expect(last.framesTotal).toBe(5);
     expect(last.bytesQueued).toBe(10 * 24);
     expect(last.bytesSent).toBe(10 * 24);
+    expect(last.framesLanded).toBe(5);
+    // A count that only grows, one per frame whose both encodings landed.
+    const landed = reports.map((r) => r.framesLanded);
+    expect(landed.every((n, i) => i === 0 || n >= landed[i - 1])).toBe(true);
     expect(reports[0]).toEqual({
       framesDone: 0,
       framesTotal: 5,
       bytesSent: 0,
       bytesQueued: 0,
+      framesLanded: 0,
     });
   });
 

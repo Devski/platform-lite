@@ -25,6 +25,8 @@ export interface Orbit {
     onPointerMove: (event: React.PointerEvent<HTMLElement>) => void;
     onPointerUp: (event: React.PointerEvent<HTMLElement>) => void;
     onPointerCancel: (event: React.PointerEvent<HTMLElement>) => void;
+    /** Capture lost any other way: the drag ends rather than lingers. */
+    onLostPointerCapture: (event: React.PointerEvent<HTMLElement>) => void;
     onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void;
   };
 }
@@ -123,6 +125,7 @@ export function useOrbit(
       onPointerMove,
       onPointerUp: release,
       onPointerCancel: release,
+      onLostPointerCapture: release,
       onKeyDown,
     },
   };

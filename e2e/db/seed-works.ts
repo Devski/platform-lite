@@ -31,9 +31,14 @@ export async function seedWorks(
   if (!url) throw new Error("DATABASE_URL_TEST is unset");
   // Rows the app itself would never write go only where an e2e run has a
   // legitimate target: loopback (local Postgres, the tunnel, CI's service).
-  const host = new URL(url).hostname;
+  const parsed = new URL(url);
+  const host = parsed.hostname;
   if (!["localhost", "127.0.0.1", "::1", "[::1]"].includes(host)) {
     throw new Error(`seedWorks refuses the non-loopback database ${host}`);
+  }
+  // pg lets a query parameter override the host the URL names.
+  if (parsed.searchParams.has("host") || parsed.searchParams.has("hostaddr")) {
+    throw new Error("seedWorks refuses a host set in the query string");
   }
   const client = new Client({ connectionString: url });
   await client.connect();

@@ -46,8 +46,9 @@ export function pageStep(frameCount: number): number {
 
 /**
  * The frame after a key (#104), or null when the key is not the orbit's:
- * arrows one frame in the work's direction, Page keys a twelfth of the
- * orbit, Home the start frame.
+ * arrows one frame in the work's direction (up and down as right and left,
+ * as a slider's do), Page keys a twelfth of the orbit, Home the start
+ * frame, End the frame opposite it.
  */
 export function frameAfterKey(
   frame: number,
@@ -57,8 +58,10 @@ export function frameAfterKey(
   const { frameCount, direction } = params;
   switch (key) {
     case "ArrowRight":
+    case "ArrowUp":
       return wrapFrame(frame + direction, frameCount);
     case "ArrowLeft":
+    case "ArrowDown":
       return wrapFrame(frame - direction, frameCount);
     case "PageDown":
       return wrapFrame(frame + direction * pageStep(frameCount), frameCount);
@@ -66,6 +69,11 @@ export function frameAfterKey(
       return wrapFrame(frame - direction * pageStep(frameCount), frameCount);
     case "Home":
       return wrapFrame(params.startFrame, frameCount);
+    case "End":
+      return wrapFrame(
+        params.startFrame + Math.floor(frameCount / 2),
+        frameCount,
+      );
     default:
       return null;
   }

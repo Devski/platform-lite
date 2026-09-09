@@ -201,7 +201,7 @@ function WorkCard({
             className="flex aspect-[16/9] items-center justify-center bg-(--surface-sunken) type-eyebrow text-(--text-muted)"
             data-testid="work-card-no-photo"
           >
-            {t("card.r360Uploaded")}
+            {t("card.orbit")}
           </div>
         )}
         {work.images.map((image, index) => (

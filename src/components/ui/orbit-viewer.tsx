@@ -52,7 +52,7 @@ export function OrbitViewer({
 
   return (
     <div
-      className={`relative select-none ${orbit.dragging ? "cursor-grabbing" : "cursor-grab"} ${className}`}
+      className={`relative select-none focus-visible:outline-none focus-visible:shadow-[var(--ring-focus)] ${orbit.dragging ? "cursor-grabbing" : "cursor-grab"} ${className}`}
       style={{ touchAction: "pan-y" }}
       role="slider"
       tabIndex={0}

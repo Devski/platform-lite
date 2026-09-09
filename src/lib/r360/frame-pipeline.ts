@@ -60,6 +60,8 @@ export interface FrameSetProgress {
   /** Bytes of frames that have left the browser, out of those encoded. */
   bytesSent: number;
   bytesQueued: number;
+  /** Frames whose both encodings have landed — a count that only grows. */
+  framesLanded: number;
 }
 
 export type FrameSetOutcome =
@@ -102,15 +104,26 @@ export async function produceFrameSet(
     framesTotal: frames.length,
     bytesSent: 0,
     bytesQueued: 0,
+    framesLanded: 0,
   };
   const report = () => options.onProgress?.({ ...progress });
+  // A frame has landed once its encodings, one per width, both did.
+  const landedParts = new Map<number, number>();
+  const landed = (ordinal: number) => {
+    const parts = (landedParts.get(ordinal) ?? 0) + 1;
+    landedParts.set(ordinal, parts);
+    if (parts === R360_WIDTHS.length) {
+      progress.framesLanded += 1;
+      report();
+    }
+  };
   report();
 
   // The uploads: bounded in flight, the first failure remembered. Every
   // PUT reports its own fraction; the sum is the bar's byte count.
   const inFlight = new Set<Promise<void>>();
   let failure: FrameSetFailure | null = null;
-  const upload = (url: string, blob: Blob) => {
+  const upload = (url: string, blob: Blob, ordinal: number) => {
     let sentOfThis = 0;
     // Declared before the PUT starts: a transport reporting progress
     // synchronously must find the task already in the set.
@@ -126,7 +139,8 @@ export async function produceFrameSet(
         },
       })
       .then((result) => {
-        if (result !== "ok" && !failure) {
+        if (result === "ok") landed(ordinal);
+        else if (!failure) {
           failure = result === "aborted" ? "aborted" : "upload_failed";
         }
       })
@@ -169,13 +183,16 @@ export async function produceFrameSet(
         return giveUp("frame_too_large");
       }
     }
+    // An abort that landed while this frame was decoding: the frame is
+    // not handed out — its object URL would have nobody to revoke it.
+    if (signal?.aborted) return giveUp("aborted");
     progress.framesDone = index + 1;
     options.onFrame?.(index + 1, encoded);
     for (const width of R360_WIDTHS) {
       await waitForRoom();
       if (failure) break;
       progress.bytesQueued += encoded[width].size;
-      upload(set.urls[width][index], encoded[width]);
+      upload(set.urls[width][index], encoded[width], index + 1);
     }
     report();
   }

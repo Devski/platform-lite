@@ -68,7 +68,7 @@ describe("frameAfterDrag", () => {
 });
 
 describe("frameAfterKey", () => {
-  it("arrows one frame the work's way, Page keys a twelfth, Home the start frame, the rest ignored", () => {
+  it("arrows one frame the work's way, Page keys a twelfth, Home the start frame, End the opposite one, the rest ignored", () => {
     const p = params(120, 60, 1, 7);
     expect(frameAfterKey(120, "ArrowRight", p)).toBe(1);
     expect(frameAfterKey(1, "ArrowLeft", p)).toBe(120);
@@ -76,7 +76,10 @@ describe("frameAfterKey", () => {
     expect(frameAfterKey(115, "PageDown", p)).toBe(5);
     expect(frameAfterKey(5, "PageUp", p)).toBe(115);
     expect(frameAfterKey(50, "Home", p)).toBe(7);
-    expect(frameAfterKey(50, "End", p)).toBeNull();
+    expect(frameAfterKey(50, "End", p)).toBe(67);
+    expect(frameAfterKey(120, "ArrowUp", p)).toBe(1);
+    expect(frameAfterKey(1, "ArrowDown", p)).toBe(120);
+    expect(frameAfterKey(50, "Enter", p)).toBeNull();
     const reversed = params(9, 9, -1);
     expect(frameAfterKey(1, "ArrowRight", reversed)).toBe(9);
     expect(pageStep(9)).toBe(1);

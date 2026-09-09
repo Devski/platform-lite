@@ -1,6 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
+import { useId } from "react";
 import { Button } from "@/components/ui/button";
 import type { R360Params } from "@/lib/r360/frame-set-shared";
 
@@ -59,10 +60,13 @@ export function R360ParamControls({
         testId="work-r360-frames-per-width"
       />
       <div className="flex flex-col gap-(--sp-2)">
+        {/* The value is announced when the button changes it: a status
+            message, not a re-read of the whole block (#103 review). */}
         <ParamLabel
           name={t("paramStartFrame")}
           shown={String(params.startFrame)}
           shownTestId="work-r360-start-frame"
+          live
         />
         <div>
           <Button
@@ -84,17 +88,15 @@ export function R360ParamControls({
         onChange={(flattening) => onChange({ flattening })}
         disabled={disabled}
         testId="work-r360-flattening"
+        hint={t("flatteningHint")}
       >
-        <span className="flex items-center gap-(--sp-3) type-sm text-(--text-muted)">
-          <Button
-            variant="quiet"
-            onClick={() => onChange({ flattening: 1 })}
-            disabled={disabled || params.flattening === 1}
-          >
-            {t("flatteningCircle")}
-          </Button>
-          {t("flatteningHint")}
-        </span>
+        <Button
+          variant="quiet"
+          onClick={() => onChange({ flattening: 1 })}
+          disabled={disabled || params.flattening === 1}
+        >
+          {t("flatteningCircle")}
+        </Button>
       </RangeParam>
     </div>
   );
@@ -105,23 +107,49 @@ function ParamLabel({
   name,
   shown,
   shownTestId,
+  nameId,
+  shownId,
+  htmlFor,
+  live = false,
 }: {
   name: string;
   shown: string;
   shownTestId?: string;
+  nameId?: string;
+  shownId?: string;
+  /** The control the name labels, when the name is a label. */
+  htmlFor?: string;
+  /** Announce the value when it changes. */
+  live?: boolean;
 }) {
   return (
     <span className="type-label text-(--text-body)">
-      {name}
+      {htmlFor ? (
+        <label id={nameId} htmlFor={htmlFor}>
+          {name}
+        </label>
+      ) : (
+        <span id={nameId}>{name}</span>
+      )}
       {": "}
-      <span className="font-normal tabular-nums" data-testid={shownTestId}>
+      <span
+        id={shownId}
+        className="font-normal tabular-nums"
+        data-testid={shownTestId}
+        aria-live={live ? "polite" : undefined}
+      >
         {shown}
       </span>
     </span>
   );
 }
 
-/** A parameter set on a slider, its value shown above it. */
+/**
+ * A parameter set on a slider, its value shown above it. The name alone
+ * is the slider's label, the value its description — a label wrapping the
+ * whole block would read the value, a button and the hint as the name
+ * (#103 review). What comes as children sits beside the hint, outside.
+ */
 function RangeParam({
   name,
   shown,
@@ -132,6 +160,7 @@ function RangeParam({
   onChange,
   disabled,
   testId,
+  hint,
   children,
 }: {
   name: string;
@@ -143,12 +172,22 @@ function RangeParam({
   onChange: (value: number) => void;
   disabled: boolean;
   testId: string;
+  hint?: string;
   children?: React.ReactNode;
 }) {
+  const inputId = useId();
+  const shownId = useId();
+  const hintId = useId();
   return (
-    <label className="flex flex-col gap-(--sp-2)">
-      <ParamLabel name={name} shown={shown} />
+    <div className="flex flex-col gap-(--sp-2)">
+      <ParamLabel
+        name={name}
+        shown={shown}
+        htmlFor={inputId}
+        shownId={shownId}
+      />
       <input
+        id={inputId}
         type="range"
         min={min}
         max={max}
@@ -157,9 +196,15 @@ function RangeParam({
         onChange={(event) => onChange(Number(event.target.value))}
         disabled={disabled}
         data-testid={testId}
+        aria-describedby={hint ? `${shownId} ${hintId}` : shownId}
         className="accent-(--action-solid)"
       />
-      {children}
-    </label>
+      {(hint || children) && (
+        <span className="flex items-center gap-(--sp-3) type-sm text-(--text-muted)">
+          {children}
+          {hint && <span id={hintId}>{hint}</span>}
+        </span>
+      )}
+    </div>
   );
 }

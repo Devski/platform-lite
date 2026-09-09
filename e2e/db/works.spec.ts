@@ -808,6 +808,31 @@ test("an archive with a gap is refused on the page and sends nothing; a saved se
   expect(presigns).toHaveLength(0);
   await expect(page.getByTestId("work-r360-preview")).toHaveCount(0);
 
+  // A good archive whose set the server refuses (the quota, say): the
+  // archive stays, without frames and without a preview of frames it does
+  // not have, and the reason is told (#103 review).
+  await page.route("**/api/uploads/confirm-archive", (route) =>
+    json(200, { fileId: ARCHIVE_ID, sizeBytes: 3 })(route),
+  );
+  await page.route("**/api/uploads/presign-r360-set", (route) =>
+    json(400, { error: "quota_exceeded" })(route),
+  );
+  await page.getByTestId("work-r360").setInputFiles({
+    name: "orbit.zip",
+    mimeType: "application/zip",
+    buffer: await orbitZip(2),
+  });
+  await expect(page.getByText("Wgrany", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Brak miejsca: klatki przekroczyłyby Twój limit 1 GB."),
+  ).toBeVisible();
+  await expect(page.getByTestId("work-r360-preview")).toHaveCount(0);
+  await expect(page.getByTestId("work-r360-frames")).toHaveCount(0);
+  await page
+    .locator("form")
+    .getByRole("button", { name: "Usuń", exact: true })
+    .click();
+
   // A work saved with a set: its parameters come back in edit mode, with
   // no photo to require.
   await page.getByRole("button", { name: "Anuluj" }).click();

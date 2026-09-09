@@ -71,6 +71,8 @@ interface Archive {
     total: number;
     bytesSent?: number;
     bytesQueued?: number;
+    /** Frames whose encodings have landed: the bar's monotone input. */
+    landed?: number;
   };
   /**
    * #102: the set the work names — produced now (with the staging prefix
@@ -171,14 +173,14 @@ function percentOf(fraction: number): number {
 }
 
 // #103: one bar for the whole R360 flow — the archive's bytes, the
-// frames processed, the frames' bytes — weighted so it moves steadily:
+// frames processed, the frames landed — weighted so it moves steadily:
 // the archive is the long transfer, the frames the long computation.
+// Every input only grows (the frames' bytes in flight do not: a large
+// frame after small ones would pull the bar back — #103 review), so the
+// bar does too.
 type FrameProgress = NonNullable<Archive["frames"]>;
 function uploadFraction(frames: FrameProgress): number {
-  return (
-    fractionOf(frames.bytesSent ?? 0, frames.bytesQueued ?? 0) *
-    fractionOf(frames.done, frames.total)
-  );
+  return fractionOf(frames.landed ?? 0, frames.total);
 }
 function compositeFraction(archive: Archive): number {
   const bytes = archive.progress ?? 0;
@@ -672,7 +674,14 @@ export function WorkForm({
               transport: frameSetTransport,
               signal: frames.signal,
               onFrame: (ordinal, encoded) => {
-                // The preview shows the very frames being uploaded (#103).
+                // The preview shows the very frames being uploaded (#103) —
+                // as long as this archive is still the one in the form.
+                if (
+                  closed.current ||
+                  archiveRef.current?.fileId !== pendingId
+                ) {
+                  return;
+                }
                 const url = URL.createObjectURL(encoded[R360_WIDTHS[1]]);
                 commitPreview((current) =>
                   current.map((entry, index) =>
@@ -681,11 +690,9 @@ export function WorkForm({
                 );
               },
               onProgress: (p) => {
-                // A render per frame or per whole percent of the bytes, not
-                // per progress event of 720 PUTs.
-                const bucket =
-                  p.framesDone * 1000 +
-                  Math.floor((p.bytesSent / Math.max(1, p.bytesQueued)) * 100);
+                // A render per frame encoded or landed, not per progress
+                // event of 720 PUTs.
+                const bucket = p.framesDone * 1000 + p.framesLanded;
                 if (bucket === framesDone) return;
                 framesDone = bucket;
                 patchPending({
@@ -694,6 +701,7 @@ export function WorkForm({
                     total: p.framesTotal,
                     bytesSent: p.bytesSent,
                     bytesQueued: p.bytesQueued,
+                    landed: p.framesLanded,
                   },
                 });
               },
@@ -710,19 +718,22 @@ export function WorkForm({
       commitArchive((current) =>
         current?.fileId === pendingId ? null : current,
       );
+      resetPreview();
       if (set.ok) void abandon(set.stagingPrefix);
       if (result.failure !== "aborted") uploadFail(result.failure);
       return;
     }
     unsaved.current.add(result.fileId);
     if (!set.ok) {
-      // The archive stays, without its frames, and the reason is told.
+      // The archive stays, without its frames and without a preview of
+      // frames it does not have; the reason is told.
       commitArchive({
         fileId: result.fileId,
         sizeBytes: result.sizeBytes,
         name: file.name,
         uploading: false,
       });
+      resetPreview();
       if (set.failure !== "aborted") setError(t(`r360.failed.${set.failure}`));
       return;
     }
@@ -750,6 +761,7 @@ export function WorkForm({
       // Stops the transfer; the abort path abandons the staged bytes.
       archiveAbort.current?.abort();
       commitArchive(null);
+      resetPreview();
       return;
     }
     if (archive) void discard(archive.fileId);
@@ -1276,7 +1288,8 @@ export function WorkForm({
                       </li>
                       <li>
                         {t("r360.stageUpload", {
-                          percent: percentOf(uploadFraction(archive.frames)),
+                          landed: archive.frames.landed ?? 0,
+                          total: archive.frames.total,
                         })}
                       </li>
                     </>
