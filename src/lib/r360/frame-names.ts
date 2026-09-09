@@ -12,6 +12,11 @@ export const FRAME_EXTENSIONS = ["jpg", "jpeg", "png", "webp"] as const;
 /** What 3D software exports and a browser cannot show — refused by name. */
 export const UNSHOWABLE_EXTENSIONS = ["exr", "tif", "tiff", "tga"] as const;
 
+// The tuples above keep their literal types for callers; the lookups here
+// want plain string sets.
+const showable: ReadonlySet<string> = new Set(FRAME_EXTENSIONS);
+const unshowable: ReadonlySet<string> = new Set(UNSHOWABLE_EXTENSIONS);
+
 export type FrameRefusalReason =
   /** An entry in a render format no browser decodes; `files` names it. */
   | "unsupported_format"
@@ -43,21 +48,21 @@ export function orderFrames<T extends { name: string }>(
   entries: readonly T[],
 ): FrameOrder<T> {
   const candidates: T[] = [];
-  const unshowable: string[] = [];
+  const refusedByFormat: string[] = [];
   for (const entry of entries) {
     if (isJunk(entry.name)) continue;
-    const extension = extensionOf(entry.name);
-    if (includes(FRAME_EXTENSIONS, extension)) candidates.push(entry);
-    else if (includes(UNSHOWABLE_EXTENSIONS, extension)) {
-      unshowable.push(entry.name);
-    }
+    const { extension } = partsOf(entry.name);
+    if (showable.has(extension)) candidates.push(entry);
+    else if (unshowable.has(extension)) refusedByFormat.push(entry.name);
   }
   const refuse = (
     reason: FrameRefusalReason,
     files: string[] = [],
   ): FrameOrder<T> => ({ ok: false, reason, files, count: candidates.length });
 
-  if (unshowable.length > 0) return refuse("unsupported_format", unshowable);
+  if (refusedByFormat.length > 0) {
+    return refuse("unsupported_format", refusedByFormat);
+  }
   if (candidates.length === 0) return refuse("no_frames");
   if (candidates.length < R360_MIN_FRAMES) return refuse("too_few");
   if (candidates.length > R360_MAX_FRAMES) return refuse("too_many");
@@ -65,19 +70,19 @@ export function orderFrames<T extends { name: string }>(
   const folderClash = folderClashOf(candidates);
   if (folderClash) return refuse("folders", folderClash);
 
-  const runs = candidates.map((entry) => digitRuns(entry.name));
-  const unnumbered = runs.findIndex((r) => r.length === 0);
+  const digits = candidates.map((entry) => digitRuns(entry.name));
+  const unnumbered = digits.findIndex((runs) => runs.length === 0);
   if (unnumbered !== -1) {
     return refuse("unnumbered", [candidates[unnumbered].name]);
   }
   const byLast = sequence(
     candidates,
-    runs.map((r) => r[r.length - 1]),
+    digits.map((runs) => runs[runs.length - 1]),
   );
   if (byLast.ok) return byLast;
   const byFirst = sequence(
     candidates,
-    runs.map((r) => r[0]),
+    digits.map((runs) => runs[0]),
   );
   if (byFirst.ok) return byFirst;
   // The primary rule's clash is the one to explain: it is what #64 promises.
@@ -87,42 +92,55 @@ export function orderFrames<T extends { name: string }>(
 function isJunk(name: string): boolean {
   if (name.endsWith("/")) return true;
   const segments = name.split("/");
-  const base = segments[segments.length - 1];
   return (
-    segments.some((s) => s === "__MACOSX" || s.startsWith(".")) ||
-    base.toLowerCase() === "thumbs.db"
+    segments.some(
+      (segment) => segment === "__MACOSX" || segment.startsWith("."),
+    ) || partsOf(name).base.toLowerCase() === "thumbs.db"
   );
 }
 
-function extensionOf(name: string): string {
-  const base = name.slice(name.lastIndexOf("/") + 1);
-  const dot = base.lastIndexOf(".");
-  return dot === -1 ? "" : base.slice(dot + 1).toLowerCase();
+interface NameParts {
+  /** Up to and including the last slash; "" at the top level. */
+  folder: string;
+  /** The name after the last slash. */
+  base: string;
+  /** The base without its extension. */
+  stem: string;
+  /** Lower-case, without the dot; "" when there is none. */
+  extension: string;
 }
 
-function includes(list: readonly string[], value: string): boolean {
-  return list.includes(value);
+function partsOf(name: string): NameParts {
+  const afterSlash = name.lastIndexOf("/") + 1;
+  const folder = name.slice(0, afterSlash);
+  const base = name.slice(afterSlash);
+  const dot = base.lastIndexOf(".");
+  if (dot === -1) return { folder, base, stem: base, extension: "" };
+  return {
+    folder,
+    base,
+    stem: base.slice(0, dot),
+    extension: base.slice(dot + 1).toLowerCase(),
+  };
 }
 
 /** Two frames that do not share the one allowed folder, or null. */
 function folderClashOf(
   candidates: readonly { name: string }[],
 ): string[] | null {
-  const folderOf = (name: string) => name.slice(0, name.lastIndexOf("/") + 1);
-  const first = folderOf(candidates[0].name);
-  const oneLevelAtMost =
-    first === "" || first.indexOf("/") === first.length - 1;
-  const elsewhere = candidates.find((c) => folderOf(c.name) !== first);
-  if (oneLevelAtMost && !elsewhere) return null;
+  const first = partsOf(candidates[0].name).folder;
+  // "" splits into one piece, "a/" into two, "a/b/" into three.
+  const tooDeep = first.split("/").length > 2;
+  const elsewhere = candidates.find(
+    (candidate) => partsOf(candidate.name).folder !== first,
+  );
+  if (!tooDeep && !elsewhere) return null;
   return [candidates[0].name, (elsewhere ?? candidates[1]).name];
 }
 
 /** The runs of digits in the base name, extension excluded. */
 function digitRuns(name: string): string[] {
-  const base = name.slice(name.lastIndexOf("/") + 1);
-  const dot = base.lastIndexOf(".");
-  const stem = dot === -1 ? base : base.slice(0, dot);
-  return stem.match(/\d+/g) ?? [];
+  return partsOf(name).stem.match(/\d+/g) ?? [];
 }
 
 type Sequence<T> = { ok: true; frames: T[] } | { ok: false; clash: string[] };
@@ -152,5 +170,5 @@ function sequence<T extends { name: string }>(
       };
     }
   }
-  return { ok: true, frames: ordered.map((o) => o.entry) };
+  return { ok: true, frames: ordered.map((item) => item.entry) };
 }

@@ -15,7 +15,7 @@ const sequence = (pattern: (n: string) => string, from: number, to: number) =>
   Array.from({ length: to - from + 1 }, (_, i) =>
     pattern(String(from + i).padStart(4, "0")),
   );
-const shuffled = <T>(items: T[]) => [...items].reverse();
+const reversed = <T>(items: T[]) => [...items].reverse();
 
 function ordered(result: FrameOrder<{ name: string }>): string[] {
   if (!result.ok) throw new Error(`refused: ${result.reason} ${result.files}`);
@@ -29,7 +29,7 @@ function refused(result: FrameOrder<{ name: string }>) {
 
 describe("orderFrames", () => {
   it("orders by the last run of digits, whatever the order of the entries", () => {
-    const names = shuffled(sequence((n) => `render_${n}.png`, 1, 120));
+    const names = reversed(sequence((n) => `render_${n}.png`, 1, 120));
     expect(ordered(orderFrames(named(...names)))).toEqual(
       sequence((n) => `render_${n}.png`, 1, 120),
     );

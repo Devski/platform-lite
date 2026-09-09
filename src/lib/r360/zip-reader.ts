@@ -163,63 +163,24 @@ export async function openZip(source: ByteSource): Promise<ZipArchive> {
   const tail = await source.readRange(tailStart, tailLength);
   const eocd = findEndRecord(tail);
   if (eocd === -1) throw new ZipError("not_a_zip");
+  // Bytes served from the tail already in hand, or read from the source.
+  const read: ByteSource["readRange"] = async (offset, length) => {
+    const inTail =
+      offset >= tailStart && offset + length <= tailStart + tail.length;
+    if (!inTail) return source.readRange(offset, length);
+    return tail.subarray(offset - tailStart, offset - tailStart + length);
+  };
 
-  const view = dataView(tail);
-  let entryCount: number = view.getUint16(eocd + 10, true);
-  let directorySize: number = view.getUint32(eocd + 12, true);
-  let directoryOffset: number = view.getUint32(eocd + 16, true);
-  const diskNumber = view.getUint16(eocd + 4, true);
-  const directoryDisk = view.getUint16(eocd + 6, true);
-  const needsZip64 =
-    entryCount === MAX_16 ||
-    directorySize === MAX_32 ||
-    directoryOffset === MAX_32 ||
-    diskNumber === MAX_16 ||
-    directoryDisk === MAX_16;
-  if (!needsZip64 && (diskNumber !== 0 || directoryDisk !== 0)) {
-    throw new ZipError("multi_part");
-  }
-  if (needsZip64) {
-    const locatorAt = tailStart + eocd - ZIP64_LOCATOR_LENGTH;
-    if (locatorAt < 0) throw new ZipError("corrupt", "no ZIP64 locator");
-    const locator = dataView(
-      await readWithin(
-        source,
-        tail,
-        tailStart,
-        locatorAt,
-        ZIP64_LOCATOR_LENGTH,
-      ),
-    );
-    if (locator.getUint32(0, true) !== ZIP64_LOCATOR_SIGNATURE) {
-      throw new ZipError("corrupt", "no ZIP64 locator");
-    }
-    if (locator.getUint32(16, true) > 1) throw new ZipError("multi_part");
-    const recordAt = safeNumber(locator.getBigUint64(8, true));
-    const record = dataView(
-      await readWithin(source, tail, tailStart, recordAt, ZIP64_EOCD_LENGTH),
-    );
-    if (record.getUint32(0, true) !== ZIP64_EOCD_SIGNATURE) {
-      throw new ZipError("corrupt", "no ZIP64 end record");
-    }
-    if (record.getUint32(16, true) !== 0 || record.getUint32(20, true) !== 0) {
-      throw new ZipError("multi_part");
-    }
-    entryCount = safeNumber(record.getBigUint64(32, true));
-    directorySize = safeNumber(record.getBigUint64(40, true));
-    directoryOffset = safeNumber(record.getBigUint64(48, true));
-  }
+  const { entryCount, directorySize, directoryOffset } = await locateDirectory(
+    dataView(tail),
+    eocd,
+    tailStart,
+    read,
+  );
   if (directoryOffset + directorySize > size) {
     throw new ZipError("corrupt", "central directory past the end");
   }
-
-  const directory = await readWithin(
-    source,
-    tail,
-    tailStart,
-    directoryOffset,
-    directorySize,
-  );
+  const directory = await read(directoryOffset, directorySize);
   const entries = parseCentralDirectory(directory, entryCount);
   return { entries, readEntry: (entry) => readEntry(source, entry) };
 }
@@ -235,18 +196,73 @@ function findEndRecord(tail: Uint8Array): number {
   return -1;
 }
 
-/** Bytes served from the tail already in hand, or read from the source. */
-async function readWithin(
-  source: ByteSource,
-  tail: Uint8Array,
+interface DirectoryLocation {
+  entryCount: number;
+  directorySize: number;
+  directoryOffset: number;
+}
+
+/**
+ * Where the central directory is, from the end record — or from the ZIP64
+ * end record behind it when any field of the plain one is marked as too
+ * big. Only the plain record's disk numbers are checked here: the ZIP64
+ * record carries its own.
+ */
+async function locateDirectory(
+  tail: DataView,
+  eocd: number,
   tailStart: number,
-  offset: number,
-  length: number,
-): Promise<Uint8Array> {
-  if (offset >= tailStart && offset + length <= tailStart + tail.length) {
-    return tail.subarray(offset - tailStart, offset - tailStart + length);
+  read: ByteSource["readRange"],
+): Promise<DirectoryLocation> {
+  const location: DirectoryLocation = {
+    entryCount: tail.getUint16(eocd + 10, true),
+    directorySize: tail.getUint32(eocd + 12, true),
+    directoryOffset: tail.getUint32(eocd + 16, true),
+  };
+  const diskNumber = tail.getUint16(eocd + 4, true);
+  const directoryDisk = tail.getUint16(eocd + 6, true);
+  const needsZip64 =
+    location.entryCount === MAX_16 ||
+    location.directorySize === MAX_32 ||
+    location.directoryOffset === MAX_32 ||
+    diskNumber === MAX_16 ||
+    directoryDisk === MAX_16;
+  if (needsZip64) {
+    return locateDirectoryZip64(tailStart + eocd - ZIP64_LOCATOR_LENGTH, read);
   }
-  return source.readRange(offset, length);
+  if (diskNumber !== 0 || directoryDisk !== 0) {
+    throw new ZipError("multi_part");
+  }
+  return location;
+}
+
+/**
+ * The ZIP64 locator sits right before the end record and points at the
+ * ZIP64 end record, which carries the 64-bit figures.
+ */
+async function locateDirectoryZip64(
+  locatorAt: number,
+  read: ByteSource["readRange"],
+): Promise<DirectoryLocation> {
+  if (locatorAt < 0) throw new ZipError("corrupt", "no ZIP64 locator");
+  const locator = dataView(await read(locatorAt, ZIP64_LOCATOR_LENGTH));
+  if (locator.getUint32(0, true) !== ZIP64_LOCATOR_SIGNATURE) {
+    throw new ZipError("corrupt", "no ZIP64 locator");
+  }
+  if (locator.getUint32(16, true) > 1) throw new ZipError("multi_part");
+  const recordAt = safeNumber(locator.getBigUint64(8, true));
+  const record = dataView(await read(recordAt, ZIP64_EOCD_LENGTH));
+  if (record.getUint32(0, true) !== ZIP64_EOCD_SIGNATURE) {
+    throw new ZipError("corrupt", "no ZIP64 end record");
+  }
+  if (record.getUint32(16, true) !== 0 || record.getUint32(20, true) !== 0) {
+    throw new ZipError("multi_part");
+  }
+  return {
+    entryCount: safeNumber(record.getBigUint64(32, true)),
+    directorySize: safeNumber(record.getBigUint64(40, true)),
+    directoryOffset: safeNumber(record.getBigUint64(48, true)),
+  };
 }
 
 function parseCentralDirectory(
@@ -350,11 +366,7 @@ function zip64Fields(extra: Uint8Array, fields: EntryFields): EntryFields {
 
 // ---------------------------------------------------------------- entries
 
-/**
- * One entry's data. The local header's name and extra lengths may differ
- * from the central directory's, so the read is sized by the directory's
- * figures and topped up when the local header says the data starts later.
- */
+/** One entry: refused by method, inflated if deflated, checked by size. */
 async function readEntry(
   source: ByteSource,
   entry: ZipEntry,
@@ -362,6 +374,28 @@ async function readEntry(
   if (entry.method !== METHOD_STORED && entry.method !== METHOD_DEFLATE) {
     throw new ZipError("unsupported_method", `${entry.name}: ${entry.method}`);
   }
+  const data = await readCompressed(source, entry);
+  const bytes =
+    entry.method === METHOD_STORED ? data : await inflateRaw(data, entry.name);
+  if (bytes.length !== entry.uncompressedSize) {
+    throw new ZipError(
+      "corrupt",
+      `${entry.name}: ${bytes.length} bytes, expected ${entry.uncompressedSize}`,
+    );
+  }
+  return bytes;
+}
+
+/**
+ * The entry's data as stored. The local header's name and extra lengths
+ * may differ from the central directory's, so the read is sized by the
+ * directory's figures and topped up when the local header says the data
+ * starts later.
+ */
+async function readCompressed(
+  source: ByteSource,
+  entry: ZipEntry,
+): Promise<Uint8Array> {
   const guessedHeader = LOCAL_LENGTH + entry.nameLength + entry.extraLength;
   const first = await source.readRange(
     entry.localHeaderOffset,
@@ -374,29 +408,17 @@ async function readEntry(
   const dataStart =
     LOCAL_LENGTH + view.getUint16(26, true) + view.getUint16(28, true);
   const dataEnd = dataStart + entry.compressedSize;
-  let data: Uint8Array;
-  if (dataEnd <= first.length) {
-    data = first.subarray(dataStart, dataEnd);
-  } else {
-    // The first read may end inside the data, or inside the header itself.
-    const inHand = first.subarray(Math.min(dataStart, first.length));
-    const rest = await source.readRange(
-      entry.localHeaderOffset + dataStart + inHand.length,
-      entry.compressedSize - inHand.length,
-    );
-    data = new Uint8Array(entry.compressedSize);
-    data.set(inHand);
-    data.set(rest, inHand.length);
-  }
-  const bytes =
-    entry.method === METHOD_STORED ? data : await inflateRaw(data, entry.name);
-  if (bytes.length !== entry.uncompressedSize) {
-    throw new ZipError(
-      "corrupt",
-      `${entry.name}: ${bytes.length} bytes, expected ${entry.uncompressedSize}`,
-    );
-  }
-  return bytes;
+  if (dataEnd <= first.length) return first.subarray(dataStart, dataEnd);
+  // The first read may end inside the data, or inside the header itself.
+  const inHand = first.subarray(Math.min(dataStart, first.length));
+  const rest = await source.readRange(
+    entry.localHeaderOffset + dataStart + inHand.length,
+    entry.compressedSize - inHand.length,
+  );
+  const data = new Uint8Array(entry.compressedSize);
+  data.set(inHand);
+  data.set(rest, inHand.length);
+  return data;
 }
 
 async function inflateRaw(data: Uint8Array, name: string): Promise<Uint8Array> {

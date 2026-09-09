@@ -17,15 +17,15 @@ const text = (s: string) => new TextEncoder().encode(s);
 const decode = (b: Uint8Array) => new TextDecoder().decode(b);
 const frame = (n: number) => text(`frame ${n} `.repeat(200));
 
+const local = (bytes: Uint8Array) => fileSource(new Blob([bytes.slice()]));
+const remote = (bytes: Uint8Array) =>
+  urlSource("https://bucket.test/orbit.zip", rangeFetch(bytes).fetch);
 const bothSources = (bytes: Uint8Array): [string, () => ByteSource][] => [
-  ["a local file", () => fileSource(new Blob([bytes.slice()]))],
-  [
-    "a URL",
-    () => urlSource("https://bucket.test/orbit.zip", rangeFetch(bytes).fetch),
-  ],
+  ["a local file", () => local(bytes)],
+  ["a URL", () => remote(bytes)],
 ];
 
-async function readAll(bytes: Uint8Array, source: ByteSource) {
+async function readAll(source: ByteSource) {
   const archive = await openZip(source);
   const out: Record<string, string> = {};
   for (const entry of archive.entries) {
@@ -76,7 +76,7 @@ describe("openZip", () => {
     });
 
     it("reads a stored entry as it is and inflates a deflated one", async () => {
-      const { out } = await readAll(plain, source());
+      const { out } = await readAll(source());
       expect(out["orbit/frame_001.png"]).toBe(decode(frame(1)));
       expect(out["orbit/frame_002.png"]).toBe(decode(frame(2)));
       expect(out["orbit/notes.txt"]).toBe("hello");
@@ -87,7 +87,7 @@ describe("openZip", () => {
     const bytes = buildZip([{ name: "a.png", data: text("A") }], {
       comment: "rendered 09.09.2026 — PK\x05\x06 inside the comment too",
     });
-    const { out } = await readAll(bytes, fileSource(new Blob([bytes.slice()])));
+    const { out } = await readAll(local(bytes));
     expect(out).toEqual({ "a.png": "A" });
   });
 
@@ -100,7 +100,7 @@ describe("openZip", () => {
       { zip64: true },
     );
     for (const [, source] of bothSources(bytes)) {
-      const { archive, out } = await readAll(bytes, source());
+      const { archive, out } = await readAll(source());
       expect(archive.entries.map((e) => e.name)).toEqual(["f1.png", "f2.png"]);
       expect(archive.entries[1].localHeaderOffset).toBeGreaterThan(0);
       expect(out["f2.png"]).toBe(decode(frame(2)));
@@ -112,7 +112,7 @@ describe("openZip", () => {
       { name: "f1.png", data: frame(1), method: 8, flags: 0x0008 },
       { name: "f2.png", data: frame(2), flags: 0x0008 },
     ]);
-    const { out } = await readAll(bytes, fileSource(new Blob([bytes.slice()])));
+    const { out } = await readAll(local(bytes));
     expect(out["f1.png"]).toBe(decode(frame(1)));
     expect(out["f2.png"]).toBe(decode(frame(2)));
   });
@@ -156,20 +156,16 @@ describe("openZip", () => {
       "not_a_zip",
     );
     const split = buildZip([{ name: "a.png", data: text("A") }], { disk: 1 });
-    expect(await refusal(openZip(fileSource(new Blob([split.slice()]))))).toBe(
-      "multi_part",
-    );
+    expect(await refusal(openZip(local(split)))).toBe("multi_part");
     const encrypted = buildZip([
       { name: "a.png", data: text("A"), flags: 0x0001 },
     ]);
-    expect(
-      await refusal(openZip(fileSource(new Blob([encrypted.slice()])))),
-    ).toBe("encrypted");
+    expect(await refusal(openZip(local(encrypted)))).toBe("encrypted");
   });
 
   it("refuses an entry compressed with a method the platform cannot inflate", async () => {
     const bytes = buildZip([{ name: "a.png", data: text("A"), method: 12 }]);
-    const archive = await openZip(fileSource(new Blob([bytes.slice()])));
+    const archive = await openZip(local(bytes));
     expect(await refusal(archive.readEntry(archive.entries[0]))).toBe(
       "unsupported_method",
     );
@@ -180,7 +176,7 @@ describe("openZip", () => {
       { name: "a.png", data: frame(1), method: 8 },
       { name: "b.png", data: frame(2) },
     ]);
-    const archive = await openZip(fileSource(new Blob([bytes.slice()])));
+    const archive = await openZip(local(bytes));
     const [deflated, stored] = archive.entries;
 
     const badSignature = bytes.slice();

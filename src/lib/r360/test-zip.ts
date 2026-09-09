@@ -28,119 +28,186 @@ export interface FixtureOptions {
 const MAX_16 = 0xffff;
 const MAX_32 = 0xffffffff;
 
+/** A fixed-layout record; every number little-endian, as the format demands. */
+class Layout {
+  readonly bytes: Uint8Array<ArrayBuffer>;
+  private readonly view: DataView;
+
+  constructor(length: number) {
+    this.bytes = new Uint8Array(length);
+    this.view = new DataView(this.bytes.buffer);
+  }
+  u16(at: number, value: number): this {
+    this.view.setUint16(at, value, true);
+    return this;
+  }
+  u32(at: number, value: number): this {
+    this.view.setUint32(at, value, true);
+    return this;
+  }
+  u64(at: number, value: number): this {
+    this.view.setBigUint64(at, BigInt(value), true);
+    return this;
+  }
+  put(at: number, data: Uint8Array): this {
+    this.bytes.set(data, at);
+    return this;
+  }
+}
+
+/** A fixture entry with its bytes settled: name encoded, data compressed. */
+interface Prepared {
+  name: Uint8Array;
+  raw: Uint8Array;
+  data: Uint8Array;
+  method: number;
+  flags: number;
+  descriptor: boolean;
+  localExtra: Uint8Array;
+}
+
+function prepare(entry: FixtureEntry): Prepared {
+  const method = entry.method ?? 0;
+  const flags = entry.flags ?? 0;
+  const raw = entry.data ?? new Uint8Array(0);
+  return {
+    name: new TextEncoder().encode(entry.name),
+    raw,
+    data: method === 8 ? new Uint8Array(deflateRawSync(raw)) : raw,
+    method,
+    flags,
+    descriptor: (flags & 0x0008) !== 0,
+    localExtra: new Uint8Array(entry.localExtraPadding ?? 0),
+  };
+}
+
 export function buildZip(
   entries: FixtureEntry[],
   options: FixtureOptions = {},
 ): Uint8Array<ArrayBuffer> {
+  const zip64 = options.zip64 ?? false;
   const parts: Uint8Array[] = [];
   const directory: Uint8Array[] = [];
   let offset = 0;
-  const encoder = new TextEncoder();
-  for (const entry of entries) {
-    const method = entry.method ?? 0;
-    const flags = entry.flags ?? 0;
-    const raw = entry.data ?? new Uint8Array(0);
-    const data = method === 8 ? new Uint8Array(deflateRawSync(raw)) : raw;
-    const name = encoder.encode(entry.name);
-    const descriptor = (flags & 0x0008) !== 0;
-    const localExtra = new Uint8Array(entry.localExtraPadding ?? 0);
-
-    const local = new Uint8Array(30 + name.length + localExtra.length);
-    const lv = new DataView(local.buffer);
-    lv.setUint32(0, 0x04034b50, true);
-    lv.setUint16(4, 20, true);
-    lv.setUint16(6, flags, true);
-    lv.setUint16(8, method, true);
-    lv.setUint32(18, descriptor ? 0 : data.length, true);
-    lv.setUint32(22, descriptor ? 0 : raw.length, true);
-    lv.setUint16(26, name.length, true);
-    lv.setUint16(28, localExtra.length, true);
-    local.set(name, 30);
-    local.set(localExtra, 30 + name.length);
-    parts.push(local, data);
-    let entryLength = local.length + data.length;
-    if (descriptor) {
-      const trailer = new Uint8Array(16);
-      const tv = new DataView(trailer.buffer);
-      tv.setUint32(0, 0x08074b50, true);
-      tv.setUint32(8, data.length, true);
-      tv.setUint32(12, raw.length, true);
-      parts.push(trailer);
-      entryLength += trailer.length;
-    }
-
-    const zip64Extra = options.zip64
-      ? new Uint8Array(4 + 24)
-      : new Uint8Array(0);
-    if (options.zip64) {
-      const xv = new DataView(zip64Extra.buffer);
-      xv.setUint16(0, 0x0001, true);
-      xv.setUint16(2, 24, true);
-      xv.setBigUint64(4, BigInt(raw.length), true);
-      xv.setBigUint64(12, BigInt(data.length), true);
-      xv.setBigUint64(20, BigInt(offset), true);
-    }
-    const central = new Uint8Array(46 + name.length + zip64Extra.length);
-    const cv = new DataView(central.buffer);
-    cv.setUint32(0, 0x02014b50, true);
-    cv.setUint16(4, 20, true);
-    cv.setUint16(6, 20, true);
-    cv.setUint16(8, flags, true);
-    cv.setUint16(10, method, true);
-    cv.setUint32(20, options.zip64 ? MAX_32 : data.length, true);
-    cv.setUint32(24, options.zip64 ? MAX_32 : raw.length, true);
-    cv.setUint16(28, name.length, true);
-    cv.setUint16(30, zip64Extra.length, true);
-    cv.setUint32(42, options.zip64 ? MAX_32 : offset, true);
-    central.set(name, 46);
-    central.set(zip64Extra, 46 + name.length);
-    directory.push(central);
-    offset += entryLength;
+  for (const entry of entries.map(prepare)) {
+    const local = [localHeader(entry), entry.data];
+    if (entry.descriptor) local.push(dataDescriptor(entry));
+    parts.push(...local);
+    directory.push(centralHeader(entry, offset, zip64));
+    offset += local.reduce((sum, part) => sum + part.length, 0);
   }
 
   const directoryOffset = offset;
-  const directorySize = directory.reduce((sum, c) => sum + c.length, 0);
+  const directorySize = directory.reduce((sum, part) => sum + part.length, 0);
   parts.push(...directory);
   offset += directorySize;
 
-  if (options.zip64) {
-    const record = new Uint8Array(56);
-    const rv = new DataView(record.buffer);
-    rv.setUint32(0, 0x06064b50, true);
-    rv.setBigUint64(4, BigInt(44), true);
-    rv.setUint16(12, 45, true);
-    rv.setUint16(14, 45, true);
-    rv.setBigUint64(24, BigInt(entries.length), true);
-    rv.setBigUint64(32, BigInt(entries.length), true);
-    rv.setBigUint64(40, BigInt(directorySize), true);
-    rv.setBigUint64(48, BigInt(directoryOffset), true);
-    const locator = new Uint8Array(20);
-    const lv = new DataView(locator.buffer);
-    lv.setUint32(0, 0x07064b50, true);
-    lv.setBigUint64(8, BigInt(offset), true);
-    lv.setUint32(16, 1, true);
-    parts.push(record, locator);
+  if (zip64) {
+    parts.push(
+      zip64EndRecord(entries.length, directorySize, directoryOffset),
+      zip64Locator(offset),
+    );
   }
-
-  const comment = encoder.encode(options.comment ?? "");
-  const end = new Uint8Array(22 + comment.length);
-  const ev = new DataView(end.buffer);
-  ev.setUint32(0, 0x06054b50, true);
-  ev.setUint16(4, options.disk ?? 0, true);
-  ev.setUint16(6, options.disk ?? 0, true);
-  ev.setUint16(8, options.zip64 ? MAX_16 : entries.length, true);
-  ev.setUint16(10, options.zip64 ? MAX_16 : entries.length, true);
-  ev.setUint32(12, options.zip64 ? MAX_32 : directorySize, true);
-  ev.setUint32(16, options.zip64 ? MAX_32 : directoryOffset, true);
-  ev.setUint16(20, comment.length, true);
-  end.set(comment, 22);
-  parts.push(end);
-
+  parts.push(
+    endRecord(entries.length, directorySize, directoryOffset, options),
+  );
   return concat(parts);
 }
 
+function localHeader(entry: Prepared): Uint8Array {
+  const { name, localExtra, descriptor } = entry;
+  return new Layout(30 + name.length + localExtra.length)
+    .u32(0, 0x04034b50)
+    .u16(4, 20)
+    .u16(6, entry.flags)
+    .u16(8, entry.method)
+    .u32(18, descriptor ? 0 : entry.data.length)
+    .u32(22, descriptor ? 0 : entry.raw.length)
+    .u16(26, name.length)
+    .u16(28, localExtra.length)
+    .put(30, name)
+    .put(30 + name.length, localExtra).bytes;
+}
+
+function dataDescriptor(entry: Prepared): Uint8Array {
+  return new Layout(16)
+    .u32(0, 0x08074b50)
+    .u32(8, entry.data.length)
+    .u32(12, entry.raw.length).bytes;
+}
+
+function centralHeader(
+  entry: Prepared,
+  offset: number,
+  zip64: boolean,
+): Uint8Array {
+  const { name } = entry;
+  const extra = zip64
+    ? new Layout(4 + 24)
+        .u16(0, 0x0001)
+        .u16(2, 24)
+        .u64(4, entry.raw.length)
+        .u64(12, entry.data.length)
+        .u64(20, offset).bytes
+    : new Uint8Array(0);
+  return new Layout(46 + name.length + extra.length)
+    .u32(0, 0x02014b50)
+    .u16(4, 20)
+    .u16(6, 20)
+    .u16(8, entry.flags)
+    .u16(10, entry.method)
+    .u32(20, zip64 ? MAX_32 : entry.data.length)
+    .u32(24, zip64 ? MAX_32 : entry.raw.length)
+    .u16(28, name.length)
+    .u16(30, extra.length)
+    .u32(42, zip64 ? MAX_32 : offset)
+    .put(46, name)
+    .put(46 + name.length, extra).bytes;
+}
+
+function zip64EndRecord(
+  entryCount: number,
+  directorySize: number,
+  directoryOffset: number,
+): Uint8Array {
+  return new Layout(56)
+    .u32(0, 0x06064b50)
+    .u64(4, 44)
+    .u16(12, 45)
+    .u16(14, 45)
+    .u64(24, entryCount)
+    .u64(32, entryCount)
+    .u64(40, directorySize)
+    .u64(48, directoryOffset).bytes;
+}
+
+function zip64Locator(recordAt: number): Uint8Array {
+  return new Layout(20).u32(0, 0x07064b50).u64(8, recordAt).u32(16, 1).bytes;
+}
+
+function endRecord(
+  entryCount: number,
+  directorySize: number,
+  directoryOffset: number,
+  options: FixtureOptions,
+): Uint8Array {
+  const comment = new TextEncoder().encode(options.comment ?? "");
+  const disk = options.disk ?? 0;
+  const zip64 = options.zip64 ?? false;
+  return new Layout(22 + comment.length)
+    .u32(0, 0x06054b50)
+    .u16(4, disk)
+    .u16(6, disk)
+    .u16(8, zip64 ? MAX_16 : entryCount)
+    .u16(10, zip64 ? MAX_16 : entryCount)
+    .u32(12, zip64 ? MAX_32 : directorySize)
+    .u32(16, zip64 ? MAX_32 : directoryOffset)
+    .u16(20, comment.length)
+    .put(22, comment).bytes;
+}
+
 export function concat(parts: Uint8Array[]): Uint8Array<ArrayBuffer> {
-  const total = parts.reduce((sum, p) => sum + p.length, 0);
+  const total = parts.reduce((sum, part) => sum + part.length, 0);
   const out = new Uint8Array(total);
   let at = 0;
   for (const part of parts) {
