@@ -34,6 +34,7 @@ describe("schema tables (SPEC §9)", () => {
       "files",
       "handle_redirects",
       "pending_uploads",
+      "places",
       "profiles",
       "sessions",
       "two_factors",

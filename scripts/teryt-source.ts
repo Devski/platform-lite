@@ -19,6 +19,10 @@ const BUTTONS = {
 
 export type TerytFile = keyof typeof BUTTONS;
 
+/** The zips are ~3.5 MB; a CSV inflates to ~6 MB (SIMC). Room to grow. */
+const ZIP_MAX_BYTES = 64 * 1024 * 1024;
+const CSV_MAX_BYTES = 256 * 1024 * 1024;
+
 /**
  * Downloads one register's full file (a zip with a CSV and an XML) from
  * the official page: the page is an ASP.NET form, so the hidden fields
@@ -28,12 +32,14 @@ export async function downloadTerytZip(
   file: TerytFile,
   fetchImpl: typeof fetch = fetch,
 ): Promise<{ zip: Buffer; filename: string }> {
+  // No redirects: the host stays the one the cookie and the form belong to.
   const page = await fetchImpl(TERYT_PAGE, {
+    redirect: "error",
     signal: AbortSignal.timeout(60_000),
   });
   if (!page.ok) throw new Error(`TERYT page answered ${page.status}`);
-  const cookie = (page.headers.get("set-cookie") ?? "")
-    .split(",")
+  const cookie = page.headers
+    .getSetCookie()
     .map((c) => c.split(";")[0].trim())
     .filter(Boolean)
     .join("; ");
@@ -59,6 +65,7 @@ export async function downloadTerytZip(
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded", cookie },
     body,
+    redirect: "error",
     signal: AbortSignal.timeout(300_000),
   });
   const type = response.headers.get("content-type") ?? "";
@@ -66,6 +73,12 @@ export async function downloadTerytZip(
     throw new Error(
       `TERYT ${file} download answered ${response.status} ${type}`,
     );
+  }
+  // The registers are a few megabytes zipped; anything far past that is
+  // not them.
+  const declared = Number(response.headers.get("content-length") ?? 0);
+  if (declared > ZIP_MAX_BYTES) {
+    throw new Error(`TERYT ${file} download is ${declared} bytes: too large`);
   }
   const filename =
     response.headers
@@ -89,6 +102,7 @@ export function csvFromZip(zip: Buffer): string {
       throw new Error("bad central entry");
     const method = zip.readUInt16LE(offset + 10);
     const compressedSize = zip.readUInt32LE(offset + 20);
+    const uncompressedSize = zip.readUInt32LE(offset + 24);
     const nameLength = zip.readUInt16LE(offset + 28);
     const extraLength = zip.readUInt16LE(offset + 30);
     const commentLength = zip.readUInt16LE(offset + 32);
@@ -99,12 +113,31 @@ export function csvFromZip(zip: Buffer): string {
     const localNameLength = zip.readUInt16LE(localOffset + 26);
     const localExtraLength = zip.readUInt16LE(localOffset + 28);
     const start = localOffset + 30 + localNameLength + localExtraLength;
+    if (start + compressedSize > zip.length) {
+      throw new Error(`zip entry ${name}: truncated`);
+    }
+    if (uncompressedSize > CSV_MAX_BYTES) {
+      throw new Error(
+        `zip entry ${name}: ${uncompressedSize} bytes, too large`,
+      );
+    }
     const data = zip.subarray(start, start + compressedSize);
     const bytes =
-      method === 0 ? data : method === 8 ? inflateRawSync(data) : null;
+      method === 0
+        ? data
+        : method === 8
+          ? inflateRawSync(data, { maxOutputLength: CSV_MAX_BYTES })
+          : null;
     if (!bytes)
       throw new Error(`zip entry ${name}: unsupported method ${method}`);
-    return bytes.toString("utf8").replace(/^﻿/, "");
+    // The directory's own size: a short read (a truncated download) is
+    // an error here, not a shorter register later.
+    if (bytes.length !== uncompressedSize) {
+      throw new Error(
+        `zip entry ${name}: ${bytes.length} bytes, expected ${uncompressedSize}`,
+      );
+    }
+    return bytes.toString("utf8").replace(/^\uFEFF/, "");
   }
   throw new Error("no .csv entry in the zip");
 }
@@ -112,9 +145,10 @@ export function csvFromZip(zip: Buffer): string {
 /** Semicolon-separated, a header row, CRLF; TERYT quotes nothing. */
 export function parseCsv(text: string): Record<string, string>[] {
   const lines = text
-    .replace(/^﻿/, "")
+    .replace(/^\uFEFF/, "")
     .split(/\r?\n/)
     .filter((l) => l.length > 0);
+  if (lines.length === 0) throw new Error("empty CSV");
   const header = lines[0].split(";");
   return lines.slice(1).map((line) => {
     const cells = line.split(";");
@@ -167,6 +201,8 @@ export function buildPlaces(
   terc: Record<string, string>[],
   simc: Record<string, string>[],
 ): PlaceRow[] {
+  // TERC is published sorted by code: a unit's parents come before it, so
+  // one pass is enough.
   const voivodeships = new Map<string, string>();
   const counties = new Map<
     string,

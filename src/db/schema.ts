@@ -397,7 +397,7 @@ export const places = pgTable(
       sql`${table.countyKind} IS NULL OR ${table.countyKind} IN ('county', 'cityCounty')`,
     ),
     index("places_name_folded_prefix_idx").on(
-      sql`${table.nameFolded} text_pattern_ops`,
+      table.nameFolded.op("text_pattern_ops"),
     ),
     index("places_kind_idx").on(table.kind),
   ],

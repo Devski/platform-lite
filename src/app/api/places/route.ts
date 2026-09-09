@@ -6,14 +6,15 @@ import { PLACE_QUERY_MIN, searchPlaces } from "@/lib/places";
 
 // #87 / A12: suggestions for the place field, from the TERYT rows in the
 // database. Behind the session — only the owner's page asks — and
-// rate-limited per user: a keystroke every 150 ms is what the field sends.
+// rate-limited per user, wide enough that typing can never reach it: the
+// field asks 250 ms after the typing pauses.
 
 export async function GET(request: Request) {
   const userId = await sessionUserId();
   if (!userId) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  if (!checkRateLimit(`places:${userId}`, { windowSeconds: 60, max: 120 })) {
+  if (!checkRateLimit(`places:${userId}`, { windowSeconds: 60, max: 300 })) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
   const url = new URL(request.url);

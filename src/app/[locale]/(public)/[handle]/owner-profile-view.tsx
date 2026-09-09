@@ -934,7 +934,7 @@ function TextSectionField({
 // The suggestions come from the server (#87): every locality in Poland is
 // in the database, and the field asks /api/places for the ten that match
 // what was typed, a moment after the typing pauses.
-const PLACE_SEARCH_DEBOUNCE_MS = 150;
+const PLACE_SEARCH_DEBOUNCE_MS = 250;
 
 // "wieś, gm. Kęty, pow. oświęcimski" — what tells one Nowa Wieś from the
 // next. A unit names its own level; a locality names where it lies.
@@ -1006,6 +1006,8 @@ function PlaceCombobox({
         cache: "no-store",
       })
         .then(async (response) => {
+          // A refusal (the rate limit, say) keeps the last list rather than
+          // leaving the owner with none.
           if (!response.ok) return;
           const data = (await response.json()) as { places?: Place[] };
           setFound({ query, places: data.places ?? [] });
@@ -1021,6 +1023,7 @@ function PlaceCombobox({
   function choose(place: string) {
     onAdd(place);
     setQuery("");
+    setFound({ query: "", places: [] });
     setOpen(false);
     setActiveIndex(-1);
   }

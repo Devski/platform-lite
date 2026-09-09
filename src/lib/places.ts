@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, not, sql } from "drizzle-orm";
+import { and, asc, inArray, not, sql } from "drizzle-orm";
 import type { Database } from "@/db/client";
 import { places } from "@/db/schema";
 
@@ -48,7 +48,7 @@ export const PLACE_RANK: Record<PlaceKind, number> = {
 export function foldForSearch(value: string): string {
   return value
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .replace(/ł/g, "l")
     .replace(/Ł/g, "L")
     .toLowerCase()
@@ -98,6 +98,7 @@ export async function searchPlaces(
       asc(places.nameFolded),
       asc(places.voivodeship),
       asc(places.county),
+      asc(places.code),
     )
     .limit(limit);
   return rows.map((row) => ({
@@ -108,14 +109,4 @@ export async function searchPlaces(
     ...(row.countyKind ? { countyKind: row.countyKind } : {}),
     ...(row.voivodeship ? { voivodeship: row.voivodeship } : {}),
   }));
-}
-
-/** The 16 voivodeships, in the register's order. */
-export async function listVoivodeships(db: Database): Promise<string[]> {
-  const rows = await db
-    .select({ name: places.name })
-    .from(places)
-    .where(eq(places.kind, "voivodeship"))
-    .orderBy(asc(places.nameFolded));
-  return rows.map((row) => row.name);
 }

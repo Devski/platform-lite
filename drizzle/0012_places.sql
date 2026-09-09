@@ -4,8 +4,7 @@
 -- indexes; nothing existing changes. The table is reference data the app
 -- reads; the import owns its rows.
 
-CREATE TYPE "public"."place_kind" AS ENUM('voivodeship', 'county', 'commune', 'city', 'village', 'settlement', 'part');
---> statement-breakpoint
+CREATE TYPE "public"."place_kind" AS ENUM('voivodeship', 'county', 'commune', 'city', 'village', 'settlement', 'part');--> statement-breakpoint
 CREATE TABLE "places" (
 	"code" text PRIMARY KEY NOT NULL,
 	"kind" "place_kind" NOT NULL,
@@ -17,11 +16,10 @@ CREATE TABLE "places" (
 	"county_kind" text,
 	"voivodeship" text,
 	"as_of" date NOT NULL,
-	CONSTRAINT "places_name_not_blank" CHECK (length(btrim("name")) > 0),
-	CONSTRAINT "places_rank_range" CHECK ("rank" BETWEEN 0 AND 9),
-	CONSTRAINT "places_county_kind_known" CHECK ("county_kind" IS NULL OR "county_kind" IN ('county', 'cityCounty'))
+	CONSTRAINT "places_name_not_blank" CHECK (length(btrim("places"."name")) > 0),
+	CONSTRAINT "places_rank_range" CHECK ("places"."rank" BETWEEN 0 AND 9),
+	CONSTRAINT "places_county_kind_known" CHECK ("places"."county_kind" IS NULL OR "places"."county_kind" IN ('county', 'cityCounty'))
 );
 --> statement-breakpoint
-CREATE INDEX "places_name_folded_prefix_idx" ON "places" USING btree ("name_folded" text_pattern_ops);
---> statement-breakpoint
+CREATE INDEX "places_name_folded_prefix_idx" ON "places" USING btree ("name_folded" text_pattern_ops);--> statement-breakpoint
 CREATE INDEX "places_kind_idx" ON "places" USING btree ("kind");

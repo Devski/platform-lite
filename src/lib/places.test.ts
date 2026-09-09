@@ -3,7 +3,7 @@ import { places } from "@/db/schema";
 import { createTestDb, type TestDb } from "@/db/test-db";
 import { buildPlaces, parseCsv } from "../../scripts/teryt-source";
 import { importPlaces } from "../../scripts/import-teryt";
-import { foldForSearch, listVoivodeships, searchPlaces } from "./places";
+import { foldForSearch, searchPlaces } from "./places";
 
 // #87 / A12: the place suggestions out of the `places` table — the prefix
 // match without diacritics, the ranking (a whole place before a part of
@@ -43,7 +43,12 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   await testDb.reset();
-  await importPlaces(testDb.db, buildPlaces(parseCsv(TERC), parseCsv(SIMC)));
+  await importPlaces(
+    testDb.db,
+    buildPlaces(parseCsv(TERC), parseCsv(SIMC)),
+    undefined,
+    { floor: 0 },
+  );
 });
 
 describe("foldForSearch", () => {
@@ -99,16 +104,30 @@ describe("searchPlaces", () => {
     expect(await searchPlaces(testDb.db, "%")).toEqual([]);
     expect(await searchPlaces(testDb.db, "n_wa")).toEqual([]);
   });
-
-  it("lists the voivodeships", async () => {
-    expect(await listVoivodeships(testDb.db)).toEqual([
-      "łódzkie",
-      "małopolskie",
-    ]);
-  });
 });
 
 describe("importPlaces", () => {
+  it("cuts each register on its own date: a newer SIMC does not take the TERC rows with it", async () => {
+    // The localities move to 2027, the units stay on 2026 — as two
+    // downloads across midnight would. Nothing of the units may go.
+    const simc2 = SIMC.replace(/2026-01-01/g, "2027-01-01");
+    const result = await importPlaces(
+      testDb.db,
+      buildPlaces(parseCsv(TERC), parseCsv(simc2)),
+      undefined,
+      { floor: 0 },
+    );
+    expect(result).toEqual({ upserted: 9 + 6, deleted: 0 });
+    expect(await testDb.db.select().from(places)).toHaveLength(9 + 6);
+  });
+
+  it("refuses a set below the floor, and writes nothing", async () => {
+    await expect(
+      importPlaces(testDb.db, buildPlaces(parseCsv(TERC), parseCsv(SIMC))),
+    ).rejects.toThrow(/below the floor/);
+    expect(await testDb.db.select().from(places)).toHaveLength(9 + 6);
+  });
+
   it("upserts by code and drops what a newer register no longer carries", async () => {
     const before = await testDb.db.select().from(places);
     expect(before).toHaveLength(9 + 6);
@@ -124,6 +143,8 @@ describe("importPlaces", () => {
     const result = await importPlaces(
       testDb.db,
       buildPlaces(parseCsv(terc2), parseCsv(simc2)),
+      undefined,
+      { floor: 0 },
     );
     expect(result).toEqual({ upserted: 9 + 5, deleted: 1 });
     const after = await testDb.db.select().from(places);
