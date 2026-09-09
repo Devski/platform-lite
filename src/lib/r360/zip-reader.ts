@@ -72,8 +72,8 @@ export interface ZipArchive {
 // most 360 frames plus junk, and a frame is one picture.
 /** The central directory: 360 entries with fat extra fields are ~100 KB. */
 export const MAX_DIRECTORY_BYTES = 16 * 1024 * 1024;
-/** One entry, stored or inflated. */
-export const MAX_ENTRY_BYTES = 256 * 1024 * 1024;
+/** One entry, stored or inflated: what a single picture can be. */
+export const MAX_ENTRY_BYTES = 64 * 1024 * 1024;
 
 const EOCD_SIGNATURE = 0x06054b50;
 const EOCD_LENGTH = 22;
@@ -124,6 +124,7 @@ export function fileSource(file: Blob): ByteSource {
 export function urlSource(
   url: string,
   fetchImpl: typeof fetch = fetch,
+  options: { signal?: AbortSignal } = {},
 ): ByteSource {
   let size: Promise<number> | undefined;
   const request = async (range: string): Promise<Response> => {
@@ -131,6 +132,9 @@ export function urlSource(
     try {
       response = await fetchImpl(url, {
         headers: { Range: range },
+        signal: options.signal,
+        // The page's address is nobody's business at the bucket.
+        referrerPolicy: "no-referrer",
         // The bucket never redirects; a presigned URL must not be carried
         // elsewhere if it ever did. Nothing of the page goes with it, and
         // partial answers stay out of the cache — a browser would otherwise

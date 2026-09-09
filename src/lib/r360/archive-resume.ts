@@ -1,4 +1,13 @@
-import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gt,
+  isNotNull,
+  isNull,
+  notExists,
+  sql,
+} from "drizzle-orm";
 import { files, works } from "@/db/schema";
 import type { ProfileDeps } from "@/lib/profile";
 import { ARCHIVE_CLAIM_HOURS } from "@/lib/works";
@@ -66,17 +75,33 @@ export async function claimArchive(
   sizeBytes: number;
   expiresInSeconds: number;
 }> {
-  const [claimed] = await deps.db
-    .update(files)
-    .set({ claimedAt: sql`now()` })
-    .where(
-      and(
-        eq(files.id, input.fileId),
-        eq(files.userId, deps.userId),
-        eq(files.kind, "r360-zip"),
-      ),
-    )
-    .returning({ objectKey: files.objectKey, sizeBytes: files.sizeBytes });
+  // Under the per-user lock the sweep's delete takes, so a claim and a
+  // sweep of the same archive never interleave (#105 review); and only
+  // an archive no work names — the offer's own condition.
+  const claimed = await deps.db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtext(${deps.userId}))`,
+    );
+    const [row] = await tx
+      .update(files)
+      .set({ claimedAt: sql`now()` })
+      .where(
+        and(
+          eq(files.id, input.fileId),
+          eq(files.userId, deps.userId),
+          eq(files.kind, "r360-zip"),
+          isNotNull(files.objectKey),
+          notExists(
+            tx
+              .select({ id: works.id })
+              .from(works)
+              .where(eq(works.r360FileId, files.id)),
+          ),
+        ),
+      )
+      .returning({ objectKey: files.objectKey, sizeBytes: files.sizeBytes });
+    return row;
+  });
   if (!claimed?.objectKey) throw new ArchiveResumeError("not_found");
   const expiresInSeconds = Math.min(
     frameSetUrlSeconds(R360_MAX_FRAMES),

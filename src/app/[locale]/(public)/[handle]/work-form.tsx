@@ -49,7 +49,7 @@ import {
   abandon,
   listUnattachedArchives,
   resumeArchive,
-  type UnattachedArchive,
+  type UnattachedArchiveJson,
   frameSetTransport,
   uploadArchive,
   uploadImage,
@@ -107,6 +107,9 @@ function zipRefusal(error: unknown): string {
       case "unsupported_method":
       case "corrupt":
         return error.reason;
+      case "http":
+        // A signed address that ran out answers 403 (#105).
+        return error.message.includes("403") ? "expired" : "network";
     }
   }
   return "network";
@@ -307,7 +310,7 @@ export function WorkForm({
   // #105: an archive of the owner's that reached the bucket and no work
   // names — offered to finish from, so it is not sent twice. Asked for
   // once, on a form without an archive of its own.
-  const [offer, setOffer] = useState<UnattachedArchive | null>(null);
+  const [offer, setOffer] = useState<UnattachedArchiveJson | null>(null);
   const ownsArchive = work?.r360 !== undefined;
   useEffect(() => {
     if (ownsArchive) return;
@@ -663,6 +666,10 @@ export function WorkForm({
     try {
       zip = await openZip(source);
     } catch (error) {
+      // The reason, for a developer on dev — CORS, an expired signature and
+      // a real network fault read the same to the owner (never the address).
+      if (error instanceof ZipError)
+        console.warn("[r360] archive refused:", error.message);
       setError(t(`r360.refused.${zipRefusal(error)}`));
       return null;
     }
@@ -832,25 +839,51 @@ export function WorkForm({
     sizeBytes: number;
     name?: string;
   }) {
+    // One at a time: a second click, or a pick while the claim is on its
+    // way, must not start a rival pipeline (#105 review).
+    if (archiveRef.current?.uploading) return;
     setError(null);
-    setOffer(null);
+    // Busy before the first await: the picker goes, the buttons wait.
+    const before = archiveRef.current;
+    const name = archive.name || t("r360.attached");
+    commitArchive({
+      fileId: archive.fileId,
+      sizeBytes: archive.sizeBytes,
+      name,
+      uploading: true,
+      progress: 1,
+    });
+    const restore = () =>
+      commitArchive(
+        before?.fileId === archive.fileId
+          ? { ...before, uploading: false }
+          : before,
+      );
     const claim = await resumeArchive(archive.fileId);
     if (!claim.ok) {
+      restore();
       if (claim.failure === "not_found") setError(t("r360.failed.resume"));
       else uploadFail(claim.failure);
       return;
     }
-    const read = await readArchive(urlSource(claim.downloadUrl));
-    if (!read) return;
+    setOffer(null);
     const controller = new AbortController();
     archiveAbort.current = controller;
+    const read = await readArchive(
+      urlSource(claim.downloadUrl, fetch, { signal: controller.signal }),
+    );
+    if (!read) {
+      archiveAbort.current = null;
+      restore();
+      return;
+    }
     const set = await runFrames(
       read.zip,
       read.frames,
       {
         fileId: archive.fileId,
         sizeBytes: claim.sizeBytes || archive.sizeBytes,
-        name: archive.name || t("r360.attached"),
+        name,
         // The archive is there already: its bytes are the bar's done half.
         progress: 1,
       },

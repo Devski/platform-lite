@@ -573,6 +573,7 @@
           "unsupported_method": "The archive uses a compression a browser cannot open. Export a plain zip.",
           "corrupt": "The archive is damaged or cut short.",
           "network": "The archive could not be read. Try again.",
+          "expired": "The archive's link ran out. Try again.",
           "unsupported_format": "A browser cannot show EXR, TIFF or TGA ({files}). Export JPEG, PNG or WebP.",
           "no_frames": "No frames found in the archive — JPEG, PNG or WebP.",
           "too_few": "One frame is not an orbit: at least 2 are needed.",

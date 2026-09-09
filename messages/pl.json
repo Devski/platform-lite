@@ -573,6 +573,7 @@
           "unsupported_method": "Archiwum używa kompresji, której przeglądarka nie otworzy. Wyeksportuj zwykły zip.",
           "corrupt": "Archiwum jest uszkodzone lub ucięte.",
           "network": "Nie udało się odczytać archiwum. Spróbuj ponownie.",
+          "expired": "Link do archiwum wygasł. Spróbuj ponownie.",
           "unsupported_format": "Przeglądarka nie pokaże EXR, TIFF ani TGA ({files}). Wyeksportuj JPEG, PNG lub WebP.",
           "no_frames": "W archiwum nie ma klatek — JPEG, PNG lub WebP.",
           "too_few": "Jedna klatka to nie orbita: potrzeba co najmniej 2.",

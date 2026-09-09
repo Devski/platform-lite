@@ -245,19 +245,24 @@ export const frameSetTransport: FrameSetTransport = {
 
 // #105: the archives that reached the bucket and no work names, and the
 // claim of one — a signed address to read the frames from again.
-export interface UnattachedArchive {
+export interface UnattachedArchiveJson {
   fileId: string;
   sizeBytes: number;
+  /** ISO 8601, as the route writes the date. */
   createdAt: string;
 }
 
-export async function listUnattachedArchives(): Promise<UnattachedArchive[]> {
+export async function listUnattachedArchives(): Promise<
+  UnattachedArchiveJson[]
+> {
   try {
     const response = await fetch("/api/uploads/unattached-archives", {
       headers: { accept: "application/json" },
     });
     if (!response.ok) return [];
-    const data = (await response.json()) as { archives?: UnattachedArchive[] };
+    const data = (await response.json()) as {
+      archives?: UnattachedArchiveJson[];
+    };
     return data.archives ?? [];
   } catch {
     return [];

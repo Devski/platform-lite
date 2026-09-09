@@ -635,6 +635,13 @@ async function freeUnreferenced(
 
 /** How long a claim (#105) holds the sweep off: a session's worth. */
 export const ARCHIVE_CLAIM_HOURS = 6;
+/**
+ * A claim renews; without a ceiling an archive of any size could be kept
+ * out of the sweep forever by claiming it every six hours (#105 review).
+ * Past this age the sweep takes it, claimed or not — a decision to
+ * revisit with the paid-model conversation (SPEC §10).
+ */
+export const ARCHIVE_CLAIM_CEILING_DAYS = 7;
 
 /**
  * An archive confirmed and never attached — the tab closed between the
@@ -662,12 +669,18 @@ export async function sweepOrphanArchives(
           files.createdAt,
           sql`now() - make_interval(hours => ${olderThanHours})`,
         ),
-        // #105: an archive being finished from is not an orphan yet.
+        // #105: an archive being finished from is not an orphan yet —
+        // for as long as the claim is fresh and the archive not past the
+        // ceiling.
         or(
           isNull(files.claimedAt),
           lt(
             files.claimedAt,
             sql`now() - make_interval(hours => ${ARCHIVE_CLAIM_HOURS})`,
+          ),
+          lt(
+            files.createdAt,
+            sql`now() - make_interval(days => ${ARCHIVE_CLAIM_CEILING_DAYS})`,
           ),
         ),
       ),

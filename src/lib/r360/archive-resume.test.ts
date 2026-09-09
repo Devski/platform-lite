@@ -90,9 +90,18 @@ describe("claimArchive", () => {
     expect(row.claimedAt).not.toBeNull();
   });
 
-  it("refuses an archive that is not the caller's, or not an archive", async () => {
+  it("refuses an archive that is not the caller's, not an archive, or one a work names", async () => {
     const d = makeDeps();
     const photo = await uploadTestPhoto(d.deps, { seed: 2 });
+    const named = await uploadTestArchive(d.deps, "named");
+    await createWork(d.deps, {
+      name: "Z archiwum",
+      imageFileIds: [photo.original.fileId],
+      r360FileId: named.fileId,
+    });
+    await expect(
+      claimArchive(d.deps, { fileId: named.fileId }),
+    ).rejects.toMatchObject({ code: "not_found" });
     await expect(
       claimArchive(d.deps, { fileId: photo.original.fileId }),
     ).rejects.toMatchObject({ code: "not_found" });
@@ -115,12 +124,26 @@ describe("claimArchive", () => {
     await claimArchive(d.deps, { fileId: archive.fileId });
     await sweepOrphanArchives(d.deps);
     expect(d.objects.has(archive.key)).toBe(true);
+    // Past the ceiling the sweep takes it, claimed or not.
+    await testDb.db
+      .update(files)
+      .set({ createdAt: sql`now() - interval '8 days'` })
+      .where(eq(files.id, archive.fileId));
+    await claimArchive(d.deps, { fileId: archive.fileId });
+    await sweepOrphanArchives(d.deps);
+    expect(d.objects.has(archive.key)).toBe(false);
+    const again = await uploadTestArchive(d.deps, "again");
+    await testDb.db
+      .update(files)
+      .set({ createdAt: sql`now() - interval '25 hours'` })
+      .where(eq(files.id, again.fileId));
+    await claimArchive(d.deps, { fileId: again.fileId });
     // A claim that went stale holds nothing back.
     await testDb.db
       .update(files)
       .set({ claimedAt: sql`now() - interval '7 hours'` })
-      .where(eq(files.id, archive.fileId));
+      .where(eq(files.id, again.fileId));
     await sweepOrphanArchives(d.deps);
-    expect(d.objects.has(archive.key)).toBe(false);
+    expect(d.objects.has(again.key)).toBe(false);
   });
 });
