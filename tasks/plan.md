@@ -97,9 +97,9 @@ from Phase 4 once its code half was split off.
 - [#72](https://github.com/Devski/platform-lite/issues/72) Profile editing: cover photo,
   headline, location, bio and a list of works (A12) — the milestone's spine, in six PR-sized
   steps listed on the issue; the approved interactive sketch is linked from it.
-- [#68](https://github.com/Devski/platform-lite/issues/68) R360 engine: process the uploaded
-  orbit zip and show it on the work — the milestone's "slide viewer"; #72 only stores the
-  archive. Depends on #72, #64.
+- [#68](https://github.com/Devski/platform-lite/issues/68) R360 — **moved** on 09.09.2026:
+  the milestone's "slide viewer" grew into its own milestone, [R360](#r360); #68 stays as
+  the description of the whole and the index of its steps.
 - [#69](https://github.com/Devski/platform-lite/issues/69) Storage meter per account: count
   the largest representation of every asset, show the usage.
 - [#70](https://github.com/Devski/platform-lite/issues/70) Deliver user photos to fit the
@@ -116,6 +116,41 @@ from Phase 4 once its code half was split off.
 Verified for this milestone (08.09.2026): no OVHcloud CDN product transforms images, so every
 size a page needs is produced at upload (G5); a bucket per user is ruled out by the
 100-per-project limit, so an object's owner lives in its key (§9).
+
+### [R360](https://github.com/Devski/platform-lite/milestone/9)
+
+Opened 09.09.2026 from the design conversation with Dawid; no due date yet. One frame at a
+time from a work's orbit archive: dragged on the picture (relative, discrete, wrapping),
+dialled on an elliptical ring that doubles as the visitor's progress bar, and produced in
+the owner's browser — the server never reads the archive, the one core never decodes a
+frame, no queue and no worker. The decisions, the five parameters and the ordered step
+list live on [#68](https://github.com/Devski/platform-lite/issues/68); the frame contract
+shared with the export instructions on #64. One step, one PR; the order and the
+dependencies are as on #68 (#105 waits on #101 and #103 only).
+
+- [#101](https://github.com/Devski/platform-lite/issues/101) Zip reader in the browser:
+  the table of contents, single frames by byte range, frame names parsed and validated —
+  the technical bet, first and without UI.
+- [#102](https://github.com/Devski/platform-lite/issues/102) Frame pipeline: frames reduced
+  in the owner's browser, uploaded under one set prefix, verified and recorded on save,
+  cleaned up on replace and delete.
+- [#103](https://github.com/Devski/platform-lite/issues/103) Edit mode: pick the archive,
+  see the frame count, the five parameters, one composite progress bar, a drag-only
+  preview (`ux`).
+- [#104](https://github.com/Devski/platform-lite/issues/104) The public work: drag to
+  orbit, frames loaded coarse to fine, the start frame as the poster (`ux`).
+- [#105](https://github.com/Devski/platform-lite/issues/105) Resume: derive the frames
+  again from an archive that already reached the bucket (`ux`). Depends on #101 and #103,
+  not on #104; listed here in filing order.
+- [#106](https://github.com/Devski/platform-lite/issues/106) The ring: the ellipse dial
+  that shows where you are, travels on click, fills as frames load (`ux`).
+
+After the milestone: [#107](https://github.com/Devski/platform-lite/issues/107) cue points —
+labelled frames on the ring (`ux`), deliberately outside the first cut.
+
+**Checkpoint:** a work with an orbit archive and no photo, added from the form with one
+progress bar, orbits on the public page by drag and by ring on a laptop and on a phone;
+e2e with axe green; the server's CPU untouched by the frames.
 
 ### Open decisions (§12)
 
@@ -144,7 +179,7 @@ they are not rediscovered later.
 ## Requirements coverage
 
 Every criterion A1–A11 and every boundary G1–G10 has its task (A11 — visual, no test
-requirement). §10 risks are covered by #23 (deliverability) and inside #16/#24. §12 open
+requirement). A12 is #72 and its tails; A13 is the R360 milestone (#68, #101–#106). §10 risks are covered by #23 (deliverability) and inside #16/#24. §12 open
 questions = #25–#27.
 
 #30 is a fix to an A9 gap found while provisioning #2 (04.09.2026), not a new criterion.
