@@ -184,7 +184,7 @@ test("a new work: the photo goes through the upload chain as a work, then the fo
   ).toHaveCount(0);
 });
 
-test("several at once (#79): the picker takes what fits and says so, replace keeps the tile's place", async () => {
+test("several at once (#79, #93): a pick that does not fit is refused, replace keeps the tile's place", async () => {
   // Uploads run in parallel, so the id is pinned to the upload at presign
   // (the presigns leave in pick order, synchronously) and confirm reads it
   // back from the staging key — whichever confirm lands first.

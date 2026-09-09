@@ -396,6 +396,7 @@ export function WorkForm({
   }
 
   function removePhoto(fileId: string) {
+    setError(null);
     commitSlots((current) => current.filter((slot) => slot.fileId !== fileId));
     void discard(fileId);
   }
