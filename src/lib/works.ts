@@ -66,6 +66,12 @@ export interface WorkImageView {
   url480: string;
 }
 
+/** #104: what a visitor needs to orbit — the parameters and where the frames are. */
+export interface WorkOrbitView {
+  params: R360Params;
+  frameBase: string;
+}
+
 export interface WorkView {
   id: string;
   name: string;
@@ -73,6 +79,8 @@ export interface WorkView {
   developer: string | null;
   /** In display order; the first is the main photo. */
   images: WorkImageView[];
+  /** The R360 as shown: the set's parameters and address, or none. */
+  orbit: WorkOrbitView | null;
   /**
    * The R360 archive, owner-facing: a visitor never learns one exists —
    * and, since #102, its frame set: the id, the viewer's parameters, and
@@ -184,6 +192,15 @@ export async function listWorks(deps: ProfileReadDeps): Promise<WorkView[]> {
     const archive = row.r360FileId
       ? fileRows.find((file) => file.id === row.r360FileId)
       : undefined;
+    const orbit: WorkOrbitView | null =
+      row.r360SetId && row.r360Params
+        ? {
+            params: row.r360Params,
+            frameBase: storage.publicUrl(
+              frameSetPrefix(prefix, userId, row.r360SetId),
+            ),
+          }
+        : null;
     return {
       id: row.id,
       name: row.name,
@@ -193,20 +210,13 @@ export async function listWorks(deps: ProfileReadDeps): Promise<WorkView[]> {
         .filter((image) => image.workId === row.id)
         .map(imageOf)
         .filter((image): image is WorkImageView => image !== null),
+      orbit,
       r360: archive
         ? {
             fileId: archive.id,
             sizeBytes: archive.sizeBytes,
             set:
-              row.r360SetId && row.r360Params
-                ? {
-                    id: row.r360SetId,
-                    params: row.r360Params,
-                    frameBase: storage.publicUrl(
-                      frameSetPrefix(prefix, userId, row.r360SetId),
-                    ),
-                  }
-                : null,
+              row.r360SetId && orbit ? { id: row.r360SetId, ...orbit } : null,
           }
         : null,
     };

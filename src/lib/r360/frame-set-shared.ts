@@ -55,6 +55,17 @@ export function frameSetPrefix(
   return `${prefix}u/${userId}/r360/${setId}/`;
 }
 
+/** Every frame's public address at one width, `urls[ordinal - 1]` (#104). */
+export function frameUrls(
+  frameBase: string,
+  width: R360Width,
+  frameCount: number,
+): string[] {
+  return Array.from({ length: frameCount }, (_, i) =>
+    frameUrl(frameBase, width, i + 1),
+  );
+}
+
 /** A frame's public address from the work's `frameBase` (#104). */
 export function frameUrl(
   frameBase: string,

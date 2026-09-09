@@ -848,7 +848,12 @@ test("an archive with a gap is refused on the page and sends nothing; a saved se
   await page.reload();
   await page.getByRole("button", { name: "Edytuj profil" }).click();
   const card = page.getByRole("article").filter({ hasText: seeded.name });
-  await expect(card.getByTestId("work-card-no-photo")).toBeVisible();
+  // #104: the set is the card's first picture — the start frame as the poster.
+  await expect(card.getByTestId("orbit-viewer")).toBeVisible();
+  await expect(card.getByTestId("orbit-viewer").locator("img")).toHaveAttribute(
+    "src",
+    //r360/[0-9a-f]{32}/800/003.webp$/,
+  );
   await card.getByRole("button", { name: "Edytuj" }).click();
   await expect(page.getByTestId("work-r360-frame-count")).toHaveText(
     "Klatki: 4",

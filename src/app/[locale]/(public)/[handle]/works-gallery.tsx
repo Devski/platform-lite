@@ -1,13 +1,15 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ChannelReveal } from "@/components/ui/channel-reveal";
 import { Icon } from "@/components/ui/icon";
-import type { R360Params } from "@/lib/r360/frame-set-shared";
+import { OrbitViewer } from "@/components/ui/orbit-viewer";
+import { useFrameLoader } from "@/components/ui/use-frame-loader";
+import { frameUrls, type R360Params } from "@/lib/r360/frame-set-shared";
 
 // #72 / A12: a profile's works as cards — the main photo dominant (two
 // thirds of the width and both rows, the other one or two beside it), the
@@ -27,12 +29,20 @@ export interface GalleryImage {
   secondary?: { fileId?: string; url1600: string; url480: string };
 }
 
+/** #104: the orbit a visitor turns — the parameters and where the frames are. */
+export interface GalleryOrbit {
+  params: R360Params;
+  frameBase: string;
+}
+
 export interface GalleryWork {
   id: string;
   name: string;
   investor: string | null;
   developer: string | null;
   images: GalleryImage[];
+  /** The work's R360 as shown to everyone; its start frame is the poster. */
+  orbit?: GalleryOrbit | null;
   /** Owner-facing; a visitor never gets it. Since #102 with its frame set. */
   r360?: {
     fileId: string;
@@ -179,7 +189,18 @@ function WorkCard({
   useEffect(() => {
     if (confirming) confirmRef.current?.focus();
   }, [confirming]);
-  const count = work.images.length;
+  // #104: the orbit is the first picture when the work has one; the
+  // photos come after it, and the lightbox counts the same way.
+  const offset = work.orbit ? 1 : 0;
+  const count = work.images.length + offset;
+  const tileClass = (index: number) =>
+    index === 0
+      ? count === 1
+        ? "aspect-[16/9]"
+        : "row-span-2 aspect-[4/3]"
+      : count === 2
+        ? "row-span-2"
+        : "aspect-[4/3]";
 
   return (
     <Card
@@ -187,7 +208,7 @@ function WorkCard({
       padding="none"
       className="flex w-full flex-col overflow-hidden"
     >
-      {/* The main photo takes both rows and two thirds of the width; the
+      {/* The main picture takes both rows and two thirds of the width; the
           others stack beside it. Alone, it takes the whole strip. */}
       <div
         className={`grid gap-[2px] bg-(--border-hairline) ${
@@ -195,8 +216,6 @@ function WorkCard({
         }`}
       >
         {count === 0 && (
-          // #103: a work may carry an R360 and no photo; its start frame
-          // stands here from #104 on.
           <div
             className="flex aspect-[16/9] items-center justify-center bg-(--surface-sunken) type-eyebrow text-(--text-muted)"
             data-testid="work-card-no-photo"
@@ -204,49 +223,54 @@ function WorkCard({
             {t("card.orbit")}
           </div>
         )}
-        {work.images.map((image, index) => (
-          <button
-            key={image.url1600}
-            type="button"
-            onClick={(event) => onOpen(index, event.currentTarget)}
-            // The badge is inside the button, whose label replaces its
-            // content for the screen reader: the two channels are named here.
-            aria-label={`${t("card.enlarge", {
-              index: index + 1,
-              count,
-              name: work.name,
-            })}${image.secondary ? `, ${t("reveal.badge")}` : ""}`}
-            className={`relative block min-h-0 cursor-zoom-in overflow-hidden bg-n-200 focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_3px_var(--surface-card),inset_0_0_0_5px_var(--focus-ring)] ${
-              index === 0
-                ? count === 1
-                  ? "aspect-[16/9]"
-                  : "row-span-2 aspect-[4/3]"
-                : count === 2
-                  ? "row-span-2"
-                  : "aspect-[4/3]"
-            }`}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={image.url480}
-              srcSet={`${image.url480} 480w, ${image.url1600} 1600w`}
-              sizes={index === 0 ? "(max-width: 640px) 100vw, 30rem" : "12rem"}
-              alt={t("photoAlt", { name: work.name, index: index + 1 })}
-              className="h-full w-full object-cover"
-              loading="lazy"
-            />
-            {image.secondary && (
-              <span
-                className="absolute top-1.5 right-1.5 inline-flex items-center gap-1 rounded-full bg-n-950/80 px-2 py-0.5 type-eyebrow text-white"
-                title={t("reveal.badge")}
-                aria-hidden="true"
-              >
-                <Icon name="layers" size={12} />
-                <span className="sr-only">{t("reveal.badge")}</span>
-              </span>
-            )}
-          </button>
-        ))}
+        {work.orbit && (
+          <OrbitTile
+            work={work}
+            orbit={work.orbit}
+            className={tileClass(0)}
+            onOpen={(returnTo) => onOpen(0, returnTo)}
+          />
+        )}
+        {work.images.map((image, photo) => {
+          const index = photo + offset;
+          return (
+            <button
+              key={image.url1600}
+              type="button"
+              onClick={(event) => onOpen(index, event.currentTarget)}
+              // The badge is inside the button, whose label replaces its
+              // content for the screen reader: the two channels are named here.
+              aria-label={`${t("card.enlarge", {
+                index: index + 1,
+                count,
+                name: work.name,
+              })}${image.secondary ? `, ${t("reveal.badge")}` : ""}`}
+              className={`relative block min-h-0 cursor-zoom-in overflow-hidden bg-n-200 focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_3px_var(--surface-card),inset_0_0_0_5px_var(--focus-ring)] ${tileClass(index)}`}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={image.url480}
+                srcSet={`${image.url480} 480w, ${image.url1600} 1600w`}
+                sizes={
+                  index === 0 ? "(max-width: 640px) 100vw, 30rem" : "12rem"
+                }
+                alt={t("photoAlt", { name: work.name, index: photo + 1 })}
+                className="h-full w-full object-cover"
+                loading="lazy"
+              />
+              {image.secondary && (
+                <span
+                  className="absolute top-1.5 right-1.5 inline-flex items-center gap-1 rounded-full bg-n-950/80 px-2 py-0.5 type-eyebrow text-white"
+                  title={t("reveal.badge")}
+                  aria-hidden="true"
+                >
+                  <Icon name="layers" size={12} />
+                  <span className="sr-only">{t("reveal.badge")}</span>
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
       <div className="flex flex-1 flex-col gap-(--sp-3) p-(--sp-5) sm:px-(--sp-6) sm:pb-(--sp-6)">
         <h3 className="type-h3 break-words text-(--text-strong)">
@@ -361,7 +385,10 @@ function LightboxOverlay({
   const t = useTranslations("Works");
   const closeRef = useRef<HTMLButtonElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
-  const count = work.images.length;
+  // #104: the orbit, when there is one, is the first picture here as on
+  // the card; the photos follow, numbered from one among themselves.
+  const offset = work.orbit ? 1 : 0;
+  const count = work.images.length + offset;
   const step = (delta: number) => onStep((index + delta + count) % count);
 
   // Focus goes to Close once, when the overlay opens — not on every step,
@@ -418,7 +445,8 @@ function LightboxOverlay({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [index, count]);
 
-  const image = work.images[index];
+  const image = index < offset ? null : work.images[index - offset];
+  const photoNumber = index - offset + 1;
   const control =
     "absolute flex h-11 w-11 items-center justify-center rounded-full border border-white/30 bg-white/10 text-white hover:bg-white/20 focus-visible:outline-none focus-visible:shadow-[0_0_0_2px_rgba(12,17,22,.6),0_0_0_4px_#fff]";
 
@@ -462,27 +490,29 @@ function LightboxOverlay({
           </button>
         </>
       )}
-      {image.secondary ? (
+      {!image && work.orbit ? (
+        <OrbitFull work={work} orbit={work.orbit} />
+      ) : !image ? null : image.secondary ? (
         // #100: two channels — the second revealed under the first by the
         // slider, along the picture or across it.
         <ChannelReveal
           key={image.url1600}
           first={{
             src: image.url1600,
-            alt: t("photoAlt", { name: work.name, index: index + 1 }),
+            alt: t("photoAlt", { name: work.name, index: photoNumber }),
           }}
           second={{
             src: image.secondary.url1600,
-            alt: t("reveal.secondAlt", { name: work.name, index: index + 1 }),
+            alt: t("reveal.secondAlt", { name: work.name, index: photoNumber }),
           }}
-          label={t("reveal.label", { name: work.name, index: index + 1 })}
+          label={t("reveal.label", { name: work.name, index: photoNumber })}
           imageClassName="max-h-[calc(100vh-180px)] max-w-[min(96vw,1600px)] object-contain"
         />
       ) : (
         /* eslint-disable-next-line @next/next/no-img-element */
         <img
           src={image.url1600}
-          alt={t("photoAlt", { name: work.name, index: index + 1 })}
+          alt={t("photoAlt", { name: work.name, index: photoNumber })}
           className="max-h-[calc(100vh-140px)] max-w-[min(96vw,1600px)] object-contain"
         />
       )}
@@ -494,5 +524,90 @@ function LightboxOverlay({
         <span className="hidden sm:inline">{t("lightbox.hint")}</span>
       </p>
     </div>
+  );
+}
+// #104: the orbit on the card — the start frame server-rendered as the
+// poster (a plain <img>, so the page works without JavaScript and for
+// crawlers), the frames loading coarse to fine once the script runs, a
+// drag across the picture turning it. The picture is the control, so the
+// way into the lightbox is a button of its own beside the 360° mark.
+function OrbitTile({
+  work,
+  orbit,
+  className,
+  onOpen,
+}: {
+  work: GalleryWork;
+  orbit: GalleryOrbit;
+  className: string;
+  onOpen: (returnTo: HTMLElement | null) => void;
+}) {
+  const t = useTranslations("Works");
+  const urls = useMemo(
+    () => frameUrls(orbit.frameBase, 800, orbit.params.frameCount),
+    [orbit.frameBase, orbit.params.frameCount],
+  );
+  const loader = useFrameLoader(urls, orbit.params.startFrame);
+  return (
+    <div className={`relative min-h-0 overflow-hidden bg-n-200 ${className}`}>
+      <OrbitViewer
+        frames={urls}
+        loaded={loader.loaded}
+        poster={orbit.params.startFrame}
+        params={orbit.params}
+        alt={t("orbit.frameAlt", { name: work.name })}
+        label={t("orbit.cardLabel", { name: work.name })}
+        className="h-full w-full"
+        imageClassName="object-cover"
+      />
+      <span
+        className="pointer-events-none absolute top-1.5 left-1.5 rounded-full bg-n-950 px-2 py-0.5 type-eyebrow text-white"
+        aria-hidden="true"
+      >
+        {t("orbit.mark")}
+      </span>
+      <button
+        type="button"
+        onClick={(event) => onOpen(event.currentTarget)}
+        aria-label={t("orbit.enlarge", { name: work.name })}
+        title={t("orbit.enlarge", { name: work.name })}
+        className="absolute right-1.5 bottom-1.5 flex h-9 w-9 items-center justify-center rounded-full bg-n-950/80 text-white hover:bg-n-950 focus-visible:outline-none focus-visible:shadow-[0_0_0_2px_var(--surface-card),0_0_0_4px_var(--focus-ring)]"
+      >
+        <Icon name="plus" size={16} />
+      </button>
+    </div>
+  );
+}
+
+// The orbit at its largest in the lightbox: the 1600 px set on a wide
+// screen, the 800 px one on a phone, loading coarse to fine from the
+// start frame.
+function OrbitFull({
+  work,
+  orbit,
+}: {
+  work: GalleryWork;
+  orbit: GalleryOrbit;
+}) {
+  const t = useTranslations("Works");
+  const [width] = useState<800 | 1600>(() =>
+    typeof window !== "undefined" && window.innerWidth > 900 ? 1600 : 800,
+  );
+  const urls = useMemo(
+    () => frameUrls(orbit.frameBase, width, orbit.params.frameCount),
+    [orbit.frameBase, orbit.params.frameCount, width],
+  );
+  const loader = useFrameLoader(urls, orbit.params.startFrame);
+  return (
+    <OrbitViewer
+      frames={urls}
+      loaded={loader.loaded}
+      poster={orbit.params.startFrame}
+      params={orbit.params}
+      alt={t("orbit.frameAlt", { name: work.name })}
+      label={t("orbit.lightboxLabel", { name: work.name })}
+      className="flex max-h-[calc(100vh-140px)] w-[min(96vw,1600px)] items-center justify-center"
+      imageClassName="max-h-[calc(100vh-140px)] object-contain"
+    />
   );
 }

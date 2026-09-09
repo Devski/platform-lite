@@ -22,6 +22,16 @@ export interface OrbitViewerProps {
   label: string;
   /** A prepared hand on the orbit, when the parent needs the frame too. */
   orbit?: Orbit;
+  /**
+   * Ordinals whose picture is decoded (#104's loader). Without it, every
+   * frame with an address counts as there — the owner's local frames.
+   */
+  loaded?: ReadonlySet<number>;
+  /**
+   * A frame shown whatever is loaded — the start frame the server renders
+   * as the poster, so the page has a picture before any script runs.
+   */
+  poster?: number;
   imageClassName?: string;
   className?: string;
   children?: React.ReactNode;
@@ -33,6 +43,8 @@ export function OrbitViewer({
   alt,
   label,
   orbit: given,
+  loaded: given_loaded,
+  poster,
   imageClassName = "",
   className = "",
   children,
@@ -40,14 +52,12 @@ export function OrbitViewer({
   const t = useTranslations("Works.orbit");
   const own = useOrbit(params);
   const orbit = given ?? own;
-  const loaded = useMemo(
-    () =>
-      new Set(
-        frames.flatMap((url, index) => (url ? [index + 1] : [])),
-      ),
+  const withAddress = useMemo(
+    () => new Set(frames.flatMap((url, index) => (url ? [index + 1] : []))),
     [frames],
   );
-  const shown = nearestLoaded(orbit.frame, loaded, params);
+  const loaded = given_loaded ?? withAddress;
+  const shown = nearestLoaded(orbit.frame, loaded, params) ?? poster ?? null;
   const src = shown === null ? null : frames[shown - 1];
 
   return (

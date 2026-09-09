@@ -4,6 +4,7 @@ import { normalizeHandle } from "@/lib/handle";
 import { getProfile, type ProfileReadDeps } from "@/lib/profile";
 import { MONOGRAM_CARD } from "@/lib/monogram";
 import { resolveHandle } from "@/lib/profile-handle";
+import type { R360Params } from "@/lib/r360/frame-set-shared";
 import { listWorks } from "@/lib/works";
 
 // The public face of a profile (#18): what /[handle] renders for an
@@ -24,7 +25,8 @@ export interface PublicProfile {
   headline: string | null;
   locations: string[];
   bio: string | null;
-  /** The works with their photos — no file ids, no R360 state (#72). */
+  /** The works with their photos — no file ids, no archive (#72); since
+   * #104 with the orbit a visitor turns, when the work has one. */
   works: PublicWork[];
 }
 
@@ -39,6 +41,8 @@ export interface PublicWork {
     /** #99: the second channel, for the reveal slider (#100). */
     secondary?: { url1600: string; url480: string };
   }[];
+  /** #104: the parameters and the address of the frames, or none. */
+  orbit: { params: R360Params; frameBase: string } | null;
 }
 
 export type PublicProfileLookup =
@@ -104,6 +108,7 @@ export async function loadPublicProfile(
         name: work.name,
         investor: work.investor,
         developer: work.developer,
+        orbit: work.orbit,
         images: work.images.map(({ url1600, url480, secondary }) => ({
           url1600,
           url480,
