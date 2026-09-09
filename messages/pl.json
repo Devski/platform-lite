@@ -485,7 +485,6 @@
         "count": "{count} / {max}",
         "hint": "Zdjęcie główne otwiera kartę realizacji i jest w niej największe. Pierwsze dodane staje się głównym, dopóki nie wskażesz innego.",
         "full": "Komplet: {max} zdjęcia. Żeby dodać inne, usuń któreś albo je wymień.",
-        "overflow": "Zmieściło się {taken} z {offered}: realizacja ma najwyżej {max} zdjęcia.",
         "add": "Dodaj zdjęcia",
         "addMore": "Dodaj",
         "required": "wymagane",
@@ -511,6 +510,7 @@
         "rateLimited": "Zbyt wiele zapisów. Odczekaj chwilę i spróbuj ponownie.",
         "generic": "Zapis nie powiódł się. Spróbuj ponownie.",
         "duplicatePhoto": "To zdjęcie jest już na liście.",
+        "tooManyPhotos": "Wybrano {offered, plural, one {# zdjęcie} few {# zdjęcia} many {# zdjęć} other {# zdjęcia}}, a {room, plural, one {zmieści się jedno} other {zmieszczą się #}}. Wybierz najwyżej {room}.",
         "invalidArchive": "Archiwum R360 nie jest już dostępne. Wgraj je ponownie."
       },
       "r360": {

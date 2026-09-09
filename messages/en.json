@@ -485,7 +485,6 @@
         "count": "{count} / {max}",
         "hint": "The main photo opens the work's card and is the largest on it. The first one added is main until you pick another.",
         "full": "All {max} in place. To add another, remove one or replace it.",
-        "overflow": "{taken} of {offered} fit: a work has up to {max} photos.",
         "add": "Add photos",
         "addMore": "Add",
         "required": "required",
@@ -511,6 +510,7 @@
         "rateLimited": "Too many saves. Wait a moment and try again.",
         "generic": "Saving failed. Try again.",
         "duplicatePhoto": "That photo is already on the list.",
+        "tooManyPhotos": "You picked {offered} photos and {room, plural, one {one fits} other {# fit}}. Pick at most {room}.",
         "invalidArchive": "The R360 archive is no longer available. Upload it again."
       },
       "r360": {
