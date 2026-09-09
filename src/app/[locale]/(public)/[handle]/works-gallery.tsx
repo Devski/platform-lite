@@ -14,7 +14,9 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ChannelReveal } from "@/components/ui/channel-reveal";
 import { Icon } from "@/components/ui/icon";
+import { OrbitRing } from "@/components/ui/orbit-ring";
 import { OrbitViewer } from "@/components/ui/orbit-viewer";
+import { useOrbit } from "@/components/ui/use-orbit";
 import { useFrameLoader } from "@/components/ui/use-frame-loader";
 import type { LoadTier } from "@/lib/r360/frame-loading";
 import {
@@ -577,6 +579,7 @@ function PublicOrbit({
   tier,
   posterSrc,
   onTouch,
+  ring,
 }: {
   name: string;
   orbit: GalleryOrbit;
@@ -591,6 +594,8 @@ function PublicOrbit({
   posterSrc?: string;
   /** The first pointer, key or focus on the orbit. */
   onTouch: () => void;
+  /** #106: the ring over the picture's foot, or below the picture. */
+  ring: "overlay" | "below";
 }) {
   const t = useTranslations("Works");
   const urls = useMemo(
@@ -601,9 +606,23 @@ function PublicOrbit({
     enabled,
     tier,
   });
+  const hand = useOrbit(orbit.params);
+  const dial = (
+    <OrbitRing
+      orbit={hand}
+      params={orbit.params}
+      loaded={loaded}
+      flattening={orbit.params.flattening}
+      className={
+        ring === "overlay"
+          ? "absolute bottom-1 left-1/2 w-[38%] max-w-40 -translate-x-1/2"
+          : "mt-(--sp-3) w-56"
+      }
+    />
+  );
   return (
     <div
-      className="contents"
+      className={ring === "below" ? "flex flex-col items-center" : "contents"}
       onPointerDownCapture={onTouch}
       onFocusCapture={onTouch}
       onKeyDownCapture={onTouch}
@@ -614,11 +633,13 @@ function PublicOrbit({
         poster={orbit.params.startFrame}
         posterSrc={posterSrc}
         params={orbit.params}
+        orbit={hand}
         alt={t("orbit.frameAlt", { name })}
         label={label}
         className={className}
         imageClassName={imageClassName}
       />
+      {dial}
     </div>
   );
 }
@@ -704,6 +725,7 @@ function OrbitTile({
         enabled={inView && pageLoaded}
         tier={tier}
         onTouch={touch}
+        ring="overlay"
       />
       <span
         className="pointer-events-none absolute top-1.5 left-1.5 rounded-full bg-n-950 px-2 py-0.5 type-eyebrow text-white"
@@ -746,6 +768,7 @@ function OrbitFull({ name, orbit }: { name: string; orbit: GalleryOrbit }) {
       // once, while the larger set is on its way.
       posterSrc={frameUrl(orbit.frameBase, 800, orbit.params.startFrame)}
       onTouch={touch}
+      ring="below"
     />
   );
 }

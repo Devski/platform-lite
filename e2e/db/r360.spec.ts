@@ -111,6 +111,34 @@ test("a drag by half the width at k = 2 turns one frame; past the last frame it 
   await expectNoAxeViolations(visitor, test.info(), "public-r360-card");
 });
 
+test("a click on the ring travels the shorter arc to the frame at that angle (#106)", async () => {
+  await visitor.goto(`/${identity.handle}`);
+  const viewer = visitor.getByTestId("orbit-viewer").first();
+  await expect(viewer).toHaveAttribute("data-frame", "3");
+  const ring = visitor.getByTestId("orbit-ring").first().locator("svg");
+  await ring.scrollIntoViewIfNeeded();
+  const box = await ring.boundingBox();
+  if (!box) throw new Error("no ring box");
+  // The ring's view box is 200 wide with a 92 px radius: from the start
+  // frame (3, at the bottom) the frames go clockwise on screen — 4 on the
+  // left, 1 at the top, 2 on the right.
+  const right = {
+    x: box.x + (box.width * (100 + 92)) / 200,
+    y: box.y + box.height / 2,
+  };
+  await visitor.mouse.click(right.x, right.y);
+  await expect(viewer).toHaveAttribute("data-frame", "2");
+  await expect(visitor.getByTestId("orbit-counter").first()).toHaveText(
+    "2 / 4",
+  );
+  const left = {
+    x: box.x + (box.width * (100 - 92)) / 200,
+    y: box.y + box.height / 2,
+  };
+  await visitor.mouse.click(left.x, left.y);
+  await expect(viewer).toHaveAttribute("data-frame", "4");
+});
+
 test("the enlarge button opens the orbit in the lightbox, where it turns too; Escape closes it", async () => {
   await visitor.goto(`/${identity.handle}`);
   await visitor

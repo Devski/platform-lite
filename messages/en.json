@@ -604,7 +604,8 @@
       "frameAlt": "{name}, 360° view",
       "cardLabel": "360° view of {name}: drag across the picture to turn it",
       "lightboxLabel": "360° view of {name}, enlarged: drag across the picture to turn it",
-      "enlarge": "Enlarge the 360° view: {name}"
+      "enlarge": "Enlarge the 360° view: {name}",
+      "counter": "{frame} / {total}"
     },
     "reveal": {
       "label": "Channel comparison: {name}, photo {index}",

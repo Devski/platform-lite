@@ -604,7 +604,8 @@
       "frameAlt": "{name}, widok 360°",
       "cardLabel": "Widok 360° realizacji {name}: przeciągnij po obrazie, by go obrócić",
       "lightboxLabel": "Widok 360° realizacji {name} w powiększeniu: przeciągnij po obrazie, by go obrócić",
-      "enlarge": "Powiększ widok 360°: {name}"
+      "enlarge": "Powiększ widok 360°: {name}",
+      "counter": "{frame} / {total}"
     },
     "reveal": {
       "label": "Porównanie kanałów: {name}, zdjęcie {index}",

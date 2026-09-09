@@ -4,6 +4,7 @@ import { useFormatter, useTranslations } from "next-intl";
 import {
   useEffect,
   useId,
+  useMemo,
   useImperativeHandle,
   useLayoutEffect,
   useRef,
@@ -14,6 +15,7 @@ import { Button, buttonClassName } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
+import { OrbitRing } from "@/components/ui/orbit-ring";
 import { OrbitViewer } from "@/components/ui/orbit-viewer";
 import { UploadProgress } from "@/components/ui/upload-progress";
 import { useOrbit } from "@/components/ui/use-orbit";
@@ -313,6 +315,12 @@ export function WorkForm({
     archive?.set?.params ??
     defaultR360Params(Math.max(2, archive?.frames?.total ?? 2));
   const previewOrbit = useOrbit(previewParams);
+  // The ring's ticks (#106): here every frame with an address is there.
+  const previewLoaded = useMemo(
+    () =>
+      new Set(previewFrames.flatMap((url, index) => (url ? [index + 1] : []))),
+    [previewFrames],
+  );
   const format = useFormatter();
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -1331,6 +1339,15 @@ export function WorkForm({
               alt={t("r360.previewAlt")}
               label={t("r360.previewLabel")}
               className="aspect-[16/9] overflow-hidden rounded-sm border border-(--border-hairline) bg-(--surface-sunken)"
+            />
+            {/* #106: the ring dial, flattened as the owner sets it. */}
+            <OrbitRing
+              orbit={previewOrbit}
+              params={previewParams}
+              loaded={previewLoaded}
+              flattening={previewParams.flattening}
+              tone="light"
+              className="mx-auto w-48"
             />
             <p className="type-sm text-(--text-muted)">
               {t("r360.previewHint")}
