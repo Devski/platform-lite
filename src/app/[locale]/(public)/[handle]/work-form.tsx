@@ -18,6 +18,8 @@ import { Input } from "@/components/ui/input";
 import { OrbitRing } from "@/components/ui/orbit-ring";
 import { OrbitViewer } from "@/components/ui/orbit-viewer";
 import { UploadProgress } from "@/components/ui/upload-progress";
+import { useFrameLoader } from "@/components/ui/use-frame-loader";
+import type { LoadTier } from "@/lib/r360/frame-loading";
 import { useOrbit } from "@/components/ui/use-orbit";
 import { postJson } from "@/lib/api-client";
 import { IMAGE_CONTENT_TYPES } from "@/lib/image-upload-shared";
@@ -30,6 +32,7 @@ import {
   produceFrameSet,
   type FrameSetOutcome,
 } from "@/lib/r360/frame-pipeline";
+import { FramePictures, pictureBytes } from "@/lib/r360/frame-pictures";
 import {
   defaultR360Params,
   frameUrls,
@@ -152,16 +155,9 @@ function discardFile(fileId: string): Promise<unknown> {
 /** The public addresses of a saved set's 800 px frames (#103). */
 function savedFrames(
   set: { params: R360Params; frameBase: string } | null,
-): (string | null)[] {
+): string[] {
   if (!set) return [];
   return frameUrls(set.frameBase, R360_WIDTHS[1], set.params.frameCount);
-}
-
-/** Frees the preview's object URLs; a saved set's public addresses stay. */
-function revokeBlobUrls(urls: readonly (string | null)[]) {
-  for (const url of urls) {
-    if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
-  }
 }
 
 // "412 MB", "3,2 GB": enough precision for a badge, the decimal separator
@@ -322,37 +318,74 @@ export function WorkForm({
       gone = true;
     };
   }, [ownsArchive]);
-  // #103: the preview's frames — object URLs of the 800 px encodings as
-  // the pipeline produces them (revoked with the form), or the saved set's
-  // public addresses. `previewFrames[ordinal - 1]`.
-  const [previewFrames, setPreviewFrames] = useState<(string | null)[]>(() =>
-    savedFrames(work?.r360?.set ?? null),
+  // #117: the preview's frames as DECODED PICTURES, not addresses. A frame
+  // the pipeline has just encoded is turned into a bitmap here and painted
+  // straight onto the viewer's canvas, so the preview never fetches, never
+  // decodes twice and holds no object URL that anything could revoke — the
+  // failure Dawid hit on 09.09.2026, where every frame had an address and
+  // none could be shown, has nowhere left to happen.
+  const [localFrames, setLocalFrames] = useState<FramePictures | null>(null);
+  const localFramesRef = useRef(localFrames);
+  function commitLocalFrames(next: FramePictures | null) {
+    localFramesRef.current?.clear();
+    localEncodings.current = new Map();
+    decodeWarned.current = false;
+    localFramesRef.current = next;
+    setLocalFrames(next);
+  }
+  // Which ordinals it holds, as an immutable snapshot: the store is
+  // mutated in place, so a fresh set is what tells React it changed —
+  // the same idiom the visitor's loader uses (use-frame-loader.ts).
+  const [localLoaded, setLocalLoaded] = useState<ReadonlySet<number>>(
+    () => new Set(),
   );
-  const previewFramesRef = useRef(previewFrames);
-  function commitPreview(
-    next: (current: (string | null)[]) => (string | null)[],
-  ) {
-    previewFramesRef.current = next(previewFramesRef.current);
-    setPreviewFrames(previewFramesRef.current);
-  }
-  /** Frees the frames shown so far and shows `next`: none, or an
-   * archive's N still to come. */
-  function resetPreview(next: (string | null)[] = []) {
-    revokeBlobUrls(previewFramesRef.current);
-    commitPreview(() => next);
-  }
+  // Every frame's encoding, kept beside the store: a long orbit spends its
+  // budget and the store drops the far side, so a frame the owner turns
+  // back to is decoded again from this rather than lost with no way back
+  // (the archive is not read twice). Cheap — the browser backs a blob with
+  // a file, not with pixels.
+  const localEncodings = useRef(new Map<number, Blob>());
+  const decodeWarned = useRef(false);
+  // A set the work already carries is fetched like a visitor's (#104) —
+  // the same queue, the same decode-before-it-counts, the same store.
+  const savedUrls = useMemo(
+    () => savedFrames(work?.r360?.set ?? null),
+    [work?.r360?.set],
+  );
+  // A saved set is fetched like a visitor's (#104): every 8th frame to
+  // begin with, the rest once the owner takes hold of the preview. Opening
+  // a work to fix its name must not pull down 360 frames.
+  const [previewTier, setPreviewTier] = useState<LoadTier>("coarse");
+  const savedSet = useFrameLoader(
+    savedUrls,
+    work?.r360?.set?.params.startFrame ?? 1,
+    {
+      enabled: savedUrls.length > 0 && localFrames === null,
+      tier: previewTier,
+    },
+  );
   // The hand on the preview: the parameters as the owner has them so far,
   // or the defaults for the count while the set is still being produced.
   const previewParams =
     archive?.set?.params ??
     defaultR360Params(Math.max(2, archive?.frames?.total ?? 2));
   const previewOrbit = useOrbit(previewParams);
-  // The ring's ticks (#106): here every frame with an address is there.
-  const previewLoaded = useMemo(
-    () =>
-      new Set(previewFrames.flatMap((url, index) => (url ? [index + 1] : []))),
-    [previewFrames],
-  );
+  // What the preview paints from, what the ring's arc fills with, and
+  // what stands in until the first frame is there: the frames made here
+  // while there are any, the saved set's otherwise. A run of frames made
+  // here must not fall back on the set the new archive is replacing —
+  // its start frame is another building.
+  const preview = localFrames
+    ? { pictures: localFrames, loaded: localLoaded, posterSrc: undefined }
+    : {
+        pictures: savedSet.pictures,
+        loaded: savedSet.loaded,
+        posterSrc: savedUrls[previewParams.startFrame - 1],
+      };
+  // The preview stands as soon as there are frames coming, so the owner
+  // watches the first one arrive in the box rather than watching a box
+  // appear late; until it does, the viewer says it is loading.
+  const previewShown = !!archive?.frames || savedUrls.length > 0;
   const format = useFormatter();
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -386,7 +419,12 @@ export function WorkForm({
         slot.secondary?.abort?.abort();
       }
       for (const url of urls) URL.revokeObjectURL(url);
-      revokeBlobUrls(previewFramesRef.current);
+      // #117: the decoded frames of a form that is really going away.
+      // Nothing else frees them — a store still on screen is never
+      // emptied from here, which is how the preview used to be left
+      // pointing at addresses that had been revoked under it.
+      localFramesRef.current?.clear();
+      localFramesRef.current = null;
       // Whatever this form uploaded and did not save goes back off the
       // quota — however the form went away: cancel, another work's edit,
       // editing switched off, the work deleted under it.
@@ -687,6 +725,56 @@ export function WorkForm({
   }
 
   /**
+   * #117: one encoded frame, decoded once and kept ready to paint. The
+   * store it started for is checked again afterwards — a decode that lands
+   * after the owner removed the archive, or after another pick, belongs to
+   * a store nobody is showing. A frame the browser cannot decode is left
+   * out rather than shown broken; the viewer paints its nearest neighbour.
+   */
+  async function keepFrame(
+    into: FramePictures | null,
+    ordinal: number,
+    encoded: Blob,
+  ): Promise<void> {
+    if (!into) return;
+    localEncodings.current.set(ordinal, encoded);
+    let bitmap: ImageBitmap;
+    try {
+      bitmap = await createImageBitmap(encoded);
+    } catch {
+      // Once per archive: a set the browser cannot decode would otherwise
+      // write a line per frame and still tell the owner nothing.
+      if (!decodeWarned.current) {
+        decodeWarned.current = true;
+        console.warn("[r360] a frame could not be decoded for the preview");
+      }
+      return;
+    }
+    if (closed.current || localFramesRef.current !== into) {
+      bitmap.close();
+      return;
+    }
+    into.put(ordinal, {
+      source: bitmap,
+      width: bitmap.width,
+      height: bitmap.height,
+      bytes: pictureBytes(bitmap.width, bitmap.height),
+      release: () => bitmap.close(),
+    });
+    setLocalLoaded(into.ordinals);
+  }
+
+  // The frame in view was decoded once and then evicted to stay inside
+  // the store's budget: decode it again from the encoding kept above, so
+  // a long orbit turns fully instead of sticking on its far side.
+  useEffect(() => {
+    const store = localFramesRef.current;
+    if (!store || store.has(previewOrbit.frame)) return;
+    const encoded = localEncodings.current.get(previewOrbit.frame);
+    if (encoded) void keepFrame(store, previewOrbit.frame, encoded);
+  }, [previewOrbit.frame, localLoaded]);
+
+  /**
    * Shows `entry` as the archive in the form, its frames still to come,
    * and produces and uploads them (#102): the preview shows the very
    * frames being uploaded (#103) and the bar moves per frame encoded or
@@ -705,7 +793,8 @@ export function WorkForm({
       uploading: true,
       frames: { done: 0, total: frames.length },
     });
-    resetPreview(frames.map(() => null));
+    commitLocalFrames(new FramePictures(frames.length));
+    setLocalLoaded(new Set());
     previewOrbit.setFrame(1);
     if (!(await canEncodeWebp())) {
       return { ok: false, failure: "webp_unsupported" };
@@ -721,9 +810,10 @@ export function WorkForm({
         if (closed.current || archiveRef.current?.fileId !== entry.fileId) {
           return;
         }
-        const url = URL.createObjectURL(encoded[R360_WIDTHS[1]]);
-        commitPreview((current) =>
-          current.map((item, index) => (index === ordinal - 1 ? url : item)),
+        void keepFrame(
+          localFramesRef.current,
+          ordinal,
+          encoded[R360_WIDTHS[1]],
         );
       },
       onProgress: (p) => {
@@ -800,7 +890,7 @@ export function WorkForm({
       commitArchive((current) =>
         current?.fileId === pendingId ? null : current,
       );
-      resetPreview();
+      commitLocalFrames(null);
       if (set.ok) void abandon(set.stagingPrefix);
       if (result.failure !== "aborted") uploadFail(result.failure);
       return;
@@ -815,7 +905,7 @@ export function WorkForm({
         name: file.name,
         uploading: false,
       });
-      resetPreview();
+      commitLocalFrames(null);
       if (set.failure !== "aborted") setError(t(`r360.failed.${set.failure}`));
       return;
     }
@@ -896,7 +986,7 @@ export function WorkForm({
     }
     if (!set.ok) {
       patchArchive(archive.fileId, { uploading: false, frames: undefined });
-      resetPreview();
+      commitLocalFrames(null);
       if (set.failure !== "aborted") setError(t(`r360.failed.${set.failure}`));
       return;
     }
@@ -914,13 +1004,13 @@ export function WorkForm({
       // Stops the transfer; the abort path abandons the staged bytes.
       archiveAbort.current?.abort();
       commitArchive(null);
-      resetPreview();
+      commitLocalFrames(null);
       return;
     }
     if (archive) void discard(archive.fileId);
     abandonUnsavedSet(archive);
     commitArchive(null);
-    resetPreview();
+    commitLocalFrames(null);
   }
 
   // #103: the owner's four parameters, on the set the work will name.
@@ -1519,15 +1609,22 @@ export function WorkForm({
           </label>
         )}
         <p className="type-sm text-(--text-muted)">{t("r360.hint")}</p>
-        {archive && previewFrames.length > 0 && (
+        {archive && previewShown && (
           <div
             className="flex flex-col gap-(--sp-4)"
             data-testid="work-r360-preview"
+            onPointerDownCapture={() => setPreviewTier("all")}
+            onFocusCapture={() => setPreviewTier("all")}
+            onKeyDownCapture={() => setPreviewTier("all")}
           >
-            {/* #103: the preview from the frames themselves — local ones
-                the moment they are encoded, the saved set's otherwise. */}
+            {/* #103/#117: the preview from the frames themselves — the ones
+                encoded here, decoded once and painted onto a canvas, or the
+                saved set's, fetched the way a visitor's are. */}
             <OrbitViewer
-              frames={previewFrames}
+              pictures={preview.pictures}
+              poster={preview.posterSrc ? previewParams.startFrame : undefined}
+              posterSrc={preview.posterSrc}
+              posterLoading="eager"
               params={previewParams}
               orbit={previewOrbit}
               alt={t("r360.previewAlt")}
@@ -1538,7 +1635,7 @@ export function WorkForm({
             <OrbitRing
               orbit={previewOrbit}
               params={previewParams}
-              loaded={previewLoaded}
+              loaded={preview.loaded}
               flattening={previewParams.flattening}
               tone="light"
               className="mx-auto w-48"

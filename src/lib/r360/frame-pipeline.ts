@@ -184,7 +184,8 @@ export async function produceFrameSet(
       }
     }
     // An abort that landed while this frame was decoding: the frame is
-    // not handed out — its object URL would have nobody to revoke it.
+    // not handed out — whatever the caller kept of it would have nobody
+    // left to free it (#117: a decoded bitmap).
     if (signal?.aborted) return giveUp("aborted");
     progress.framesDone = index + 1;
     options.onFrame?.(index + 1, encoded);

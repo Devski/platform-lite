@@ -4,6 +4,8 @@ import {
   angleOfFrame,
   angleOfPoint,
   frameAtAngle,
+  loadedRuns,
+  loadedRunsPath,
   ringPoint,
   ringRadii,
   travelPath,
@@ -98,5 +100,123 @@ describe("ringRadii", () => {
     expect(ringRadii(200, 0.5)).toEqual({ radiusX: 100, radiusY: 50 });
     expect(ringRadii(200, 0.01)).toEqual({ radiusX: 100, radiusY: 15 });
     expect(ringRadii(200, 3)).toEqual({ radiusX: 100, radiusY: 100 });
+  });
+});
+
+// #117: the loaded frames drawn as arcs along the ring instead of ticks
+// across it — runs found around the wrap, a lone frame left as a dot.
+describe("loadedRuns", () => {
+  it("has nothing to draw for nothing loaded", () => {
+    expect(loadedRuns(new Set(), 12)).toEqual([]);
+  });
+
+  it("joins consecutive frames into one run", () => {
+    expect(loadedRuns(new Set([3, 4, 5]), 12)).toEqual([
+      { from: 3, to: 5, length: 3 },
+    ]);
+  });
+
+  it("keeps gaps apart", () => {
+    expect(loadedRuns(new Set([1, 2, 7]), 12)).toEqual([
+      { from: 1, to: 2, length: 2 },
+      { from: 7, to: 7, length: 1 },
+    ]);
+  });
+
+  it("reads a run across the wrap as one", () => {
+    expect(loadedRuns(new Set([11, 12, 1, 2]), 12)).toEqual([
+      { from: 11, to: 2, length: 4 },
+    ]);
+  });
+
+  it("makes the whole orbit a single closed run", () => {
+    const all = new Set(Array.from({ length: 12 }, (_, i) => i + 1));
+    expect(loadedRuns(all, 12)).toEqual([{ from: 1, to: 12, length: 12 }]);
+  });
+});
+
+describe("loadedRunsPath", () => {
+  const params = {
+    frameCount: 12,
+    direction: 1 as const,
+    framesPerWidth: 6,
+    startFrame: 1,
+  };
+
+  it("draws nothing for no runs", () => {
+    expect(loadedRunsPath([], params, 90, 45)).toBe("");
+  });
+
+  it("draws a lone frame as a zero-length line, which a round cap makes a dot", () => {
+    // A subpath of a single moveto is not stroked at all (SVG 1.1 §11.4),
+    // and the coarse tier is nothing but lone frames — a bare M would
+    // leave the ring empty for the whole of a visitor's first load.
+    const path = loadedRunsPath(
+      [{ from: 1, to: 1, length: 1 }],
+      params,
+      90,
+      45,
+    );
+    expect(path).toBe("M0.00 45.00L0.00 45.00");
+  });
+
+  it("starts a run at its first frame and ends at its last", () => {
+    const path = loadedRunsPath(
+      [{ from: 1, to: 4, length: 4 }],
+      params,
+      90,
+      45,
+    );
+    const end = ringPoint(angleOfFrame(4, params), 90, 45);
+    expect(path.startsWith("M0.00 45.00")).toBe(true);
+    expect(path.endsWith(`L${end.x.toFixed(2)} ${end.y.toFixed(2)}`)).toBe(
+      true,
+    );
+  });
+
+  it("closes the ring when every frame is loaded", () => {
+    const path = loadedRunsPath(
+      [{ from: 1, to: 12, length: 12 }],
+      params,
+      90,
+      45,
+    );
+    const start = ringPoint(angleOfFrame(1, params), 90, 45);
+    expect(path.endsWith(`L${start.x.toFixed(2)} ${start.y.toFixed(2)}`)).toBe(
+      true,
+    );
+  });
+
+  it("runs the other way round for a reversed orbit", () => {
+    const xs = (path: string) =>
+      [...path.matchAll(/[ML](-?\d+\.\d\d) /g)].map((m) => Number(m[1]));
+    const forward = xs(
+      loadedRunsPath([{ from: 1, to: 3, length: 3 }], params, 90, 45),
+    );
+    const back = xs(
+      loadedRunsPath(
+        [{ from: 1, to: 3, length: 3 }],
+        { ...params, direction: -1 },
+        90,
+        45,
+      ),
+    );
+    // The same arc mirrored across the vertical axis: both start at the
+    // bottom and the reversed one goes the other side.
+    expect(back).toHaveLength(forward.length);
+    expect(back.map((x) => x + 0)).toEqual(forward.map((x) => -x + 0));
+  });
+
+  it("draws one segment per run", () => {
+    const path = loadedRunsPath(
+      [
+        { from: 1, to: 2, length: 2 },
+        { from: 7, to: 7, length: 1 },
+      ],
+      params,
+      90,
+      45,
+    );
+    expect(path.match(/M/g)).toHaveLength(2);
   });
 });

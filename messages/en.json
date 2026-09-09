@@ -538,7 +538,7 @@
       "r360": {
         "label": "Render 360",
         "rule": "a zip archive with the orbit frames, no size limit",
-        "hint": "Visible only to you. A 360 viewer for visitors comes in a separate step.",
+        "hint": "The frames are made here, in your own browser — the first appears in the preview within seconds. Visitors get the finished 360° view on your page.",
         "add": "Add an R360 zip",
         "uploaded": "Uploaded",
         "attached": "R360 archive",

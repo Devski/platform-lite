@@ -109,12 +109,21 @@ export function loadingOrder(frameCount: number, startFrame: number): number[] {
 }
 
 /**
+ * A membership test over ordinals: a Set of them, or #117's store of
+ * decoded pictures, which answers the same question without building one.
+ */
+export interface OrdinalSet {
+  has(ordinal: number): boolean;
+  readonly size: number;
+}
+
+/**
  * The loaded frame nearest to `frame` around the orbit, or null when none
  * is loaded yet; the frame itself when it is. A tie goes the work's way.
  */
 export function nearestLoaded(
   frame: number,
-  loaded: ReadonlySet<number>,
+  loaded: OrdinalSet,
   params: Pick<OrbitParams, "frameCount" | "direction">,
 ): number | null {
   if (loaded.size === 0) return null;

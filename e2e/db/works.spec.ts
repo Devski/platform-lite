@@ -242,7 +242,16 @@ test("a new work: the photo goes through the upload chain as a work, then the fo
   );
   const viewer = page.getByTestId("orbit-viewer");
   await expect(viewer).toHaveAttribute("data-frame", "1");
-  await expect(viewer.locator("img")).toHaveAttribute("src", /^blob:/);
+  // #117: the frames made here are painted onto a canvas, decoded once —
+  // there is no address for the preview to hold and nothing to revoke.
+  await expect(viewer.getByTestId("orbit-canvas")).toBeVisible();
+  await expect(viewer.locator("img")).toHaveCount(0);
+  // And the ring fills as an arc along itself, not as a comb of ticks:
+  // three frames in a row are one path with two lines in it.
+  await expect(page.getByTestId("orbit-ring-loaded")).toHaveAttribute(
+    "d",
+    /^M[^M]*L[^M]*L[^M]*$/,
+  );
   // The mouse moves in viewport coordinates: the preview has to be in view.
   await viewer.scrollIntoViewIfNeeded();
   const box = await viewer.boundingBox();

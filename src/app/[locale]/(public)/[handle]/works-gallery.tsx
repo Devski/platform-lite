@@ -602,7 +602,7 @@ function PublicOrbit({
     () => frameUrls(orbit.frameBase, width, orbit.params.frameCount),
     [orbit.frameBase, width, orbit.params.frameCount],
   );
-  const { loaded } = useFrameLoader(urls, orbit.params.startFrame, {
+  const { loaded, pictures } = useFrameLoader(urls, orbit.params.startFrame, {
     enabled,
     tier,
   });
@@ -630,10 +630,11 @@ function PublicOrbit({
       onKeyDownCapture={onTouch}
     >
       <OrbitViewer
-        frames={urls}
-        loaded={loaded}
+        pictures={pictures}
         poster={orbit.params.startFrame}
-        posterSrc={posterSrc}
+        // The card renders its own start frame server-side; the lightbox
+        // is handed the card's cached 800 px one (#104 review).
+        posterSrc={posterSrc ?? urls[orbit.params.startFrame - 1]}
         params={orbit.params}
         orbit={hand}
         alt={t("orbit.frameAlt", { name })}

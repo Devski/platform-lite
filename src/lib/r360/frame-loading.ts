@@ -12,10 +12,14 @@ import { loadingOrder } from "./orbit";
 
 export type LoadTier = "coarse" | "all";
 
-/** What the loader needs of an Image — the browser's, or a test's. */
+/**
+ * What the loader needs of an Image — the browser's, or a test's. The
+ * natural size comes with it because #117 keeps the decoded picture rather
+ * than dropping it, and a store with a budget has to know what it holds.
+ */
 export type ImageLike = Pick<
   HTMLImageElement,
-  "onload" | "onerror" | "src" | "decode"
+  "onload" | "onerror" | "src" | "decode" | "naturalWidth" | "naturalHeight"
 >;
 
 /** The coarse tier: every 8th frame from the start — ⌈N / 8⌉ of them. */
@@ -62,7 +66,7 @@ export interface FrameLoading {
   stop: () => void;
 }
 
-export interface FrameLoadingOptions {
+export interface FrameLoadingOptions<TImage extends ImageLike = ImageLike> {
   /** `urls[ordinal - 1]` */
   urls: readonly string[];
   startFrame: number;
@@ -70,16 +74,21 @@ export interface FrameLoadingOptions {
   /** Ordinals already loaded (a remount): fetched again never. */
   known?: ReadonlySet<number>;
   queue: FrameQueue;
-  createImage: () => ImageLike;
-  /** One ordinal, decoded. */
-  onLoaded: (ordinal: number) => void;
+  createImage: () => TImage;
+  /**
+   * One ordinal, decoded, with the picture itself — the caller keeps it so
+   * the viewer can paint it without fetching and decoding again (#117).
+   */
+  onLoaded: (ordinal: number, picture: TImage) => void;
 }
 
 /**
  * Fetches the frames in the loading order, up to the tier, through the
  * queue. Each is decoded before it counts; one that fails is skipped.
  */
-export function startFrameLoading(options: FrameLoadingOptions): FrameLoading {
+export function startFrameLoading<TImage extends ImageLike>(
+  options: FrameLoadingOptions<TImage>,
+): FrameLoading {
   const { urls, queue, createImage, onLoaded } = options;
   const order = loadingOrder(urls.length, options.startFrame).filter(
     (ordinal) => !options.known?.has(ordinal),
@@ -93,7 +102,7 @@ export function startFrameLoading(options: FrameLoadingOptions): FrameLoading {
   let limit = options.tier;
   let cursor = 0;
   let stopped = false;
-  const inFlight = new Set<ImageLike>();
+  const inFlight = new Set<TImage>();
 
   const wanted = (ordinal: number) => limit === "all" || coarse.has(ordinal);
   const live = () => !stopped;
@@ -106,7 +115,7 @@ export function startFrameLoading(options: FrameLoadingOptions): FrameLoading {
         inFlight.delete(image);
         image.onload = null;
         image.onerror = null;
-        if (ok && !stopped) onLoaded(ordinal);
+        if (ok && !stopped) onLoaded(ordinal, image);
         resolve();
       };
       image.onload = () => {

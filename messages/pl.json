@@ -538,7 +538,7 @@
       "r360": {
         "label": "Render 360",
         "rule": "archiwum zip z klatkami orbity, bez limitu rozmiaru",
-        "hint": "Widoczny tylko dla Ciebie. Przeglądarka 360 dla gości powstanie w osobnym kroku.",
+        "hint": "Klatki powstają tutaj, w Twojej przeglądarce — pierwsza pojawia się w podglądzie po kilku sekundach. Gotowy widok 360° zobaczą goście na Twojej stronie.",
         "add": "Dodaj zip R360",
         "uploaded": "Wgrany",
         "attached": "Archiwum R360",
