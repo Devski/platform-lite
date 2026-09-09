@@ -176,8 +176,6 @@ export function WorkForm({
   const archiveAbort = useRef<AbortController | null>(null);
   const format = useFormatter();
   const [error, setError] = useState<string | null>(null);
-  // Not an error: what happened to a pick that did not fit (#79).
-  const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   // Photos this form uploaded and has not saved onto the work: discarded if
   // the form closes without saving, or when the owner removes one.
@@ -230,24 +228,18 @@ export function WorkForm({
     setError(tUpload(`errors.${failure}`));
   }
 
-  // One picker for several files (#79): the first ones that fit go up in
-  // parallel; the owner is told how many did not.
+  // One picker for several files (#79), all of them or none (#93): a pick
+  // of more than fit uploads nothing and says so — the owner chose a set,
+  // and the form does not quietly take part of it.
   async function pickPhotos(files: File[], input: HTMLInputElement) {
     input.value = "";
     setError(null);
-    setNotice(null);
     const room = Math.max(0, WORK_PHOTOS_MAX - slotsRef.current.length);
-    const taken = files.slice(0, room);
     if (files.length > room) {
-      setNotice(
-        t("photos.overflow", {
-          taken: taken.length,
-          offered: files.length,
-          max: WORK_PHOTOS_MAX,
-        }),
-      );
+      setError(t("errors.tooManyPhotos", { offered: files.length, room }));
+      return;
     }
-    await Promise.all(taken.map((file) => addPhoto(file)));
+    await Promise.all(files.map((file) => addPhoto(file)));
   }
 
   // The new photo takes the old tile's place, so a replaced main photo is
@@ -255,7 +247,6 @@ export function WorkForm({
   async function replacePhoto(old: Slot, file: File, input: HTMLInputElement) {
     input.value = "";
     setError(null);
-    setNotice(null);
     await addPhoto(file, old);
   }
 
@@ -405,7 +396,7 @@ export function WorkForm({
   }
 
   function removePhoto(fileId: string) {
-    setNotice(null);
+    setError(null);
     commitSlots((current) => current.filter((slot) => slot.fileId !== fileId));
     void discard(fileId);
   }
@@ -730,11 +721,6 @@ export function WorkForm({
             ? t("photos.hint")
             : t("photos.full", { max: WORK_PHOTOS_MAX })}
         </p>
-        {notice && (
-          <p role="status" className="type-sm text-(--text-body)">
-            {notice}
-          </p>
-        )}
       </div>
 
       <div className="flex flex-col gap-(--sp-2)">

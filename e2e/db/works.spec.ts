@@ -184,7 +184,7 @@ test("a new work: the photo goes through the upload chain as a work, then the fo
   ).toHaveCount(0);
 });
 
-test("several at once (#79): the picker takes what fits and says so, replace keeps the tile's place", async () => {
+test("several at once (#79, #93): a pick that does not fit is refused, replace keeps the tile's place", async () => {
   // Uploads run in parallel, so the id is pinned to the upload at presign
   // (the presigns leave in pick order, synchronously) and confirm reads it
   // back from the staging key — whichever confirm lands first.
@@ -236,16 +236,24 @@ test("several at once (#79): the picker takes what fits and says so, replace kee
     "/__stub-storage/thumb-1.webp",
   );
 
-  // Three files when two fit: two go up in parallel, the owner is told,
-  // and the "+" tile is gone once the work is full.
+  // Three files when two fit: nothing goes up, the owner is told (#93).
   await picker.setInputFiles([
     await pngFile("b.png", 2),
     await pngFile("c.png", 3),
     await pngFile("d.png", 4),
   ]);
   await expect(
-    page.getByText("Zmieściło się 2 z 3: realizacja ma najwyżej 3 zdjęcia."),
+    page.getByText("Wybrano 3 zdjęcia, a zmieszczą się 2. Wybierz najwyżej 2."),
   ).toBeVisible();
+  await expect(removeButtons).toHaveCount(1);
+  expect(uploads).toBe(1);
+
+  // Two files when two fit: both go up in parallel, and the "+" tile is
+  // gone once the work is full.
+  await picker.setInputFiles([
+    await pngFile("b.png", 2),
+    await pngFile("c.png", 3),
+  ]);
   await expect(removeButtons).toHaveCount(3);
   expect(uploads).toBe(3);
   await expect(picker).toHaveCount(0);
