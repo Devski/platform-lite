@@ -356,8 +356,7 @@ export async function createWork(
         .insert(works)
         .values({ userId, ...workColumnsOf(parsed) })
         .returning({ id: works.id });
-      const images = imageRowsOf(created.id, parsed);
-      if (images.length > 0) await tx.insert(workImages).values(images);
+      await insertImageRows(tx, created.id, parsed);
       if (verified && parsed.r360FileId) {
         await insertFrameRows(tx, userId, parsed.r360FileId, verified);
       }
@@ -437,8 +436,7 @@ export async function updateWork(
         .from(workImages)
         .where(eq(workImages.workId, workId));
       await tx.delete(workImages).where(eq(workImages.workId, workId));
-      const images = imageRowsOf(workId, parsed);
-      if (images.length > 0) await tx.insert(workImages).values(images);
+      await insertImageRows(tx, workId, parsed);
       await tx
         .update(works)
         .set({ ...workColumnsOf(parsed), updatedAt: sql`now()` })
@@ -464,18 +462,23 @@ export async function updateWork(
 }
 
 // The rows of a work's photos as given: position, the photo, its second
-// channel if any (#99).
-function imageRowsOf(
+// channel if any (#99). None at all for a work with an R360 set and no
+// photo (#103) — an insert of no rows is an error, not a no-op.
+async function insertImageRows(
+  tx: Database,
   workId: string,
   parsed: { imageFileIds: string[]; secondaryFileIds?: (string | null)[] },
-) {
+): Promise<void> {
+  if (parsed.imageFileIds.length === 0) return;
   const secondaries = secondariesOf(parsed);
-  return parsed.imageFileIds.map((fileId, position) => ({
-    workId,
-    fileId,
-    secondaryFileId: secondaries[position] ?? null,
-    position,
-  }));
+  await tx.insert(workImages).values(
+    parsed.imageFileIds.map((fileId, position) => ({
+      workId,
+      fileId,
+      secondaryFileId: secondaries[position] ?? null,
+      position,
+    })),
+  );
 }
 
 /** Every file the rows name: the photos and their second channels. */

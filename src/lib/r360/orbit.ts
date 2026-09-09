@@ -12,10 +12,14 @@ export interface OrbitParams {
   startFrame: number;
 }
 
-/** The frame 1..N that `frame` wraps to — the non-negative modulo. */
+/** The non-negative modulo: JavaScript's `%` keeps the dividend's sign. */
+function mod(value: number, modulus: number): number {
+  return ((value % modulus) + modulus) % modulus;
+}
+
+/** The frame 1..N that `frame` wraps to. */
 export function wrapFrame(frame: number, frameCount: number): number {
-  const zeroBased = (((frame - 1) % frameCount) + frameCount) % frameCount;
-  return zeroBased + 1;
+  return mod(frame - 1, frameCount) + 1;
 }
 
 /**
@@ -73,7 +77,7 @@ export function shortestTurn(
   to: number,
   frameCount: number,
 ): number {
-  const forward = (((to - from) % frameCount) + frameCount) % frameCount;
+  const forward = mod(to - from, frameCount);
   return forward <= frameCount - forward ? forward : forward - frameCount;
 }
 

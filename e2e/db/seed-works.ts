@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { Client } from "pg";
+import { defaultR360Params } from "@/lib/r360/frame-set-shared";
 
 // Works for an e2e account, written straight into the test database: a
 // browser-driven add needs a bucket (the photo goes through S3), which CI
@@ -43,54 +44,55 @@ export async function seedWorks(
     );
     const userId = owner.rows[0]?.user_id;
     if (!userId) throw new Error(`no profile for handle ${handle}`);
-    const seeded: SeededWork[] = [];
-    const placeholder = async () =>
-      (
-        await client.query<{ id: string }>(
-          `insert into files (user_id, sha256, size_bytes, kind, ext)
-           values ($1, $2, 1, 'work-original', 'png') returning id`,
-          [userId, randomBytes(32).toString("hex")],
-        )
-      ).rows[0].id;
-    for (const entry of works) {
-      const name = typeof entry === "string" ? entry : entry.name;
-      if (typeof entry !== "string" && "r360" in entry) {
-        const archiveId = (
-          await client.query<{ id: string }>(
-            `insert into files (user_id, sha256, size_bytes, kind, ext)
-             values ($1, $2, 1, 'r360-zip', 'zip') returning id`,
-            [userId, `md5-${randomBytes(16).toString("hex")}`],
-          )
-        ).rows[0].id;
-        const { frameCount, startFrame = 1 } = entry.r360;
-        const params = {
-          frameCount,
-          direction: 1,
-          framesPerWidth: Math.max(1, Math.round(frameCount / 2)),
-          startFrame,
-          flattening: 1,
-        };
-        const work = await client.query<{ id: string }>(
-          `insert into works (user_id, name, r360_file_id, r360_set_id, r360_params)
-           values ($1, $2, $3, $4, $5) returning id`,
-          [userId, name, archiveId, randomBytes(16).toString("hex"), params],
-        );
-        seeded.push({ id: work.rows[0].id, name });
-        continue;
-      }
+    const insertId = async (sql: string, values: unknown[]) =>
+      (await client.query<{ id: string }>(sql, values)).rows[0].id;
+    const placeholder = () =>
+      insertId(
+        `insert into files (user_id, sha256, size_bytes, kind, ext)
+         values ($1, $2, 1, 'work-original', 'png') returning id`,
+        [userId, randomBytes(32).toString("hex")],
+      );
+    const photoWork = async (name: string, secondChannel: boolean) => {
       const fileId = await placeholder();
-      const secondaryId =
-        typeof entry === "string" ? null : await placeholder();
-      const work = await client.query<{ id: string }>(
+      const secondaryId = secondChannel ? await placeholder() : null;
+      const workId = await insertId(
         `insert into works (user_id, name) values ($1, $2) returning id`,
         [userId, name],
       );
       await client.query(
         `insert into work_images (work_id, file_id, secondary_file_id, position)
          values ($1, $2, $3, 0)`,
-        [work.rows[0].id, fileId, secondaryId],
+        [workId, fileId, secondaryId],
       );
-      seeded.push({ id: work.rows[0].id, name });
+      return workId;
+    };
+    const r360Work = async (
+      name: string,
+      r360: { frameCount: number; startFrame?: number },
+    ) => {
+      const archiveId = await insertId(
+        `insert into files (user_id, sha256, size_bytes, kind, ext)
+         values ($1, $2, 1, 'r360-zip', 'zip') returning id`,
+        [userId, `md5-${randomBytes(16).toString("hex")}`],
+      );
+      const params = {
+        ...defaultR360Params(r360.frameCount),
+        startFrame: r360.startFrame ?? 1,
+      };
+      return insertId(
+        `insert into works (user_id, name, r360_file_id, r360_set_id, r360_params)
+         values ($1, $2, $3, $4, $5) returning id`,
+        [userId, name, archiveId, randomBytes(16).toString("hex"), params],
+      );
+    };
+    const seeded: SeededWork[] = [];
+    for (const entry of works) {
+      const name = typeof entry === "string" ? entry : entry.name;
+      const id =
+        typeof entry !== "string" && "r360" in entry
+          ? await r360Work(name, entry.r360)
+          : await photoWork(name, typeof entry !== "string");
+      seeded.push({ id, name });
     }
     return seeded;
   } finally {
