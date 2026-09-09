@@ -376,7 +376,9 @@ export function ownerKey(
   positions without passing through a duplicate. `secondary_file_id` (#99, nullable, restrict, `CHECK <> file_id`):
   the photo's second channel — the same view the other way (before/after, day/night,
   render/photograph), uploaded and freed like the photo; a file named as a channel by any
-  row is in use. Shown by the reveal slider (#100); until then the first channel shows.
+  row is in use. A channel used twice in one work, or equal to another row's photo, is
+  refused by the application (the input schema); the database checks only within the row.
+  Shown by the reveal slider (#100); until then the first channel shows.
 - `handle_redirects`: `old_handle PK`, `target_user_id`, `created_at`.
   Resolving `/X`: profile → redirect (301 to the target's current handle, answered by
   `src/proxy.ts` with `Cache-Control: no-store`, so a released address is never served

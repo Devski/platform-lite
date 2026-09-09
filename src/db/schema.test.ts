@@ -284,6 +284,7 @@ describe("generated migration SQL (G6 — migrations are the source of truth)", 
       'CREATE INDEX "works_r360_file_id_idx" ON "works" USING btree ("r360_file_id")',
       'CREATE UNIQUE INDEX "work_images_work_id_file_id_unique" ON "work_images" USING btree ("work_id","file_id")',
       'CREATE INDEX "work_images_file_id_idx" ON "work_images" USING btree ("file_id")',
+      'CREATE INDEX "work_images_secondary_file_id_idx" ON "work_images" USING btree ("secondary_file_id")',
     ]) {
       expect(sql).toContain(ddl);
     }

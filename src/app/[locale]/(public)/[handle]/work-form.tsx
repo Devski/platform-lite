@@ -285,6 +285,9 @@ export function WorkForm({
       uploading: true,
       progress: 0,
       abort,
+      // A replaced photo keeps its second channel (#99): the channel is
+      // the tile's, not the picture's.
+      secondary: replacing?.secondary,
     };
     // The cap holds where the tiles change, not only in the picker's
     // arithmetic: a tile past the third is never made.
@@ -300,9 +303,15 @@ export function WorkForm({
           )
         : [...current, pending],
     );
+    // Back to the photo as it was — with the channel as it is NOW, since
+    // one may have landed on the tile while the replacement was in flight.
     const restore = (current: Slot[]) =>
       replacing
-        ? current.map((slot) => (slot.fileId === pendingId ? replacing : slot))
+        ? current.map((slot) =>
+            slot.fileId === pendingId
+              ? { ...replacing, secondary: slot.secondary }
+              : slot,
+          )
         : current.filter((slot) => slot.fileId !== pendingId);
 
     const result = await uploadImage(file, "work", {
@@ -375,7 +384,12 @@ export function WorkForm({
           s.fileId === tileId ? { ...s, secondary: next } : s,
         ),
       );
-    const previous = slot.secondary;
+    // A channel still on its way is stopped, not overwritten under itself.
+    let previous = slot.secondary;
+    if (previous?.uploading) {
+      previous.abort?.abort();
+      previous = undefined;
+    }
     patch(slot.fileId, {
       fileId: pendingId,
       previewUrl: localUrl,
@@ -425,9 +439,10 @@ export function WorkForm({
       previewUrl: result.thumbnailUrl ?? localUrl,
       uploading: false,
     });
-    if (previous && previous.fileId !== result.fileId) {
-      void discard(previous.fileId);
-    }
+    // The same bytes as the channel already there: nothing changed, and
+    // nothing new is this form's orphan.
+    if (previous?.fileId === result.fileId) return;
+    if (previous) void discard(previous.fileId);
     unsaved.current.add(result.fileId);
   }
 
@@ -855,7 +870,7 @@ export function WorkForm({
                     </Button>
                     {/* #99: the second channel — one file, added or taken
                         away; no label, the icon and its name say it. */}
-                    {slot.secondary && !slot.secondary.uploading ? (
+                    {slot.secondary ? (
                       <Button
                         variant="quiet"
                         onClick={() => removeChannel(slot)}

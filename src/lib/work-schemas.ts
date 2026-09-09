@@ -44,7 +44,10 @@ export const workInputSchema = z
      * #99: the second channel of each photo, by position — one entry per
      * photo, null where there is none. Absent means none at all.
      */
-    secondaryFileIds: z.array(z.uuid().nullable()).optional(),
+    secondaryFileIds: z
+      .array(z.uuid().nullable())
+      .max(WORK_PHOTOS_MAX)
+      .optional(),
     /** The confirmed r360-zip file id, or none. */
     r360FileId: z.uuid().nullable().default(null),
   })

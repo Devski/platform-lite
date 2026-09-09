@@ -457,6 +457,17 @@ test("a photo's second channel (#99): uploaded through the same chain, posted by
     page.getByRole("button", { name: "Usuń drugi kanał" }),
   ).toHaveCount(1);
 
+  // Replacing the photo keeps the tile's channel: the channel is the
+  // tile's, not the picture's.
+  await page
+    .getByLabel("Wymień zdjęcie")
+    .first()
+    .setInputFiles(await pngFile("f.png", 4));
+  await expect.poll(() => uploads).toBe(4);
+  await expect.poll(() => discarded.length).toBe(1);
+  expect(discarded[0].postDataJSON()).toEqual({ fileId: fileIdAt(1) });
+  await expect(page.getByText("2 kanały")).toBeVisible();
+
   // Saved by position: the channel rides with the first photo.
   await page.getByRole("button", { name: "Zapisz realizację" }).click();
   await expect.poll(() => created.length).toBe(1);
@@ -464,7 +475,7 @@ test("a photo's second channel (#99): uploaded through the same chain, posted by
     name: "Przed i po",
     investor: "",
     developer: "",
-    imageFileIds: [fileIdAt(1), fileIdAt(2)],
+    imageFileIds: [fileIdAt(4), fileIdAt(2)],
     secondaryFileIds: [fileIdAt(3), null],
     r360FileId: null,
   });
@@ -478,25 +489,25 @@ test("a photo's second channel (#99): uploaded through the same chain, posted by
   await page.getByLabel("Nazwa", { exact: true }).fill("Bez kanału");
   await page
     .getByTestId("work-photos")
-    .setInputFiles(await pngFile("d.png", 4));
+    .setInputFiles(await pngFile("d.png", 5));
   await expect(page.getByRole("button", { name: "Usuń zdjęcie" })).toHaveCount(
     1,
   );
   await page
     .getByTestId("work-photo-channel-0")
-    .setInputFiles(await pngFile("e.png", 5));
+    .setInputFiles(await pngFile("e.png", 6));
   await expect(page.getByText("2 kanały")).toBeVisible();
   await page.getByRole("button", { name: "Usuń drugi kanał" }).click();
   await expect(page.getByText("2 kanały")).toHaveCount(0);
-  await expect.poll(() => discarded.length).toBe(1);
-  expect(discarded[0].postDataJSON()).toEqual({ fileId: fileIdAt(5) });
+  await expect.poll(() => discarded.length).toBe(2);
+  expect(discarded[1].postDataJSON()).toEqual({ fileId: fileIdAt(6) });
   await page.getByRole("button", { name: "Zapisz realizację" }).click();
   await expect.poll(() => created.length).toBe(2);
   expect(created[1].postDataJSON()).toEqual({
     name: "Bez kanału",
     investor: "",
     developer: "",
-    imageFileIds: [fileIdAt(4)],
+    imageFileIds: [fileIdAt(5)],
     r360FileId: null,
   });
 });
