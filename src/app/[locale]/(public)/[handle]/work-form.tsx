@@ -626,7 +626,7 @@ export function WorkForm({
               {/* The picture, and only the picture (#95): its controls sit
                   below it on the card's own ground, where they can be seen
                   on any photograph. The upload bar is a state of the
-                  picture and stays on it, on a solid strip. */}
+                  picture and stays on it, on a dark strip. */}
               <div
                 className={`relative aspect-[4/3] overflow-hidden rounded-sm border bg-(--surface-sunken) ${
                   index === 0
@@ -659,9 +659,9 @@ export function WorkForm({
                 )}
               </div>
               {!slot.uploading && (
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-(--sp-2)">
                   {index === 0 ? (
-                    <span className="inline-flex h-9 items-center justify-center rounded-sm bg-n-950 px-(--sp-3) type-eyebrow text-white">
+                    <span className="inline-flex h-(--control-h) items-center justify-center rounded-sm bg-n-950 px-(--sp-3) type-eyebrow text-white">
                       {t("photos.main")}
                     </span>
                   ) : (
@@ -675,20 +675,22 @@ export function WorkForm({
                   )}
                   {/* Room for one more here: the second channel (#95 asks
                       for the row to hold four). */}
-                  <div className="flex flex-wrap gap-1">
+                  {/* Side by side where they fit, one under the other on a
+                      narrow phone: no control shrinks below its word. */}
+                  <div className="flex flex-wrap gap-(--sp-2)">
                     {/* Replace: a picker for one file that takes this tile's
                         place, so a replaced main photo stays main. */}
                     <label
                       className={buttonClassName(
                         "quiet",
                         "md",
-                        "min-w-0 flex-1 cursor-pointer focus-within:shadow-[var(--ring-focus)]",
+                        "flex-1 cursor-pointer focus-within:shadow-[var(--ring-focus)]",
                       )}
                     >
                       {t("photos.replaceShort")}
-                      <span className="sr-only">{t("photos.replaceRest")}</span>
                       <input
                         type="file"
+                        aria-label={t("photos.replace")}
                         accept={IMAGE_CONTENT_TYPES.join(",")}
                         className="sr-only"
                         data-testid={`work-photo-replace-${index}`}
@@ -704,7 +706,7 @@ export function WorkForm({
                       variant="quiet"
                       onClick={() => removePhoto(slot.fileId)}
                       aria-label={t("photos.remove")}
-                      className="min-w-0 flex-1"
+                      className="flex-1"
                     >
                       {t("photos.removeShort")}
                     </Button>
