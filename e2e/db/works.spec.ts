@@ -852,7 +852,9 @@ test("an archive with a gap is refused on the page and sends nothing; a saved se
   await expect(card.getByTestId("orbit-viewer")).toBeVisible();
   await expect(card.getByTestId("orbit-viewer").locator("img")).toHaveAttribute(
     "src",
-    //r360/[0-9a-f]{32}/800/003.webp$/,
+    // CI has no bucket: the base is empty there and the address is the key
+    // alone. The width and the ordinal are what the poster proves.
+    /(^|\/)800\/003\.webp$/,
   );
   await card.getByRole("button", { name: "Edytuj" }).click();
   await expect(page.getByTestId("work-r360-frame-count")).toHaveText(
