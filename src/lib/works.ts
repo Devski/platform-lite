@@ -633,17 +633,17 @@ async function freeUnreferenced(
   await deleteObjects(deps, keys, "work");
 }
 
+/** How long a claim (#105) holds the sweep off: a session's worth. */
+export const ARCHIVE_CLAIM_HOURS = 6;
+
 /**
  * An archive confirmed and never attached — the tab closed between the
  * upload and the save — is invisible to the owner and can be most of the
  * quota. Nothing but this frees it: on the user's next archive presign,
  * every r360-zip of theirs older than a day that no work names goes
  * (step 5 review). A day, because a form left open overnight is not an
- * orphan yet.
+ * orphan yet; an archive being finished from (#105) is not one either.
  */
-/** How long a claim (#105) holds the sweep off: a session's worth. */
-export const ARCHIVE_CLAIM_HOURS = 6;
-
 export async function sweepOrphanArchives(
   deps: ProfileDeps,
   olderThanHours = 24,

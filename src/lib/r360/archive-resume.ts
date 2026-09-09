@@ -30,7 +30,7 @@ export async function listUnattachedArchives(
   deps: Pick<ProfileDeps, "db" | "userId">,
   youngerThanHours = 24,
 ): Promise<UnattachedArchive[]> {
-  const rows = await deps.db
+  return deps.db
     .select({
       fileId: files.id,
       sizeBytes: files.sizeBytes,
@@ -51,7 +51,6 @@ export async function listUnattachedArchives(
     )
     .orderBy(desc(files.createdAt))
     .limit(5);
-  return rows;
 }
 
 /**

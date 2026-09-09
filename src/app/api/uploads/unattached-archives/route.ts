@@ -16,12 +16,7 @@ export async function GET() {
   ) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
+  // `createdAt` goes out as its ISO string, the way JSON writes a Date.
   const archives = await listUnattachedArchives({ db: getDb(), userId });
-  return NextResponse.json({
-    archives: archives.map((archive) => ({
-      fileId: archive.fileId,
-      sizeBytes: archive.sizeBytes,
-      createdAt: archive.createdAt.toISOString(),
-    })),
-  });
+  return NextResponse.json({ archives });
 }

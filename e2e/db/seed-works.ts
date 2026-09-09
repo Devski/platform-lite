@@ -23,11 +23,6 @@ export type SeedWork =
   | { name: string; secondChannel: true }
   | { name: string; r360: { frameCount: number; startFrame?: number } };
 
-/**
- * #105: an R360 archive of the account that reached the bucket and no
- * work names — what the form offers to finish from. No object behind it:
- * the e2e stubs the signed address it is read from.
- */
 /** The test database, and only a loopback one: rows the app itself never writes. */
 async function connectForSeed(): Promise<Client> {
   const url = process.env.DATABASE_URL_TEST?.trim();
@@ -48,18 +43,28 @@ async function connectForSeed(): Promise<Client> {
   return client;
 }
 
+async function ownerOf(client: Client, handle: string): Promise<string> {
+  const owner = await client.query<{ user_id: string }>(
+    "select user_id from profiles where handle = $1",
+    [handle],
+  );
+  const userId = owner.rows[0]?.user_id;
+  if (!userId) throw new Error(`no profile for handle ${handle}`);
+  return userId;
+}
+
+/**
+ * #105: an R360 archive of the account that reached the bucket and no
+ * work names — what the form offers to finish from. No object behind it:
+ * the e2e stubs the signed address it is read from.
+ */
 export async function seedArchive(
   handle: string,
   sizeBytes: number,
 ): Promise<{ fileId: string }> {
   const client = await connectForSeed();
   try {
-    const owner = await client.query<{ user_id: string }>(
-      "select user_id from profiles where handle = $1",
-      [handle],
-    );
-    const userId = owner.rows[0]?.user_id;
-    if (!userId) throw new Error(`no profile for handle ${handle}`);
+    const userId = await ownerOf(client, handle);
     const etag = randomBytes(16).toString("hex");
     const row = await client.query<{ id: string }>(
       `insert into files (user_id, sha256, size_bytes, kind, ext, object_key)
@@ -78,12 +83,7 @@ export async function seedWorks(
 ): Promise<SeededWork[]> {
   const client = await connectForSeed();
   try {
-    const owner = await client.query<{ user_id: string }>(
-      "select user_id from profiles where handle = $1",
-      [handle],
-    );
-    const userId = owner.rows[0]?.user_id;
-    if (!userId) throw new Error(`no profile for handle ${handle}`);
+    const userId = await ownerOf(client, handle);
     const insertId = async (sql: string, values: unknown[]) =>
       (await client.query<{ id: string }>(sql, values)).rows[0].id;
     const placeholder = () =>

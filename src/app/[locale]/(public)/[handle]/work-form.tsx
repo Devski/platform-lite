@@ -26,7 +26,10 @@ import {
   canEncodeWebp,
 } from "@/lib/r360/browser-frame-encoder";
 import { orderFrames } from "@/lib/r360/frame-names";
-import { produceFrameSet } from "@/lib/r360/frame-pipeline";
+import {
+  produceFrameSet,
+  type FrameSetOutcome,
+} from "@/lib/r360/frame-pipeline";
 import {
   defaultR360Params,
   frameUrls,
@@ -38,7 +41,9 @@ import {
   openZip,
   urlSource,
   ZipError,
+  type ByteSource,
   type ZipArchive,
+  type ZipEntry,
 } from "@/lib/r360/zip-reader";
 import {
   abandon,
@@ -303,8 +308,9 @@ export function WorkForm({
   // names — offered to finish from, so it is not sent twice. Asked for
   // once, on a form without an archive of its own.
   const [offer, setOffer] = useState<UnattachedArchive | null>(null);
+  const ownsArchive = work?.r360 !== undefined;
   useEffect(() => {
-    if (work?.r360) return;
+    if (ownsArchive) return;
     let gone = false;
     void listUnattachedArchives().then((archives) => {
       if (!gone && archives[0]) setOffer(archives[0]);
@@ -312,7 +318,7 @@ export function WorkForm({
     return () => {
       gone = true;
     };
-  }, [work?.r360]);
+  }, [ownsArchive]);
   // #103: the preview's frames — object URLs of the 800 px encodings as
   // the pipeline produces them (revoked with the form), or the saved set's
   // public addresses. `previewFrames[ordinal - 1]`.
@@ -636,19 +642,29 @@ export function WorkForm({
     await discardFile(fileId);
   }
 
-  async function pickArchive(file: File, input: HTMLInputElement) {
-    input.value = "";
-    setError(null);
-    // #102 (A13): the archive is read here, before a byte leaves — the
-    // frames named, ordered and counted, or the archive refused with the
-    // reason. Then the frames are produced in this browser and uploaded in
-    // parallel with the archive itself; the work names both on save.
-    let zip;
+  // The archive in the form patched while it is still the one named —
+  // a transfer whose outcome arrives after the owner removed it, or after
+  // another pick, changes nothing.
+  function patchArchive(fileId: string, change: Partial<Archive>) {
+    commitArchive((current) =>
+      current?.fileId === fileId ? { ...current, ...change } : current,
+    );
+  }
+
+  /**
+   * #102 (A13): the archive is read here, before a byte leaves — the
+   * frames named, ordered and counted, or the archive refused with the
+   * reason told and nothing returned.
+   */
+  async function readArchive(
+    source: ByteSource,
+  ): Promise<{ zip: ZipArchive; frames: ZipEntry[] } | null> {
+    let zip: ZipArchive;
     try {
-      zip = await openZip(fileSource(file));
+      zip = await openZip(source);
     } catch (error) {
       setError(t(`r360.refused.${zipRefusal(error)}`));
-      return;
+      return null;
     }
     const order = orderFrames(zip.entries);
     if (!order.ok) {
@@ -658,23 +674,85 @@ export function WorkForm({
           count: order.count,
         }),
       );
-      return;
+      return null;
     }
-    const pendingId = `pending:${file.name}:${file.size}`;
-    const patchPending = (change: Partial<Archive>) =>
-      commitArchive((current) =>
-        current?.fileId === pendingId ? { ...current, ...change } : current,
-      );
+    return { zip, frames: order.frames };
+  }
+
+  /**
+   * Shows `entry` as the archive in the form, its frames still to come,
+   * and produces and uploads them (#102): the preview shows the very
+   * frames being uploaded (#103) and the bar moves per frame encoded or
+   * landed, not per progress event of 720 PUTs — as long as this archive
+   * is still the one in the form. A browser whose canvas encodes no WebP
+   * takes no reservation.
+   */
+  async function runFrames(
+    zip: ZipArchive,
+    frames: ZipEntry[],
+    entry: Pick<Archive, "fileId" | "sizeBytes" | "name" | "progress">,
+    signal: AbortSignal,
+  ): Promise<FrameSetOutcome> {
     commitArchive({
-      fileId: pendingId,
-      sizeBytes: file.size,
-      name: file.name,
+      ...entry,
       uploading: true,
-      progress: 0,
-      frames: { done: 0, total: order.frames.length },
+      frames: { done: 0, total: frames.length },
     });
-    resetPreview(order.frames.map(() => null));
+    resetPreview(frames.map(() => null));
     previewOrbit.setFrame(1);
+    if (!(await canEncodeWebp())) {
+      return { ok: false, failure: "webp_unsupported" };
+    }
+    let framesDone = -1;
+    return produceFrameSet({
+      archive: zip,
+      frames,
+      encoder: browserFrameEncoder(),
+      transport: frameSetTransport,
+      signal,
+      onFrame: (ordinal, encoded) => {
+        if (closed.current || archiveRef.current?.fileId !== entry.fileId) {
+          return;
+        }
+        const url = URL.createObjectURL(encoded[R360_WIDTHS[1]]);
+        commitPreview((current) =>
+          current.map((item, index) => (index === ordinal - 1 ? url : item)),
+        );
+      },
+      onProgress: (p) => {
+        const bucket = p.framesDone * 1000 + p.framesLanded;
+        if (bucket === framesDone) return;
+        framesDone = bucket;
+        patchArchive(entry.fileId, {
+          frames: {
+            done: p.framesDone,
+            total: p.framesTotal,
+            bytesSent: p.bytesSent,
+            bytesQueued: p.bytesQueued,
+            landed: p.framesLanded,
+          },
+        });
+      },
+    });
+  }
+
+  /** #102: the set produced, as the archive names it. */
+  function producedSet(set: FrameSetOutcome & { ok: true }): Archive["set"] {
+    return {
+      id: set.setId,
+      params: defaultR360Params(set.frameCount),
+      stagingPrefix: set.stagingPrefix,
+    };
+  }
+
+  async function pickArchive(file: File, input: HTMLInputElement) {
+    input.value = "";
+    setError(null);
+    // The frames are produced in this browser and uploaded in parallel
+    // with the archive itself; the work names both on save.
+    const read = await readArchive(fileSource(file));
+    if (!read) return;
+    const pendingId = `pending:${file.name}:${file.size}`;
     // The archive's failure stops the frames; the frames' failure does
     // not stop the archive — an archive that landed is what #105 resumes
     // from, and a work may carry an archive without its frames.
@@ -684,58 +762,26 @@ export function WorkForm({
     controller.signal.addEventListener("abort", () => frames.abort(), {
       once: true,
     });
-    let framesDone = -1;
     const [result, set] = await Promise.all([
       uploadArchive(file, {
         signal: controller.signal,
-        onProgress: (fraction) => patchPending({ progress: fraction }),
+        onProgress: (fraction) =>
+          patchArchive(pendingId, { progress: fraction }),
       }).then((outcome) => {
         if (!outcome.ok) frames.abort();
         return outcome;
       }),
-      // A browser whose canvas encodes no WebP takes no reservation.
-      (async () =>
-        (await canEncodeWebp())
-          ? produceFrameSet({
-              archive: zip,
-              frames: order.frames,
-              encoder: browserFrameEncoder(),
-              transport: frameSetTransport,
-              signal: frames.signal,
-              onFrame: (ordinal, encoded) => {
-                // The preview shows the very frames being uploaded (#103) —
-                // as long as this archive is still the one in the form.
-                if (
-                  closed.current ||
-                  archiveRef.current?.fileId !== pendingId
-                ) {
-                  return;
-                }
-                const url = URL.createObjectURL(encoded[R360_WIDTHS[1]]);
-                commitPreview((current) =>
-                  current.map((entry, index) =>
-                    index === ordinal - 1 ? url : entry,
-                  ),
-                );
-              },
-              onProgress: (p) => {
-                // A render per frame encoded or landed, not per progress
-                // event of 720 PUTs.
-                const bucket = p.framesDone * 1000 + p.framesLanded;
-                if (bucket === framesDone) return;
-                framesDone = bucket;
-                patchPending({
-                  frames: {
-                    done: p.framesDone,
-                    total: p.framesTotal,
-                    bytesSent: p.bytesSent,
-                    bytesQueued: p.bytesQueued,
-                    landed: p.framesLanded,
-                  },
-                });
-              },
-            })
-          : { ok: false as const, failure: "webp_unsupported" as const })(),
+      runFrames(
+        read.zip,
+        read.frames,
+        {
+          fileId: pendingId,
+          sizeBytes: file.size,
+          name: file.name,
+          progress: 0,
+        },
+        frames.signal,
+      ),
     ]);
     archiveAbort.current = null;
     if (closed.current) {
@@ -771,11 +817,7 @@ export function WorkForm({
       sizeBytes: result.sizeBytes,
       name: file.name,
       uploading: false,
-      set: {
-        id: set.setId,
-        params: defaultR360Params(set.frameCount),
-        stagingPrefix: set.stagingPrefix,
-      },
+      set: producedSet(set),
     });
   }
 
@@ -788,7 +830,7 @@ export function WorkForm({
   async function resumeFrames(archive: {
     fileId: string;
     sizeBytes: number;
-    name: string;
+    name?: string;
   }) {
     setError(null);
     setOffer(null);
@@ -798,100 +840,34 @@ export function WorkForm({
       else uploadFail(claim.failure);
       return;
     }
-    let zip: ZipArchive;
-    try {
-      zip = await openZip(urlSource(claim.downloadUrl));
-    } catch (error) {
-      setError(t(`r360.refused.${zipRefusal(error)}`));
-      return;
-    }
-    const order = orderFrames(zip.entries);
-    if (!order.ok) {
-      setError(
-        t(`r360.refused.${order.reason}`, {
-          files: order.files.join(", "),
-          count: order.count,
-        }),
-      );
-      return;
-    }
-    const sizeBytes = claim.sizeBytes || archive.sizeBytes;
-    const patchResumed = (change: Partial<Archive>) =>
-      commitArchive((current) =>
-        current?.fileId === archive.fileId
-          ? { ...current, ...change }
-          : current,
-      );
-    commitArchive({
-      fileId: archive.fileId,
-      sizeBytes,
-      name: archive.name,
-      uploading: true,
-      // The archive is there already: its bytes are the bar's done half.
-      progress: 1,
-      frames: { done: 0, total: order.frames.length },
-    });
-    resetPreview(order.frames.map(() => null));
-    previewOrbit.setFrame(1);
+    const read = await readArchive(urlSource(claim.downloadUrl));
+    if (!read) return;
     const controller = new AbortController();
     archiveAbort.current = controller;
-    let framesDone = -1;
-    const set = (await canEncodeWebp())
-      ? await produceFrameSet({
-          archive: zip,
-          frames: order.frames,
-          encoder: browserFrameEncoder(),
-          transport: frameSetTransport,
-          signal: controller.signal,
-          onFrame: (ordinal, encoded) => {
-            if (
-              closed.current ||
-              archiveRef.current?.fileId !== archive.fileId
-            ) {
-              return;
-            }
-            const url = URL.createObjectURL(encoded[R360_WIDTHS[1]]);
-            commitPreview((current) =>
-              current.map((entry, index) =>
-                index === ordinal - 1 ? url : entry,
-              ),
-            );
-          },
-          onProgress: (p) => {
-            const bucket = p.framesDone * 1000 + p.framesLanded;
-            if (bucket === framesDone) return;
-            framesDone = bucket;
-            patchResumed({
-              frames: {
-                done: p.framesDone,
-                total: p.framesTotal,
-                bytesSent: p.bytesSent,
-                bytesQueued: p.bytesQueued,
-                landed: p.framesLanded,
-              },
-            });
-          },
-        })
-      : { ok: false as const, failure: "webp_unsupported" as const };
+    const set = await runFrames(
+      read.zip,
+      read.frames,
+      {
+        fileId: archive.fileId,
+        sizeBytes: claim.sizeBytes || archive.sizeBytes,
+        name: archive.name || t("r360.attached"),
+        // The archive is there already: its bytes are the bar's done half.
+        progress: 1,
+      },
+      controller.signal,
+    );
     archiveAbort.current = null;
     if (closed.current) {
       if (set.ok) void abandon(set.stagingPrefix);
       return;
     }
     if (!set.ok) {
-      patchResumed({ uploading: false, frames: undefined });
+      patchArchive(archive.fileId, { uploading: false, frames: undefined });
       resetPreview();
       if (set.failure !== "aborted") setError(t(`r360.failed.${set.failure}`));
       return;
     }
-    patchResumed({
-      uploading: false,
-      set: {
-        id: set.setId,
-        params: defaultR360Params(set.frameCount),
-        stagingPrefix: set.stagingPrefix,
-      },
-    });
+    patchArchive(archive.fileId, { uploading: false, set: producedSet(set) });
   }
 
   // A set produced here and not saved is abandoned, so its ceiling stops
@@ -1386,15 +1362,7 @@ export function WorkForm({
             </span>
             <Button
               variant="solid"
-              onClick={() =>
-                void track(
-                  resumeFrames({
-                    fileId: offer.fileId,
-                    sizeBytes: offer.sizeBytes,
-                    name: t("r360.attached"),
-                  }),
-                )
-              }
+              onClick={() => void track(resumeFrames(offer))}
               disabled={saving}
             >
               {t("r360.offerAccept")}
@@ -1485,15 +1453,7 @@ export function WorkForm({
                   // them again without sending it twice.
                   <Button
                     variant="quiet"
-                    onClick={() =>
-                      void track(
-                        resumeFrames({
-                          fileId: archive.fileId,
-                          sizeBytes: archive.sizeBytes,
-                          name: archive.name || t("r360.attached"),
-                        }),
-                      )
-                    }
+                    onClick={() => void track(resumeFrames(archive))}
                     disabled={saving}
                   >
                     {t("r360.retryFrames")}
