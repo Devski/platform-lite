@@ -231,11 +231,22 @@
         "locations": {
           "label": "Dodaj miejsce",
           "placeholder": "Miasto, województwo albo własny opis",
-          "hint": "Podpowiedzi z rejestru TERYT. Enter dodaje własny tekst, np. „cała Polska” albo „Berlin”.",
+          "hint": "Podpowiedzi z rejestru TERYT: województwa, powiaty, gminy i wszystkie miejscowości. Enter dodaje własny tekst, np. „cała Polska” albo „Berlin”.",
           "remove": "Usuń {place}",
           "suggestions": "Podpowiedzi",
-          "kindVoivodeship": "województwo",
-          "kindCity": "miasto",
+          "kind": {
+            "voivodeship": "województwo",
+            "county": "powiat",
+            "cityCounty": "miasto na prawach powiatu",
+            "commune": "gmina",
+            "city": "miasto",
+            "village": "wieś",
+            "settlement": "osada",
+            "part": "część miejscowości"
+          },
+          "inCommune": "gm. {commune}",
+          "inCounty": "pow. {county}",
+          "inCityCounty": "m. {county}",
           "duplicate": "To miejsce już jest na liście.",
           "tooMany": "Maksymalnie {max} miejsc.",
           "empty": "Nie podano miejsca."

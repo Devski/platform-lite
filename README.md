@@ -31,6 +31,18 @@ All commands: SPEC.md §3. The gate before every commit: `pnpm check`.
 | No `.env` values / no access yet                      | Ask whoever runs the dev infra for your per-dev values |
 | Dev infrastructure from scratch (or after a disaster) | [docs/dev-environment.md](docs/dev-environment.md)     |
 
+## Reference data: places
+
+`pnpm db:import-teryt` fills the `places` table — every voivodeship, county, commune and
+locality in Poland — from the GUS TERYT registers (TERC and SIMC), which it downloads from
+eteryt.stat.gov.pl by replaying the page's own form (there is no direct link; about 3.5 MB).
+The owner's place field asks the server for suggestions out of this table (SPEC.md A12,
+#87); a database without it still works, with free text only. It targets `DATABASE_URL`
+like the seed and refuses a non-loopback database without `--allow-remote`. Files already
+on disk can be given instead: `pnpm db:import-teryt --terc TERC.zip --simc SIMC.zip`. Safe
+to re-run: rows are upserted by code and rows a newer register no longer carries are
+dropped. Dev was filled on 09.09.2026 (104 740 places).
+
 ## Sample data
 
 `pnpm db:seed` creates 14 sample profiles — Polish studios and 3D creators with display

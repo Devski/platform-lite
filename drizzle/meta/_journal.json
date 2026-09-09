@@ -85,6 +85,13 @@
       "when": 1788887925755,
       "tag": "0011_files_object_key_index",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1788916050225,
+      "tag": "0012_places",
+      "breakpoints": true
     }
   ]
 }

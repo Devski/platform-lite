@@ -55,7 +55,7 @@ it (Dawid, 06.09.2026).
 | A9  | 1 GB limit per user, free of charge (the MVP has no payments). Usage computed in the database from file sizes; an upload over the limit is rejected with a clear message.                                                                                                                                                                                                                                                                                                                                                                                       |
 | A10 | Seven transactional e-mails (verification, re-verification, reset, password-change confirmation, address change ×2, handle change) via Scaleway TEM. SPF, DKIM and DMARC configured before the first real message goes out. Zero marketing e-mail.                                                                                                                                                                                                                                                                                                              |
 | A11 | Homepage for signed-out visitors: full-screen photo + entry to sign-up/sign-in. Visual design — open (§12); the MVP ships a style-consistent placeholder.                                                                                                                                                                                                                                                                                                                                                                                                       |
-| A12 | Profile sections (decision of 08.09.2026, #72), all optional: cover photo (as A4, WebP variants 1600/480 px wide, aspect kept); headline (≤ 220 characters); places — up to 8, each a TERYT name (voivodeship or city, list bundled) or free text (≤ 80); bio (≤ 1500, line breaks kept). Works: up to 10 per profile; name required (≤ 120), investor and developer (≤ 120), 1–3 photos (as A4, one of them the main photo), an R360 zip (any size, stored as uploaded; #68 processes it). Edited in place on the owner's page; public the moment it is saved. |
+| A12 | Profile sections (decision of 08.09.2026, #72), all optional: cover photo (as A4, WebP variants 1600/480 px wide, aspect kept); headline (≤ 220 characters); places — up to 8, each a TERYT name (a voivodeship, county, commune or any locality: the GUS registers are in the database and searched on the server, #87) or free text (≤ 80); bio (≤ 1500, line breaks kept). Works: up to 10 per profile; name required (≤ 120), investor and developer (≤ 120), 1–3 photos (as A4, one of them the main photo), an R360 zip (any size, stored as uploaded; #68 processes it). Edited in place on the owner's page; public the moment it is saved. |
 
 ---
 
@@ -109,6 +109,7 @@ pnpm db:tunnel        # SSH tunnel to the dev database (docs/dev-environment.md)
 pnpm db:generate      # drizzle-kit generate (schema → SQL migration)
 pnpm db:migrate       # apply migrations to the DATABASE_URL database
 pnpm db:seed          # test data: a dozen-plus profiles with photos (G7)
+pnpm db:import-teryt  # the GUS TERYT registers into `places` (downloads them; #87)
 pnpm db:studio        # drizzle-kit studio
 
 pnpm check            # typecheck && lint && test:coverage  ← the gate before every commit
@@ -360,6 +361,13 @@ export function ownerKey(
   `investor`, `developer`, `r360_file_id`, timestamps. At most 10 per user, counted by the
   application under the per-user advisory lock the quota uses; a `CHECK` cannot count
   rows. Order on the page = `created_at`.
+- `places` (#87): reference data, not the user's — every unit and locality of the GUS
+  TERYT registers (TERC, SIMC): `code` (PK, derived from the register's codes), `kind`
+  (voivodeship, county, commune, city, village, settlement, part), `rank` (whole places
+  before parts), `name`, `name_folded` (lowercase, no diacritics; the prefix index the
+  search uses), the commune, county (with its kind) and voivodeship it lies in, `as_of`
+  (the register's date). Owned by `pnpm db:import-teryt`, which upserts by code and
+  drops what a newer register no longer carries; the app only reads it.
 - `work_images` (#72): `work_id` (cascade), `file_id` (restrict — the bytes are an object,
   removed by code), `position` 0–2, `PK (work_id, position)`. **Position 0 is the main
   photo**; choosing another main reorders the positions rather than flipping a flag that
