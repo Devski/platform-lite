@@ -79,6 +79,7 @@ in under 5 minutes (manual walkthrough); e2e green.
 
 - ~~[#31](https://github.com/Devski/platform-lite/issues/31) PR preview deployments on the dev instance~~ — **done 05.09.2026**: `pr-<n>.dev.architektow3d.pl`, named sites over HTTP-01 (no wildcard certificate, so no DNS plugin), shared dev database and a `pr-<n>/` key prefix. Two at a time — the instance has one core and no swap. Previews never send e-mail.
 - [#113](https://github.com/Devski/platform-lite/issues/113) PR previews: a database cloned
+- [#115](https://github.com/Devski/platform-lite/issues/115) Per-account quota: decide the figure after global photo processing (`decision`, `enhancement`). Filed 09.09.2026 when the first real orbit archive (1.8 GB of PNG frames) did not fit a 1 GB account on dev; the quota went to 10 GB the same day as a stopgap (A9, §10). Sequenced after #71 and #69, which change what a gigabyte buys.
   from dev per preview, not the shared one (`deployment`). Filed 09.09.2026 when the preview
   of #112 answered with a server error: it ran the pull request's image against dev's
   schema, and previews never migrate. Sequenced after the R360 trial on dev.

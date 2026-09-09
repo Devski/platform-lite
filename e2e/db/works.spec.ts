@@ -824,7 +824,7 @@ test("an archive with a gap is refused on the page and sends nothing; a saved se
   });
   await expect(page.getByText("Wgrany", { exact: true })).toBeVisible();
   await expect(
-    page.getByText("Brak miejsca: klatki przekroczyłyby Twój limit 1 GB."),
+    page.getByText("Brak miejsca: klatki przekroczyłyby Twój limit 10 GB."),
   ).toBeVisible();
   await expect(page.getByTestId("work-r360-preview")).toHaveCount(0);
   await expect(page.getByTestId("work-r360-frames")).toHaveCount(0);

@@ -30,9 +30,10 @@ export {
 } from "@/lib/archive-upload-shared";
 
 // S3 copies a single-part object of up to 5 GB in one CopyObject, which is
-// exactly ARCHIVE_MAX_BYTES on AWS; OVHcloud is not documented identically
-// and the 1 GB quota keeps every real archive far below the edge. To be
-// verified on the real bucket the day the quota rises (step 5 review).
+// exactly ARCHIVE_MAX_BYTES on AWS; OVHcloud is not documented identically.
+// Since the quota rose to 10 GB (09.09.2026) an archive can reach this
+// edge; a copy of a multi-gigabyte archive on the real bucket is a check
+// on #115 (step 5 review).
 //
 // A large upload on a home connection takes minutes, and S3 checks the
 // URL's expiry when the PUT is received, not when its body finishes — so

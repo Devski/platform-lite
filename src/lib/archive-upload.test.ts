@@ -44,6 +44,18 @@ function deps() {
   };
 }
 
+/** Stored bytes that leave exactly `roomBytes` of quota: an archive is at
+ *  most 5 GB, so since the quota is 10 GB it cannot fill the account alone. */
+async function fillQuotaButFor(roomBytes: number) {
+  await testDb.db.insert(files).values({
+    userId,
+    sha256: "hash-filler",
+    sizeBytes: QUOTA_BYTES - roomBytes,
+    kind: "avatar-original",
+    ext: "png",
+  });
+}
+
 async function stage(d: ReturnType<typeof deps>, body: Buffer) {
   const { stagingKey } = await presignArchiveUpload(d.common, {
     sizeBytes: body.length,
@@ -93,7 +105,8 @@ describe("presignArchiveUpload", () => {
 
   it("an abandoned upload frees its reservation at once, so the retry fits (step 5 review)", async () => {
     const d = deps();
-    const size = QUOTA_BYTES - 1;
+    const size = 2 * 1024 * 1024 * 1024;
+    await fillQuotaButFor(size);
     const { stagingKey } = await presignArchiveUpload(d.common, {
       sizeBytes: size,
       contentType: "application/zip",
@@ -125,9 +138,10 @@ describe("presignArchiveUpload", () => {
 
   it("refuses to presign past the quota (A9)", async () => {
     const d = deps();
+    await fillQuotaButFor(10);
     await expect(
       presignArchiveUpload(d.common, {
-        sizeBytes: QUOTA_BYTES + 1,
+        sizeBytes: 11,
         contentType: "application/zip",
       }),
     ).rejects.toMatchObject({ code: "quota_exceeded" });

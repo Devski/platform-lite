@@ -138,10 +138,15 @@ describe("presignFrameSet", () => {
 
   it("refuses a set the quota cannot hold, and refuses a count outside 2..360", async () => {
     const d = makeDeps();
-    // 360 frames at the ceilings is under half a gibibyte; three such
-    // sets are past the quota.
-    expect(frameSetBytesCeiling(360) * 2).toBeLessThan(QUOTA_BYTES);
-    expect(frameSetBytesCeiling(360) * 3).toBeGreaterThan(QUOTA_BYTES);
+    // 360 frames at the ceilings is under half a gibibyte, far from the
+    // quota; a stored file leaves room for exactly two such sets.
+    await testDb.db.insert(files).values({
+      userId,
+      sha256: "hash-filler",
+      sizeBytes: QUOTA_BYTES - frameSetBytesCeiling(360) * 2,
+      kind: "avatar-original",
+      ext: "png",
+    });
     await presignFrameSet(d.deps, { frameCount: 360 });
     await presignFrameSet(d.deps, { frameCount: 360 });
     await expect(
