@@ -10,8 +10,8 @@ type Call = { url: string; init?: RequestInit };
 
 type Answer = { status: number; body?: unknown } | Error;
 
-// The archive PUT goes through XMLHttpRequest (progress, abort), which node
-// has not; this is the slice of it uploadArchive uses, answered by the same
+// Every PUT goes through XMLHttpRequest (progress, abort — #80), which node
+// has not; this is the slice of it the uploads use, answered by the same
 // table as fetch so a test describes one server for both.
 function fakeXhr(answer: (call: Call) => Answer, calls: Call[]) {
   return class FakeXMLHttpRequest {

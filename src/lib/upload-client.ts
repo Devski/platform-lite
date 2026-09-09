@@ -102,15 +102,12 @@ export async function uploadImage(
       options,
     );
     if (put !== "ok") {
-      await abandon(presign.data.stagingKey);
+      void abandon(presign.data.stagingKey);
       return {
         ok: false,
         failure: put === "aborted" ? "aborted" : "upload_failed",
       };
     }
-    // The bytes have landed; what follows is the server's decode and
-    // publish, shown as "processing" from here on.
-    options.onProgress?.(1);
     const confirm = await postJson<{
       error?: string;
       original?: { fileId: string };
@@ -172,13 +169,24 @@ function putWithProgress(
         options.onProgress(event.loaded / event.total);
       }
     };
-    xhr.onload = () =>
-      resolve(xhr.status >= 200 && xhr.status < 300 ? "ok" : "failed");
+    const onAbort = () => xhr.abort();
+    xhr.onload = () => {
+      // A cancel that lands after the last byte but before the page hides
+      // the button is still a cancel: the bytes are abandoned, not confirmed.
+      if (options.signal?.aborted) {
+        resolve("aborted");
+        return;
+      }
+      const ok = xhr.status >= 200 && xhr.status < 300;
+      // The bytes have landed; what follows is the server's decode and
+      // publish, shown as "processing" from here on.
+      if (ok) options.onProgress?.(1);
+      resolve(ok ? "ok" : "failed");
+    };
     xhr.onerror = () => resolve("failed");
     xhr.onabort = () => resolve("aborted");
-    options.signal?.addEventListener("abort", () => xhr.abort(), {
-      once: true,
-    });
+    xhr.onloadend = () => options.signal?.removeEventListener("abort", onAbort);
+    options.signal?.addEventListener("abort", onAbort, { once: true });
     if (options.signal?.aborted) {
       resolve("aborted");
       return;

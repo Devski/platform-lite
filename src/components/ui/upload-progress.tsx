@@ -10,11 +10,14 @@ import { Icon } from "./icon";
 // 0..1; at 1 the bytes have landed and the rest is the server's.
 export function UploadProgress({
   fraction,
+  label,
   onCancel,
   compact = false,
   className = "",
 }: {
   fraction: number;
+  /** What is uploading, for the screen reader: the bar's name. */
+  label: string;
   /** Stops the transfer; offered only while the bytes are still moving. */
   onCancel?: () => void;
   /** Inside a tile: the bar and the number only, no words. */
@@ -22,21 +25,27 @@ export function UploadProgress({
   className?: string;
 }) {
   const t = useTranslations("Settings.profile.upload");
-  const percent = Math.min(100, Math.max(0, Math.round(fraction * 100)));
+  const percent = Math.min(100, Math.max(0, Math.floor(fraction * 100)));
   const processing = fraction >= 1;
-  const label = processing ? t("processing") : t("progress", { percent });
+  const valueText = processing ? t("processing") : t("progress", { percent });
+  // Announced once at the start and once when the bytes have landed — not
+  // every percent, which would chatter. A progressbar is not live itself.
+  const announced = processing ? t("processing") : label;
 
   return (
     <div
       className={`flex items-center gap-(--sp-3) ${compact ? "" : "min-w-0"} ${className}`}
     >
+      <span className="sr-only" role="status">
+        {announced}
+      </span>
       <div
         role="progressbar"
         aria-label={label}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={processing ? undefined : percent}
-        aria-valuetext={label}
+        aria-valuetext={valueText}
         className={`relative h-1.5 flex-1 overflow-hidden rounded-full ${
           compact ? "bg-white/30" : "bg-(--surface-sunken)"
         }`}
@@ -44,7 +53,7 @@ export function UploadProgress({
         <div
           className={`h-full rounded-full ${
             compact ? "bg-white" : "bg-(--action-solid)"
-          } ${processing ? "animate-pulse" : "transition-[width] duration-200"}`}
+          } ${processing ? "motion-safe:animate-pulse" : "transition-[width] duration-200"}`}
           style={{ width: `${processing ? 100 : percent}%` }}
         />
       </div>

@@ -494,8 +494,7 @@
         "setMain": "Set as main",
         "replace": "Replace photo",
         "remove": "Remove photo",
-        "noPreview": "No preview",
-        "uploading": "Uploading…"
+        "noPreview": "No preview"
       },
       "save": "Save work",
       "saveChanges": "Save changes",
@@ -520,11 +519,9 @@
         "rule": "a zip archive with the orbit frames, no size limit",
         "hint": "Visible only to you. A 360 viewer for visitors comes in a separate step.",
         "add": "Add an R360 zip",
-        "uploading": "Uploading…",
         "uploaded": "Uploaded",
         "attached": "R360 archive",
-        "remove": "Remove",
-        "cancel": "Cancel"
+        "remove": "Remove"
       }
     },
     "lightbox": {

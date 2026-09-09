@@ -203,6 +203,8 @@ export function WorkForm({
     return () => {
       closed.current = true;
       archiveAbort.current?.abort();
+      // Photos still on their way go with the form too (#80 review).
+      for (const slot of slotsRef.current) slot.abort?.abort();
       for (const url of urls) URL.revokeObjectURL(url);
       // Whatever this form uploaded and did not save goes back off the
       // quota — however the form went away: cancel, another work's edit,
@@ -666,6 +668,7 @@ export function WorkForm({
               {slot.uploading ? (
                 <UploadProgress
                   compact
+                  label={t("photos.label")}
                   fraction={slot.progress ?? 0}
                   onCancel={() => slot.abort?.abort()}
                   className="absolute right-1.5 bottom-1.5 left-1.5 rounded-sm bg-(--n-950)/70 px-2 py-1"
@@ -766,6 +769,7 @@ export function WorkForm({
             </span>
             {archive.uploading ? (
               <UploadProgress
+                label={t("r360.label")}
                 fraction={archive.progress ?? 0}
                 onCancel={removeArchive}
                 className="basis-full sm:basis-auto sm:min-w-56"

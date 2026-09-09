@@ -656,12 +656,14 @@ export function OwnerProfileView({
                 )}
                 {avatarProgress !== null && (
                   <UploadProgress
+                    label={tAvatar("change")}
                     fraction={avatarProgress}
                     onCancel={() => uploadAborts.current.avatar?.abort()}
                   />
                 )}
                 {coverProgress !== null && (
                   <UploadProgress
+                    label={tCover("change")}
                     fraction={coverProgress}
                     onCancel={() => uploadAborts.current.cover?.abort()}
                   />
