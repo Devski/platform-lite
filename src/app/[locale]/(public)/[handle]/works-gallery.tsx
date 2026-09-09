@@ -1,7 +1,14 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -9,7 +16,9 @@ import { ChannelReveal } from "@/components/ui/channel-reveal";
 import { Icon } from "@/components/ui/icon";
 import { OrbitViewer } from "@/components/ui/orbit-viewer";
 import { useFrameLoader } from "@/components/ui/use-frame-loader";
+import type { LoadTier } from "@/lib/r360/frame-loading";
 import {
+  frameUrl,
   frameUrls,
   type R360Params,
   type R360Width,
@@ -211,7 +220,10 @@ function WorkCard({
   useEffect(() => {
     if (confirming) confirmRef.current?.focus();
   }, [confirming]);
-  const pictures = picturesOf(work);
+  // The strip shows three pictures at most — an orbit and three photos
+  // (A12 allows both) would break its two-row grid; the fourth is in
+  // the lightbox, one arrow away (#104 review).
+  const pictures = picturesOf(work).slice(0, 3);
   const count = pictures.length;
 
   return (
@@ -264,8 +276,8 @@ function WorkCard({
               // The badge is inside the button, whose label replaces its
               // content for the screen reader: the two channels are named here.
               aria-label={`${t("card.enlarge", {
-                index: index + 1,
-                count,
+                index: picture.number,
+                count: work.images.length,
                 name: work.name,
               })}${image.secondary ? `, ${t("reveal.badge")}` : ""}`}
               className={`relative block min-h-0 cursor-zoom-in overflow-hidden bg-n-200 focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_3px_var(--surface-card),inset_0_0_0_5px_var(--focus-ring)] ${tile}`}
@@ -561,6 +573,10 @@ function PublicOrbit({
   label,
   className,
   imageClassName,
+  enabled,
+  tier,
+  posterSrc,
+  onTouch,
 }: {
   name: string;
   orbit: GalleryOrbit;
@@ -568,25 +584,91 @@ function PublicOrbit({
   label: string;
   className: string;
   imageClassName: string;
+  /** Fetch frames at all — once the picture is in view. */
+  enabled: boolean;
+  /** The coarse tier until the visitor touches the orbit, then all. */
+  tier: LoadTier;
+  posterSrc?: string;
+  /** The first pointer, key or focus on the orbit. */
+  onTouch: () => void;
 }) {
   const t = useTranslations("Works");
   const urls = useMemo(
     () => frameUrls(orbit.frameBase, width, orbit.params.frameCount),
     [orbit.frameBase, width, orbit.params.frameCount],
   );
-  const { loaded } = useFrameLoader(urls, orbit.params.startFrame);
+  const { loaded } = useFrameLoader(urls, orbit.params.startFrame, {
+    enabled,
+    tier,
+  });
   return (
-    <OrbitViewer
-      frames={urls}
-      loaded={loaded}
-      poster={orbit.params.startFrame}
-      params={orbit.params}
-      alt={t("orbit.frameAlt", { name })}
-      label={label}
-      className={className}
-      imageClassName={imageClassName}
-    />
+    <div
+      className="contents"
+      onPointerDownCapture={onTouch}
+      onFocusCapture={onTouch}
+      onKeyDownCapture={onTouch}
+    >
+      <OrbitViewer
+        frames={urls}
+        loaded={loaded}
+        poster={orbit.params.startFrame}
+        posterSrc={posterSrc}
+        params={orbit.params}
+        alt={t("orbit.frameAlt", { name })}
+        label={label}
+        className={className}
+        imageClassName={imageClassName}
+      />
+    </div>
   );
+}
+
+/**
+ * Whether the element is at least half in view (#104 review): the frames
+ * of a tile below the fold wait for the visitor to scroll to it. True at
+ * once where there is no observer (an old browser; the server).
+ */
+function useInView(): [React.RefObject<HTMLDivElement | null>, boolean] {
+  const ref = useRef<HTMLDivElement | null>(null);
+  // Without an observer (an old browser) the tile counts as in view; the
+  // server answers false, and nothing rendered depends on it.
+  const [inView, setInView] = useState(
+    () => typeof IntersectionObserver === "undefined",
+  );
+  useEffect(() => {
+    const element = ref.current;
+    if (!element || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) setInView(true);
+      },
+      { threshold: 0.5 },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  return [ref, inView];
+}
+
+/** The page's own pictures first: frames wait for the load event. */
+function usePageLoaded(): boolean {
+  const [loaded, setLoaded] = useState(
+    () => typeof document !== "undefined" && document.readyState === "complete",
+  );
+  useEffect(() => {
+    if (loaded) return;
+    const onLoad = () => setLoaded(true);
+    window.addEventListener("load", onLoad, { once: true });
+    return () => window.removeEventListener("load", onLoad);
+  }, [loaded]);
+  return loaded;
+}
+
+/** The tier: coarse until the orbit is touched, then everything. */
+function useTouchedTier(): [LoadTier, () => void] {
+  const [touched, setTouched] = useState(false);
+  const touch = useCallback(() => setTouched(true), []);
+  return [touched ? "all" : "coarse", touch];
 }
 
 // The orbit on the card, a drag across the picture turning it. The
@@ -604,8 +686,14 @@ function OrbitTile({
   onOpen: (returnTo: HTMLElement | null) => void;
 }) {
   const t = useTranslations("Works");
+  const [ref, inView] = useInView();
+  const pageLoaded = usePageLoaded();
+  const [tier, touch] = useTouchedTier();
   return (
-    <div className={`relative min-h-0 overflow-hidden bg-n-200 ${className}`}>
+    <div
+      ref={ref}
+      className={`relative min-h-0 overflow-hidden bg-n-200 ${className}`}
+    >
       <PublicOrbit
         name={name}
         orbit={orbit}
@@ -613,6 +701,9 @@ function OrbitTile({
         label={t("orbit.cardLabel", { name })}
         className="h-full w-full"
         imageClassName="object-cover"
+        enabled={inView && pageLoaded}
+        tier={tier}
+        onTouch={touch}
       />
       <span
         className="pointer-events-none absolute top-1.5 left-1.5 rounded-full bg-n-950 px-2 py-0.5 type-eyebrow text-white"
@@ -640,6 +731,7 @@ function OrbitFull({ name, orbit }: { name: string; orbit: GalleryOrbit }) {
   const [width] = useState<R360Width>(() =>
     typeof window !== "undefined" && window.innerWidth > 900 ? 1600 : 800,
   );
+  const [tier, touch] = useTouchedTier();
   return (
     <PublicOrbit
       name={name}
@@ -648,6 +740,12 @@ function OrbitFull({ name, orbit }: { name: string; orbit: GalleryOrbit }) {
       label={t("orbit.lightboxLabel", { name })}
       className="flex max-h-[calc(100vh-140px)] w-[min(96vw,1600px)] items-center justify-center"
       imageClassName="max-h-[calc(100vh-140px)] object-contain"
+      enabled
+      tier={tier}
+      // The card's 800 px start frame is in the cache already: painted at
+      // once, while the larger set is on its way.
+      posterSrc={frameUrl(orbit.frameBase, 800, orbit.params.startFrame)}
+      onTouch={touch}
     />
   );
 }

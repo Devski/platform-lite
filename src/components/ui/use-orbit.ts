@@ -14,6 +14,8 @@ import {
 // is captured so a drag lives on outside the picture. The keyboard steps
 // the same way (#104). The arithmetic is lib/r360/orbit.ts, tested there.
 
+const DRAG_SLOP_PX = 6;
+
 export interface Orbit {
   /** The frame in view, 1..N. */
   frame: number;
@@ -90,9 +92,11 @@ export function useOrbit(
     (event: React.PointerEvent<HTMLElement>) => {
       const from = anchor.current;
       if (!from) return;
-      setFrame(
-        frameAfterDrag(from.frame, event.clientX - from.x, from.width, params),
-      );
+      const deltaX = event.clientX - from.x;
+      // A diagonal swipe sends a few moves before the browser claims the
+      // vertical pan: a little slop keeps the orbit from jittering a frame.
+      if (Math.abs(deltaX) < DRAG_SLOP_PX) return;
+      setFrame(frameAfterDrag(from.frame, deltaX, from.width, params));
     },
     [params, setFrame],
   );

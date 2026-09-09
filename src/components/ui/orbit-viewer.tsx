@@ -32,6 +32,14 @@ export interface OrbitViewerProps {
    * as the poster, so the page has a picture before any script runs.
    */
   poster?: number;
+  /**
+   * The poster's own address when it is not one of `frames` — the
+   * lightbox paints the card's cached 800 px start frame while its 1600
+   * px set is still on its way (#104 review).
+   */
+  posterSrc?: string;
+  /** The poster's fetch: lazy below the fold, eager for the page's first. */
+  posterLoading?: "lazy" | "eager";
   imageClassName?: string;
   className?: string;
   children?: React.ReactNode;
@@ -45,6 +53,8 @@ export function OrbitViewer({
   orbit: given,
   loaded: decoded,
   poster,
+  posterSrc,
+  posterLoading = "lazy",
   imageClassName = "",
   className = "",
   children,
@@ -57,8 +67,13 @@ export function OrbitViewer({
     [frames],
   );
   const loaded = decoded ?? withAddress;
-  const shown = nearestLoaded(orbit.frame, loaded, params) ?? poster;
-  const src = shown ? frames[shown - 1] : null;
+  const nearest = nearestLoaded(orbit.frame, loaded, params);
+  const shown = nearest ?? poster;
+  const src = nearest
+    ? frames[nearest - 1]
+    : shown
+      ? (posterSrc ?? frames[shown - 1])
+      : null;
 
   return (
     <div
@@ -85,6 +100,8 @@ export function OrbitViewer({
           src={src}
           alt={alt}
           draggable={false}
+          loading={posterLoading}
+          decoding="async"
           className={`block h-full w-full object-contain ${imageClassName}`}
         />
       ) : (
