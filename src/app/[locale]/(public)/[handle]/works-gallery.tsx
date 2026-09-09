@@ -195,7 +195,7 @@ function WorkCard({
               count,
               name: work.name,
             })}
-            className={`block min-h-0 cursor-zoom-in overflow-hidden bg-(--n-200) focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_3px_var(--surface-card),inset_0_0_0_5px_var(--focus-ring)] ${
+            className={`block min-h-0 cursor-zoom-in overflow-hidden bg-n-200 focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_3px_var(--surface-card),inset_0_0_0_5px_var(--focus-ring)] ${
               index === 0
                 ? count === 1
                   ? "aspect-[16/9]"
@@ -432,7 +432,7 @@ function LightboxOverlay({
         alt={t("photoAlt", { name: work.name, index: index + 1 })}
         className="max-h-[calc(100vh-140px)] max-w-[min(96vw,1600px)] object-contain"
       />
-      <p className="mt-(--sp-5) flex items-center gap-(--sp-5) type-sm text-(--n-300)">
+      <p className="mt-(--sp-5) flex items-center gap-(--sp-5) type-sm text-n-300">
         <span className="font-medium text-white">{work.name}</span>
         <span className="font-mono tabular-nums">
           {t("lightbox.counter", { index: index + 1, count })}

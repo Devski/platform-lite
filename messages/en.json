@@ -492,8 +492,10 @@
         "required": "required",
         "main": "Main",
         "setMain": "Set as main",
-        "replace": "Replace photo",
+        "replaceShort": "Replace",
+        "replaceRest": " photo",
         "remove": "Remove photo",
+        "removeShort": "Remove",
         "noPreview": "No preview"
       },
       "save": "Save work",
