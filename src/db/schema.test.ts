@@ -68,6 +68,7 @@ describe("schema tables (SPEC §9)", () => {
     expect(images.columns.map((c) => c.name).sort()).toEqual([
       "file_id",
       "position",
+      "secondary_file_id",
       "work_id",
     ]);
     const byColumn = (name: string) =>

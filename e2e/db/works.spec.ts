@@ -416,6 +416,91 @@ test("Zapisz keeps editing when the open form cannot be saved, and closes an unt
   expect(created).toBe(false);
 });
 
+test("a photo's second channel (#99): uploaded through the same chain, posted by position, removable on its own", async () => {
+  let uploads = 0;
+  const discarded: Request[] = [];
+  const created: Request[] = [];
+  await page.route("**/api/uploads/presign", (route) =>
+    json(200, {
+      stagingKey: `staging/someone/${String(++uploads).repeat(32)}`,
+      uploadUrl: UPLOAD_URL,
+    })(route),
+  );
+  await page.route("**/api/uploads/confirm", (route) => {
+    const n = Number(String(route.request().postDataJSON().stagingKey).at(-1));
+    return json(200, { original: { fileId: fileIdAt(n) } })(route);
+  });
+  await page.route("**/api/uploads/discard", (route) => {
+    discarded.push(route.request());
+    return json(200, { ok: true })(route);
+  });
+  await page.route("**/api/works", (route) => {
+    created.push(route.request());
+    return json(200, { id: "33333333-3333-4333-8333-333333333333" })(route);
+  });
+
+  await page.getByLabel("Nazwa", { exact: true }).fill("Przed i po");
+  await page
+    .getByTestId("work-photos")
+    .setInputFiles([await pngFile("a.png", 1), await pngFile("b.png", 2)]);
+  await expect(page.getByRole("button", { name: "Usuń zdjęcie" })).toHaveCount(
+    2,
+  );
+
+  // The channel on the first tile: its own upload, a badge once landed.
+  await page
+    .getByTestId("work-photo-channel-0")
+    .setInputFiles(await pngFile("c.png", 3));
+  await expect(page.getByText("2 kanały")).toBeVisible();
+  expect(uploads).toBe(3);
+  await expect(
+    page.getByRole("button", { name: "Usuń drugi kanał" }),
+  ).toHaveCount(1);
+
+  // Saved by position: the channel rides with the first photo.
+  await page.getByRole("button", { name: "Zapisz realizację" }).click();
+  await expect.poll(() => created.length).toBe(1);
+  expect(created[0].postDataJSON()).toEqual({
+    name: "Przed i po",
+    investor: "",
+    developer: "",
+    imageFileIds: [fileIdAt(1), fileIdAt(2)],
+    secondaryFileIds: [fileIdAt(3), null],
+    r360FileId: null,
+  });
+  await expect(
+    page.getByRole("heading", { name: "Nowa realizacja" }),
+  ).toHaveCount(0);
+
+  // A second form: the channel removed on its own is discarded, and the
+  // work posts without it.
+  await page.getByRole("button", { name: "Dodaj realizację" }).click();
+  await page.getByLabel("Nazwa", { exact: true }).fill("Bez kanału");
+  await page
+    .getByTestId("work-photos")
+    .setInputFiles(await pngFile("d.png", 4));
+  await expect(page.getByRole("button", { name: "Usuń zdjęcie" })).toHaveCount(
+    1,
+  );
+  await page
+    .getByTestId("work-photo-channel-0")
+    .setInputFiles(await pngFile("e.png", 5));
+  await expect(page.getByText("2 kanały")).toBeVisible();
+  await page.getByRole("button", { name: "Usuń drugi kanał" }).click();
+  await expect(page.getByText("2 kanały")).toHaveCount(0);
+  await expect.poll(() => discarded.length).toBe(1);
+  expect(discarded[0].postDataJSON()).toEqual({ fileId: fileIdAt(5) });
+  await page.getByRole("button", { name: "Zapisz realizację" }).click();
+  await expect.poll(() => created.length).toBe(2);
+  expect(created[1].postDataJSON()).toEqual({
+    name: "Bez kanału",
+    investor: "",
+    developer: "",
+    imageFileIds: [fileIdAt(4)],
+    r360FileId: null,
+  });
+});
+
 test("cancelling after an upload discards the orphan photo, and posts no work", async () => {
   const discarded: Request[] = [];
   let created = false;

@@ -507,7 +507,11 @@
         "replaceShort": "Replace",
         "remove": "Remove photo",
         "removeShort": "Remove",
-        "noPreview": "No preview"
+        "noPreview": "No preview",
+        "channel": "Second channel",
+        "channelAdd": "Add a second channel",
+        "channelRemove": "Remove the second channel",
+        "channelBadge": "2 channels"
       },
       "save": "Save work",
       "saveChanges": "Save changes",

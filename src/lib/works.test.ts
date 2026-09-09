@@ -326,6 +326,86 @@ describe("createWork + listWorks", () => {
   });
 });
 
+describe("a photo's second channel (#99)", () => {
+  it("is stored by position, listed with its URLs, kept while any row names it, and freed when none does", async () => {
+    const d = makeDeps();
+    const [a, b, c] = await Promise.all([
+      uploadPhoto(d, 11),
+      uploadPhoto(d, 12),
+      uploadPhoto(d, 13),
+    ]);
+    const { id } = await createWork(d.deps, {
+      name: "Przed i po",
+      imageFileIds: [a.original.fileId, b.original.fileId],
+      secondaryFileIds: [c.original.fileId, null],
+    });
+    const [work] = await listWorks(d.deps);
+    expect(work.images[0].secondary).toEqual({
+      fileId: c.original.fileId,
+      url1600: `memory://${PREFIX}u/${userId}/${c.original.sha256}-1600.webp`,
+      url480: `memory://${PREFIX}u/${userId}/${c.original.sha256}-480.webp`,
+    });
+    expect(work.images[1].secondary).toBeUndefined();
+
+    // Discarding the channel while the work names it: left alone.
+    await discardWorkFile(d.deps, c.original.fileId);
+    expect(d.objects.has(c.original.key)).toBe(true);
+
+    // The channel moves to the other photo: nothing is freed.
+    await updateWork(d.deps, id, {
+      name: "Przed i po",
+      imageFileIds: [a.original.fileId, b.original.fileId],
+      secondaryFileIds: [null, c.original.fileId],
+    });
+    expect(d.objects.has(c.original.key)).toBe(true);
+    const [moved] = await listWorks(d.deps);
+    expect(moved.images.map((image) => image.secondary?.fileId)).toEqual([
+      undefined,
+      c.original.fileId,
+    ]);
+
+    // Dropped from the work: its rows and objects go.
+    await updateWork(d.deps, id, {
+      name: "Przed i po",
+      imageFileIds: [a.original.fileId, b.original.fileId],
+    });
+    expect(d.objects.has(c.original.key)).toBe(false);
+    expect(
+      (await testDb.db.select().from(files)).some(
+        (row) => row.id === c.original.fileId,
+      ),
+    ).toBe(false);
+  });
+
+  it("refuses a channel that is the photo itself, one used twice, one of the wrong length, and another user's", async () => {
+    const d = makeDeps();
+    const [a, b] = await Promise.all([uploadPhoto(d, 14), uploadPhoto(d, 15)]);
+    const other = makeDeps(otherUserId);
+    const theirs = await uploadPhoto(other, 16);
+    const base = { name: "X", imageFileIds: [a.original.fileId] };
+    await expect(
+      createWork(d.deps, { ...base, secondaryFileIds: [a.original.fileId] }),
+    ).rejects.toThrow();
+    await expect(
+      createWork(d.deps, {
+        ...base,
+        imageFileIds: [a.original.fileId, b.original.fileId],
+        secondaryFileIds: [b.original.fileId, null],
+      }),
+    ).rejects.toThrow();
+    await expect(
+      createWork(d.deps, { ...base, secondaryFileIds: [null, null] }),
+    ).rejects.toThrow();
+    await expect(
+      createWork(d.deps, {
+        ...base,
+        secondaryFileIds: [theirs.original.fileId],
+      }),
+    ).rejects.toThrow(/invalid_image/);
+    expect(await testDb.db.select().from(works)).toHaveLength(0);
+  });
+});
+
 describe("updateWork", () => {
   it("reorders the photos (a new main), drops the removed one's set, and keeps a photo another work still names", async () => {
     const d = makeDeps();
