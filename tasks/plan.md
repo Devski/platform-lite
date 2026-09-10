@@ -79,10 +79,17 @@ in under 5 minutes (manual walkthrough); e2e green.
 
 - ~~[#31](https://github.com/Devski/platform-lite/issues/31) PR preview deployments on the dev instance~~ — **done 05.09.2026**: `pr-<n>.dev.architektow3d.pl`, named sites over HTTP-01 (no wildcard certificate, so no DNS plugin), shared dev database and a `pr-<n>/` key prefix. Two at a time — the instance has one core and no swap. Previews never send e-mail.
 - [#113](https://github.com/Devski/platform-lite/issues/113) PR previews: a database cloned
-- [#115](https://github.com/Devski/platform-lite/issues/115) Per-account quota: decide the figure after global photo processing (`decision`, `enhancement`). Filed 09.09.2026 when the first real orbit archive (1.8 GB of PNG frames) did not fit a 1 GB account on dev; the quota went to 10 GB the same day as a stopgap (A9, §10). Sequenced after #71 and #69, which change what a gigabyte buys.
   from dev per preview, not the shared one (`deployment`). Filed 09.09.2026 when the preview
   of #112 answered with a server error: it ran the pull request's image against dev's
   schema, and previews never migrate. Sequenced after the R360 trial on dev.
+- [#111](https://github.com/Devski/platform-lite/issues/111) Preview cleanup loses the race
+  with a CI run still in flight, and the orphan blocks the two-preview cap (`bug`).
+- [#119](https://github.com/Devski/platform-lite/issues/119) The dev instance keeps every
+  image it ever pulled (`infra`). Filed 09.09.2026 when its root filesystem reached 100%:
+  129 images, 21.8 GB, three of them in use. Previews stopped starting at all, and dev's
+  own health check could not run — Docker could not write the file needed to exec it.
+- [#61](https://github.com/Devski/platform-lite/issues/61) Nothing requires a green pipeline
+  before code reaches `main`, and `main` deploys itself (`blocked`, `deployment`).
 
 22. ~~[#22](https://github.com/Devski/platform-lite/issues/22) Scaleway TEM + SPF/DKIM/DMARC + switch email.ts to TEM~~ — **done 05.09.2026**: sending from `kontakt@dev.architektow3d.pl`, all four DNS records verified, replies routed to `kontakt@architektow3d.pl`. A registration on dev delivered a real verification e-mail (SMTP 250). Unblocks #23.
 23. ~~[#23](https://github.com/Devski/platform-lite/issues/23) Deliverability test: Gmail / Onet / WP / Interia~~ — **done 05.09.2026**: all eight message types reach the Gmail inbox, none filtered. Scope cut to Gmail by decision; the reasoning and the method for the other three are in `docs/email-deliverability.md`.
@@ -106,7 +113,15 @@ from Phase 4 once its code half was split off.
   the milestone's "slide viewer" grew into its own milestone, [R360](#r360); #68 stays as
   the description of the whole and the index of its steps.
 - [#69](https://github.com/Devski/platform-lite/issues/69) Storage meter per account: count
-  the largest representation of every asset, show the usage.
+  the largest representation of every asset, show the usage. Widened 10.09.2026: a
+  breakdown by kind rather than one number, and a line for the bytes the collector
+  (#126) is about to free.
+- [#115](https://github.com/Devski/platform-lite/issues/115) Per-account quota: decide the
+  figure after global photo processing (`decision`, `enhancement`). Filed 09.09.2026 when
+  the first real orbit archive (1.8 GB of PNG frames) did not fit a 1 GB account on dev;
+  the quota went to 10 GB the same day as a stopgap (A9, §10). Sequenced after #71 and
+  #69, which change what a gigabyte buys — which is why it sits here and not in Phase 4,
+  where it was filed by mistake.
 - [#70](https://github.com/Devski/platform-lite/issues/70) Deliver user photos to fit the
   visitor's connection: `srcset`, hints, and evaluate probing.
 - [#67](https://github.com/Devski/platform-lite/issues/67) Prepare our own images for
@@ -131,8 +146,8 @@ the owner's browser — since #120 the zip never leaves that browser at all, the
 never decodes a frame, no queue and no worker. The decisions, the five parameters and the ordered step
 list live on [#68](https://github.com/Devski/platform-lite/issues/68); the frame contract
 shared with the export instructions on #64. One step, one PR; the order and the
-dependencies are as on #68 (#105 waits on #101 and #103 only). All six steps landed on
-`main` in one pull request (#112, 09.09.2026); the trial on dev, laptop and phone, closes #68.
+dependencies are as on #68. All six steps landed on `main` in one pull request (#112,
+09.09.2026); the trial on dev, laptop and phone, closes #68.
 
 - ~~[#101](https://github.com/Devski/platform-lite/issues/101) Zip reader in the browser:
   the table of contents, single frames by byte range, frame names parsed and validated —
@@ -154,27 +169,41 @@ dependencies are as on #68 (#105 waits on #101 and #103 only). All six steps lan
 - ~~[#106](https://github.com/Devski/platform-lite/issues/106) The ring: the ellipse dial
   that shows where you are, travels on click, fills as frames load (`ux`).~~ — **done 09.09.2026**.
 
-After the milestone: [#107](https://github.com/Devski/platform-lite/issues/107) cue points —
-labelled frames on the ring (`ux`), deliberately outside the first cut.
+[#107](https://github.com/Devski/platform-lite/issues/107) cue points — labelled frames on
+the ring (`ux`) — was filed as deliberately outside the first cut. **In it as of
+10.09.2026**, by Dawid's decision when the milestone's remaining work was laid out: the
+milestone closes with the cue points in, as its last step.
 
 **Checkpoint:** a work with an orbit and no photo, added from the form with the frames
 counted as they are made and sent, orbits on the public page by drag and by ring on a
 laptop and on a phone; e2e with axe green; the server's CPU untouched by the frames.
 
-After the milestone, from the trial on a real 872 MB archive (Dawid, 09–10.09.2026):
+From the trial on a real 872 MB archive (Dawid, 09–10.09.2026):
 [#117](https://github.com/Devski/platform-lite/issues/117) the canvas viewer and
 [#120](https://github.com/Devski/platform-lite/issues/120) the zip that stays on the
 owner's machine, both done and on dev on 10.09.2026, and seven follow-ups from the same
-trial, all on this milestone — how fast a frame appears
-([#121](https://github.com/Devski/platform-lite/issues/121) show it at decode time,
-[#122](https://github.com/Devski/platform-lite/issues/122) stop the uplink stalling the
-encoder, [#123](https://github.com/Devski/platform-lite/issues/123) load a visitor's
-frames untouched), the ring
-([#124](https://github.com/Devski/platform-lite/issues/124) which way the dot runs,
-[#125](https://github.com/Devski/platform-lite/issues/125) the arc going strange), and
-what save costs ([#126](https://github.com/Devski/platform-lite/issues/126) ~240 round
-trips in silence, [#127](https://github.com/Devski/platform-lite/issues/127) a dead tab's
-staged frames).
+trial, all on this milestone. In the order agreed with Dawid on 10.09.2026:
+
+1. ~~[#121](https://github.com/Devski/platform-lite/issues/121) show the frame at decode
+   time and [#122](https://github.com/Devski/platform-lite/issues/122) stop the uplink
+   stalling the encoder~~ — **done 10.09.2026** (#136). Trying #136 on its preview
+   answered #122's own question: on a good connection the uplink was never the limit, and
+   the frames are made on one thread while the machine has more than one. Filed as
+   [#137](https://github.com/Devski/platform-lite/issues/137).
+2. [#126](https://github.com/Devski/platform-lite/issues/126) what a save costs and
+   [#127](https://github.com/Devski/platform-lite/issues/127) the bytes nobody claimed —
+   **one change**, decided 10.09.2026 after a 120-frame save took 481 requests to OVH.
+   The frames go straight to their final keys, the save samples headers instead of reading
+   all of them, and a collector every 12 hours removes what a record says was never
+   finished. Deletion driven by the record, not by its absence; objects with no record at
+   all are reported, never deleted; and it never runs in a preview, which shares dev's
+   database (#113).
+3. [#123](https://github.com/Devski/platform-lite/issues/123) load a visitor's frames
+   untouched.
+4. The ring: [#124](https://github.com/Devski/platform-lite/issues/124) which way the dot
+   runs and [#125](https://github.com/Devski/platform-lite/issues/125) the arc going
+   strange — in that order and after #123, which changes what the arc looks like.
+5. [#107](https://github.com/Devski/platform-lite/issues/107) the cue points.
 
 ### Open decisions (§12)
 
@@ -184,27 +213,28 @@ staged frames).
 
 ### After the MVP
 
-Neither blocks the MVP; both were found while finishing Phase 4 and are recorded so
-they are not rediscovered later.
+None of these blocks the MVP; each was found while finishing something else and is
+recorded so it is not rediscovered later.
 
 - [#34](https://github.com/Devski/platform-lite/issues/34) Account deletion, including the
-- [#44](https://github.com/Devski/platform-lite/issues/44) Where personal data lives: which of it is sensitive, and does it belong in its own store (`compliance`) — opened 06.09.2026, four questions to answer in writing before production. The name is public by design; the sensitive thing is its LINK to the private address. Also carries four gaps found while surveying: disk encryption unverified, no dev backups, session tokens in plaintext, recipient address possibly reaching a log line.
-- ~~[#36](https://github.com/Devski/platform-lite/issues/36) The public profile showed the user's e-mail address as their name~~ — **done 05.09.2026**: registration stopped inventing a name from the address; onboarding asks for one in two steps and derives the address from it. A migration cleared what the old flow wrote, keeping handles — they may already have been shared. Found two faults of my own on the way, both recorded on the issue and generalised as #39.
   objects behind it (`compliance`) — opened 05.09.2026: there is no code path for
   removing a user at all. Clearing test accounts from dev meant hand-written SQL, and the
   bucket objects were left unfindable. With real users this is a legal obligation, not
   tidiness. Shares its object-removal path with sweeping preview prefixes (#31).
 - [#35](https://github.com/Devski/platform-lite/issues/35) Transactional e-mail in the
-- [#39](https://github.com/Devski/platform-lite/issues/39) Make the UI airtight against what the backend and the database will accept (`enhancement`) — opened 05.09.2026: a rule can live in the form, the API schema and a database constraint, and nothing keeps the three in agreement. Two instances on one screen in #36: a submit the form could not know would fail, and a `CHECK` nothing above the database could see — both surfacing as "try again".
   product's visual identity (`blocked`, `ux`) — deferred with #26; waits on #26/#27, because the
   identity has to exist first. Re-run the #23 deliverability matrix afterwards: images and
   links raise the spam score against a young sending domain.
+- ~~[#36](https://github.com/Devski/platform-lite/issues/36) The public profile showed the user's e-mail address as their name~~ — **done 05.09.2026**: registration stopped inventing a name from the address; onboarding asks for one in two steps and derives the address from it. A migration cleared what the old flow wrote, keeping handles — they may already have been shared. Found two faults of my own on the way, both recorded on the issue and generalised as #39.
+- [#39](https://github.com/Devski/platform-lite/issues/39) Make the UI airtight against what the backend and the database will accept (`enhancement`) — opened 05.09.2026: a rule can live in the form, the API schema and a database constraint, and nothing keeps the three in agreement. Two instances on one screen in #36: a submit the form could not know would fail, and a `CHECK` nothing above the database could see — both surfacing as "try again".
+- [#44](https://github.com/Devski/platform-lite/issues/44) Where personal data lives: which of it is sensitive, and does it belong in its own store (`compliance`) — opened 06.09.2026, four questions to answer in writing before production. The name is public by design; the sensitive thing is its LINK to the private address. Also carries four gaps found while surveying: disk encryption unverified, no dev backups, session tokens in plaintext, recipient address possibly reaching a log line.
 
 ## Requirements coverage
 
 Every criterion A1–A11 and every boundary G1–G10 has its task (A11 — visual, no test
-requirement). A12 is #72 and its tails; A13 is the R360 milestone (#68, #101–#106). §10 risks are covered by #23 (deliverability) and inside #16/#24. §12 open
-questions = #25–#27.
+requirement). A12 is #72 and its tails; A13 is the R360 milestone (#68, #101–#106, and the
+follow-ups #117–#127 and #137 the first real archive found). §10 risks are covered by #23
+(deliverability) and inside #16/#24. §12 open questions = #25–#27.
 
 #30 is a fix to an A9 gap found while provisioning #2 (04.09.2026), not a new criterion.
 
