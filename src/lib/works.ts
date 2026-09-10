@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import type { Database } from "@/db/client";
 import { files, workImages, works } from "@/db/schema";
 import { IMAGE_PROFILES } from "@/lib/image-upload-shared";
@@ -32,10 +32,15 @@ import {
 } from "@/lib/work-schemas";
 
 // #72 / A12: a profile's works — up to ten, each with one to three photos
-// (position 0 is the main one) and, since step 5, an R360 archive. Photos
-// arrive through the image pipeline as `work-original` sets and the
-// archive through the archive pipeline as an `r360-zip` row; a work only
-// points at them, and a file is freed when no work names it any more.
+// (position 0 is the main one) and, since #68, an R360 orbit. Photos
+// arrive through the image pipeline as `work-original` sets; the orbit's
+// frames are made in the owner's browser and land as `r360-<width>` rows
+// (#102). A work only points at them, and a file is freed when no work
+// names it any more.
+//
+// #120: the zip the frames were made from never reaches us. It is read on
+// the owner's machine and stays there, so a work names a frame set and
+// nothing else — there is no archive to own, to account for, or to free.
 
 export class WorksError extends Error {
   constructor(
@@ -68,6 +73,8 @@ export interface WorkImageView {
 
 /** #104: what a visitor needs to orbit — the parameters and where the frames are. */
 export interface WorkOrbitView {
+  /** The set the frames sit under; the owner's form names it on save. */
+  setId: string;
   params: R360Params;
   frameBase: string;
 }
@@ -79,19 +86,13 @@ export interface WorkView {
   developer: string | null;
   /** In display order; the first is the main photo. */
   images: WorkImageView[];
-  /** The R360 as shown: the set's parameters and address, or none. */
-  orbit: WorkOrbitView | null;
   /**
-   * The R360 archive, owner-facing: a visitor never learns one exists —
-   * and, since #102, its frame set: the id, the viewer's parameters, and
-   * the public address every frame's URL starts with
-   * (`${frameBase}${width}/${ordinal}.webp`).
+   * The R360 as shown: the set's id, the viewer's parameters, and the
+   * public address every frame's URL starts with
+   * (`${frameBase}${width}/${ordinal}.webp`). None when the work has no
+   * orbit.
    */
-  r360: {
-    fileId: string;
-    sizeBytes: number;
-    set: { id: string; params: R360Params; frameBase: string } | null;
-  } | null;
+  orbit: WorkOrbitView | null;
 }
 
 const WORK_VARIANTS = IMAGE_PROFILES.work.variants;
@@ -105,7 +106,6 @@ export async function listWorks(deps: ProfileReadDeps): Promise<WorkView[]> {
       name: works.name,
       investor: works.investor,
       developer: works.developer,
-      r360FileId: works.r360FileId,
       r360SetId: works.r360SetId,
       r360Params: works.r360Params,
     })
@@ -134,12 +134,9 @@ export async function listWorks(deps: ProfileReadDeps): Promise<WorkView[]> {
       ),
     ),
   ];
-  const archiveIds = rows
-    .map((row) => row.r360FileId)
-    .filter((id): id is string => id !== null);
-  const fileIds = [...originalIds, ...archiveIds];
-  // The originals, the archives and the variants of the originals, in one
-  // read, the caller's own (#49: each variant carries its object's key).
+  const fileIds = originalIds;
+  // The originals and their variants in one read, the caller's own
+  // (#49: each variant carries its object's key).
   const fileRows =
     fileIds.length === 0
       ? []
@@ -189,12 +186,10 @@ export async function listWorks(deps: ProfileReadDeps): Promise<WorkView[]> {
   };
 
   return rows.map((row) => {
-    const archive = row.r360FileId
-      ? fileRows.find((file) => file.id === row.r360FileId)
-      : undefined;
     const orbit: WorkOrbitView | null =
       row.r360SetId && row.r360Params
         ? {
+            setId: row.r360SetId,
             params: row.r360Params,
             frameBase: storage.publicUrl(
               frameSetPrefix(prefix, userId, row.r360SetId),
@@ -211,14 +206,6 @@ export async function listWorks(deps: ProfileReadDeps): Promise<WorkView[]> {
         .map(imageOf)
         .filter((image): image is WorkImageView => image !== null),
       orbit,
-      r360: archive
-        ? {
-            fileId: archive.id,
-            sizeBytes: archive.sizeBytes,
-            set:
-              row.r360SetId && orbit ? { id: row.r360SetId, ...orbit } : null,
-          }
-        : null,
     };
   });
 }
@@ -296,7 +283,6 @@ function workColumnsOf(parsed: ReturnType<typeof workInputSchema.parse>) {
     name: parsed.name,
     investor: parsed.investor || null,
     developer: parsed.developer || null,
-    r360FileId: parsed.r360FileId,
     r360SetId: parsed.r360SetId,
     r360Params: parsed.r360Params,
   };
@@ -309,8 +295,8 @@ async function assertOwnFiles(
   db: Database,
   userId: string,
   fileIds: string[],
-  kind: "work-original" | "r360-zip",
-  code: "invalid_image" | "invalid_archive",
+  kind: "work-original",
+  code: "invalid_image",
 ): Promise<void> {
   if (fileIds.length === 0) return;
   const owned = await db
@@ -329,11 +315,7 @@ async function assertOwnFiles(
 async function assertOwnInput(
   db: Database,
   userId: string,
-  parsed: {
-    imageFileIds: string[];
-    secondaryFileIds?: (string | null)[];
-    r360FileId: string | null;
-  },
+  parsed: { imageFileIds: string[]; secondaryFileIds?: (string | null)[] },
 ): Promise<void> {
   await assertOwnFiles(
     db,
@@ -344,13 +326,6 @@ async function assertOwnInput(
     ],
     "work-original",
     "invalid_image",
-  );
-  await assertOwnFiles(
-    db,
-    userId,
-    parsed.r360FileId ? [parsed.r360FileId] : [],
-    "r360-zip",
-    "invalid_archive",
   );
 }
 
@@ -384,16 +359,14 @@ export async function createWork(
         .values({ userId, ...workColumnsOf(parsed) })
         .returning({ id: works.id });
       await insertImageRows(tx, created.id, parsed);
-      if (verified && parsed.r360FileId) {
-        await insertFrameRows(tx, userId, parsed.r360FileId, verified);
-      }
+      if (verified) await insertFrameRows(tx, userId, verified);
       return { id: created.id };
     }),
   );
 }
 
 /**
- * Replaces a work's fields, photos and archive. The photos are a
+ * Replaces a work's fields, photos and orbit. The photos are a
  * delete-and-reinsert in one transaction: the (work_id, position) key is
  * not deferrable, so no sequence of UPDATEs can swap two positions without
  * a duplicate (SPEC §9). A file the work no longer names is freed
@@ -407,12 +380,10 @@ export async function updateWork(
   const parsed = workInputSchema.parse(input);
   const { db, userId } = deps;
   // The set as the work has it now, read before the transaction: a new one
-  // is verified and copied outside the lock (withFrameSet), and a set kept
-  // across a change of archive is refused — the frames belong to the bytes
-  // they were derived from.
+  // is verified and copied outside the lock (withFrameSet), and one the
+  // work already has is left exactly as it is.
   const [current] = await db
     .select({
-      r360FileId: works.r360FileId,
       r360SetId: works.r360SetId,
       r360Params: works.r360Params,
     })
@@ -420,14 +391,13 @@ export async function updateWork(
     .where(and(eq(works.id, workId), eq(works.userId, userId)));
   if (!current) throw new WorksError("not_found");
   const setChanges = parsed.r360SetId !== current.r360SetId;
-  if (!setChanges && parsed.r360SetId !== null) {
-    if (parsed.r360FileId !== current.r360FileId) {
-      throw new WorksError("invalid_set");
-    }
-    // The count is detected, not chosen (A13): a kept set keeps its N.
-    if (parsed.r360Params?.frameCount !== current.r360Params?.frameCount) {
-      throw new WorksError("invalid_set");
-    }
+  // The count is detected, not chosen (A13): a kept set keeps its N.
+  if (
+    !setChanges &&
+    parsed.r360SetId !== null &&
+    parsed.r360Params?.frameCount !== current.r360Params?.frameCount
+  ) {
+    throw new WorksError("invalid_set");
   }
   if (setChanges && parsed.r360SetId) {
     await assertCouldSave(db, userId, parsed, false);
@@ -442,7 +412,6 @@ export async function updateWork(
       const [own] = await tx
         .select({
           id: works.id,
-          r360FileId: works.r360FileId,
           r360SetId: works.r360SetId,
         })
         .from(works)
@@ -468,19 +437,13 @@ export async function updateWork(
         .update(works)
         .set({ ...workColumnsOf(parsed), updatedAt: sql`now()` })
         .where(eq(works.id, workId));
-      if (verified && parsed.r360FileId) {
-        await insertFrameRows(tx, userId, parsed.r360FileId, verified);
-      }
+      if (verified) await insertFrameRows(tx, userId, verified);
       const kept = new Set([
         ...parsed.imageFileIds,
         ...secondariesOf(parsed).filter((id): id is string => id !== null),
       ]);
       return {
         images: channelsOf(before).filter((fileId) => !kept.has(fileId)),
-        archives:
-          own.r360FileId && own.r360FileId !== parsed.r360FileId
-            ? [own.r360FileId]
-            : [],
         sets: own.r360SetId && setChanges ? [own.r360SetId] : [],
       };
     }),
@@ -526,11 +489,7 @@ export async function deleteWork(
   const dropped = await db.transaction(async (tx) => {
     await lockUser(tx, userId);
     const [own] = await tx
-      .select({
-        id: works.id,
-        r360FileId: works.r360FileId,
-        r360SetId: works.r360SetId,
-      })
+      .select({ id: works.id, r360SetId: works.r360SetId })
       .from(works)
       .where(and(eq(works.id, workId), eq(works.userId, userId)))
       .for("update");
@@ -546,7 +505,6 @@ export async function deleteWork(
     await tx.delete(works).where(eq(works.id, workId));
     return {
       images: channelsOf(images),
-      archives: own.r360FileId ? [own.r360FileId] : [],
       sets: own.r360SetId ? [own.r360SetId] : [],
     };
   });
@@ -554,9 +512,9 @@ export async function deleteWork(
 }
 
 /**
- * Frees a confirmed work photo or R360 archive that never made it onto a
- * work — the owner closed the form after uploading. A file a work still
- * names is left alone.
+ * Frees a confirmed work photo that never made it onto a work — the owner
+ * closed the form after uploading. A file a work still names is left
+ * alone.
  */
 export async function discardWorkFile(
   deps: ProfileDeps,
@@ -564,22 +522,17 @@ export async function discardWorkFile(
 ): Promise<void> {
   const { db, userId } = deps;
   const [own] = await db
-    .select({ id: files.id, kind: files.kind })
+    .select({ id: files.id })
     .from(files)
     .where(
       and(
         eq(files.id, fileId),
         eq(files.userId, userId),
-        inArray(files.kind, ["work-original", "r360-zip"]),
+        eq(files.kind, "work-original"),
       ),
     );
   if (!own) throw new WorksError("invalid_image");
-  await freeUnreferenced(
-    deps,
-    own.kind === "r360-zip"
-      ? { images: [], archives: [fileId] }
-      : { images: [fileId], archives: [] },
-  );
+  await freeUnreferenced(deps, { images: [fileId] });
 }
 
 // A file is freed only once no work names it — decided and done, rows
@@ -590,18 +543,16 @@ export async function discardWorkFile(
 // transaction.
 async function freeUnreferenced(
   deps: ProfileDeps,
-  dropped: { images: string[]; archives: string[]; sets?: string[] },
+  dropped: { images: string[]; sets?: string[] },
 ): Promise<void> {
   const sets = dropped.sets ?? [];
-  const nothing = [dropped.images, dropped.archives, sets].every(
-    (ids) => ids.length === 0,
-  );
+  const nothing = [dropped.images, sets].every((ids) => ids.length === 0);
   if (nothing) return;
   const keys = await deps.db.transaction(async (tx) => {
     await lockUser(tx, deps.userId);
     const freed: string[] = [];
-    // #102: a set belongs to one work; its rows go before the archive's,
-    // which would otherwise cascade over them.
+    // #102: a set belongs to one work, and its rows are its own since #120
+    // — nothing cascades over them any more.
     if (sets.length > 0) {
       freed.push(...(await removeFrameSetRows(tx, deps, sets)));
     }
@@ -625,114 +576,7 @@ async function freeUnreferenced(
         ...(await removeImageSetRows({ ...deps, db: tx }, free, "work")),
       );
     }
-    if (dropped.archives.length > 0) {
-      freed.push(...(await removeArchiveRows(tx, deps, dropped.archives)));
-    }
     return freed;
   });
   await deleteObjects(deps, keys, "work");
-}
-
-/** How long a claim (#105) holds the sweep off: a session's worth. */
-export const ARCHIVE_CLAIM_HOURS = 6;
-/**
- * A claim renews; without a ceiling an archive of any size could be kept
- * out of the sweep forever by claiming it every six hours (#105 review).
- * Past this age the sweep takes it, claimed or not — a decision to
- * revisit with the paid-model conversation (SPEC §10).
- */
-export const ARCHIVE_CLAIM_CEILING_DAYS = 7;
-
-/**
- * An archive confirmed and never attached — the tab closed between the
- * upload and the save — is invisible to the owner and can be most of the
- * quota. Nothing but this frees it: on the user's next archive presign,
- * every r360-zip of theirs older than a day that no work names goes
- * (step 5 review). A day, because a form left open overnight is not an
- * orphan yet; an archive being finished from (#105) is not one either.
- */
-export async function sweepOrphanArchives(
-  deps: ProfileDeps,
-  olderThanHours = 24,
-): Promise<void> {
-  const { db, userId } = deps;
-  const orphans = await db
-    .select({ id: files.id })
-    .from(files)
-    .leftJoin(works, eq(works.r360FileId, files.id))
-    .where(
-      and(
-        eq(files.userId, userId),
-        eq(files.kind, "r360-zip"),
-        isNull(works.id),
-        lt(
-          files.createdAt,
-          sql`now() - make_interval(hours => ${olderThanHours})`,
-        ),
-        // #105: an archive being finished from is not an orphan yet —
-        // for as long as the claim is fresh and the archive not past the
-        // ceiling.
-        or(
-          isNull(files.claimedAt),
-          lt(
-            files.claimedAt,
-            sql`now() - make_interval(hours => ${ARCHIVE_CLAIM_HOURS})`,
-          ),
-          lt(
-            files.createdAt,
-            sql`now() - make_interval(days => ${ARCHIVE_CLAIM_CEILING_DAYS})`,
-          ),
-        ),
-      ),
-    );
-  if (orphans.length === 0) return;
-  await freeUnreferenced(deps, {
-    images: [],
-    archives: orphans.map((row) => row.id),
-  });
-}
-
-// An archive is one row, one private object; two works may name the same
-// one (the same bytes confirm to the same row), so it goes only when no
-// work does. Returns the keys whose objects nothing names any more.
-async function removeArchiveRows(
-  tx: Database,
-  deps: Pick<ProfileDeps, "userId">,
-  archiveIds: string[],
-): Promise<string[]> {
-  const stillUsed = await tx
-    .select({ fileId: works.r360FileId })
-    .from(works)
-    .where(inArray(works.r360FileId, archiveIds));
-  const used = new Set(stillUsed.map((row) => row.fileId));
-  const free = [...new Set(archiveIds)].filter((id) => !used.has(id));
-  if (free.length === 0) return [];
-  const rows = await tx
-    .select({ id: files.id, objectKey: files.objectKey })
-    .from(files)
-    .where(
-      and(
-        inArray(files.id, free),
-        eq(files.userId, deps.userId),
-        eq(files.kind, "r360-zip"),
-      ),
-    );
-  if (rows.length === 0) return [];
-  await tx.delete(files).where(
-    inArray(
-      files.id,
-      rows.map((row) => row.id),
-    ),
-  );
-  const freed: string[] = [];
-  for (const row of rows) {
-    if (!row.objectKey) continue;
-    const [shared] = await tx
-      .select({ id: files.id })
-      .from(files)
-      .where(eq(files.objectKey, row.objectKey))
-      .limit(1);
-    if (!shared) freed.push(row.objectKey);
-  }
-  return freed;
 }

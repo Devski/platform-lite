@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { files, pendingUploads, works } from "@/db/schema";
 import { insertTestAccount } from "@/db/test-account";
@@ -7,7 +7,7 @@ import { sweepExpiredUploads } from "@/lib/image-upload";
 import { QUOTA_BYTES, quotaUsageBytes } from "@/lib/quota";
 import { createMemoryStorage, ObjectNotFoundError } from "@/lib/storage";
 import { updateDisplayName } from "@/lib/profile";
-import { uploadTestArchive, uploadTestPhoto } from "@/lib/test-uploads";
+import { uploadTestPhoto } from "@/lib/test-uploads";
 import { createWork, deleteWork, listWorks, updateWork } from "@/lib/works";
 import sharp from "sharp";
 import {
@@ -68,9 +68,6 @@ function makeDeps() {
 /** A small photo: the tests here are about the frames, not the variants. */
 const uploadPhoto = (d: ReturnType<typeof makeDeps>) =>
   uploadTestPhoto(d.deps, { seed: 68, width: 40, height: 30 });
-
-const uploadArchive = (d: ReturnType<typeof makeDeps>, seed: string) =>
-  uploadTestArchive(d.deps, seed);
 
 /** A WebP of the given width, as the browser would encode a frame. */
 async function webp(width: number, seed: number): Promise<Buffer> {
@@ -322,13 +319,11 @@ describe("a frame set on a work", () => {
   it("saves the set: the frames copied public under the final keys, a row each, the reservation settled, staging cleared", async () => {
     const d = makeDeps();
     const photo = await uploadPhoto(d);
-    const archive = await uploadArchive(d, "one");
     const set = await stageSet(d, 3);
     const params = defaultR360Params(3);
     const { id } = await createWork(d.deps, {
       name: "Z orbitą",
       imageFileIds: [photo.original.fileId],
-      r360FileId: archive.fileId,
       r360SetId: set.setId,
       r360Params: params,
     });
@@ -352,7 +347,7 @@ describe("a frame set on a work", () => {
         sha256: files.sha256,
       })
       .from(files)
-      .where(eq(files.parentFileId, archive.fileId));
+      .where(inArray(files.kind, ["r360-1600", "r360-800"]));
     expect(rows).toHaveLength(6);
     expect(rows.filter((r) => r.kind === "r360-1600")).toHaveLength(3);
     expect(rows.every((r) => r.sha256.startsWith("md5-"))).toBe(true);
@@ -367,10 +362,10 @@ describe("a frame set on a work", () => {
     );
 
     const [view] = await listWorks(d.deps);
-    expect(view.r360).toEqual({
-      fileId: archive.fileId,
-      sizeBytes: archive.sizeBytes,
-      set: { id: set.setId, params, frameBase: `memory://${finalPrefix}` },
+    expect(view.orbit).toEqual({
+      setId: set.setId,
+      params,
+      frameBase: `memory://${finalPrefix}`,
     });
     const [row] = await testDb.db
       .select({ setId: works.r360SetId, params: works.r360Params })
@@ -382,13 +377,11 @@ describe("a frame set on a work", () => {
   it("refuses a save that names a set the staging prefix does not hold, leaving nothing behind", async () => {
     const d = makeDeps();
     const photo = await uploadPhoto(d);
-    const archive = await uploadArchive(d, "one");
     const set = await stageSet(d, 3, { skip: "1600/3" });
     await expect(
       createWork(d.deps, {
         name: "Niepełna",
         imageFileIds: [photo.original.fileId],
-        r360FileId: archive.fileId,
         r360SetId: set.setId,
         r360Params: defaultR360Params(3),
       }),
@@ -401,47 +394,13 @@ describe("a frame set on a work", () => {
     ).toHaveLength(0);
   });
 
-  it("takes the copies back when the work itself is refused after the copy", async () => {
-    const d = makeDeps();
-    const photo = await uploadPhoto(d);
-    await uploadArchive(d, "one");
-    const set = await stageSet(d, 2);
-    // The archive named is not the caller's: refused inside the transaction,
-    // after the frames were copied.
-    const other = await insertTestAccount(testDb.db, {
-      email: "other-r360@example.com",
-    });
-    const theirs = await uploadArchive(
-      { ...d, deps: { ...d.deps, userId: other } },
-      "theirs",
-    );
-    await expect(
-      createWork(d.deps, {
-        name: "Cudze archiwum",
-        imageFileIds: [photo.original.fileId],
-        r360FileId: theirs.fileId,
-        r360SetId: set.setId,
-        r360Params: defaultR360Params(2),
-      }),
-    ).rejects.toMatchObject({ code: "invalid_archive" });
-    expect(
-      await d.deps.storage.listObjects(
-        frameSetPrefix(PREFIX, userId, set.setId),
-      ),
-    ).toHaveLength(0);
-    // Still staged: the owner may try again.
-    expect(await d.deps.storage.listObjects(set.stagingPrefix)).toHaveLength(4);
-  });
-
   it("refuses a second save of the same set, and a save that lost the race keeps the winner's frames", async () => {
     const d = makeDeps();
     const photo = await uploadPhoto(d);
-    const archive = await uploadArchive(d, "one");
     const set = await stageSet(d, 2);
     const input = {
       name: "Raz",
       imageFileIds: [photo.original.fileId],
-      r360FileId: archive.fileId,
       r360SetId: set.setId,
       r360Params: defaultR360Params(2),
     };
@@ -468,7 +427,6 @@ describe("a frame set on a work", () => {
   it("a copy whose staging vanished under it — the other save settled — is told apart, and the winner's frames stay", async () => {
     const d = makeDeps();
     const photo = await uploadPhoto(d);
-    const archive = await uploadArchive(d, "one");
     const set = await stageSet(d, 2);
     const verified = await verifyFrameSet(d.deps, {
       setId: set.setId,
@@ -477,7 +435,6 @@ describe("a frame set on a work", () => {
     const { id } = await createWork(d.deps, {
       name: "Zwycięzca",
       imageFileIds: [photo.original.fileId],
-      r360FileId: archive.fileId,
       r360SetId: set.setId,
       r360Params: defaultR360Params(2),
     });
@@ -502,7 +459,6 @@ describe("a frame set on a work", () => {
   it("a copy that fails midway leaves no public object, and a settle that fails does not fail the save", async () => {
     const d = makeDeps();
     const photo = await uploadPhoto(d);
-    const archive = await uploadArchive(d, "one");
     const set = await stageSet(d, 3);
     const finalPrefix = frameSetPrefix(PREFIX, userId, set.setId);
     const storage = d.deps.storage;
@@ -520,7 +476,6 @@ describe("a frame set on a work", () => {
         {
           name: "Urwana kopia",
           imageFileIds: [photo.original.fileId],
-          r360FileId: archive.fileId,
           r360SetId: set.setId,
           r360Params: defaultR360Params(3),
         },
@@ -544,7 +499,6 @@ describe("a frame set on a work", () => {
       {
         name: "Zapisana mimo to",
         imageFileIds: [photo.original.fileId],
-        r360FileId: archive.fileId,
         r360SetId: set.setId,
         r360Params: defaultR360Params(3),
       },
@@ -553,15 +507,13 @@ describe("a frame set on a work", () => {
     expect(await storage.listObjects(finalPrefix)).toHaveLength(6);
   });
 
-  it("replaces the set with the archive, keeps it across an edit, refuses it across a change of archive, and frees it with the work", async () => {
+  it("replaces the set, keeps it across an edit, refuses a change of its count, and frees it with the work", async () => {
     const d = makeDeps();
     const photo = await uploadPhoto(d);
-    const first = await uploadArchive(d, "one");
     const firstSet = await stageSet(d, 2);
     const { id } = await createWork(d.deps, {
       name: "Z orbitą",
       imageFileIds: [photo.original.fileId],
-      r360FileId: first.fileId,
       r360SetId: firstSet.setId,
       r360Params: defaultR360Params(2),
     });
@@ -572,11 +524,10 @@ describe("a frame set on a work", () => {
     await updateWork(d.deps, id, {
       name: "Z orbitą, w drugą stronę",
       imageFileIds: [photo.original.fileId],
-      r360FileId: first.fileId,
       r360SetId: firstSet.setId,
       r360Params: turned,
     });
-    expect((await listWorks(d.deps))[0].r360?.set?.params).toEqual(turned);
+    expect((await listWorks(d.deps))[0].orbit?.params).toEqual(turned);
     expect(await d.deps.storage.listObjects(firstPrefix)).toHaveLength(4);
 
     // The set kept with another count: the count is detected, not chosen.
@@ -584,30 +535,16 @@ describe("a frame set on a work", () => {
       updateWork(d.deps, id, {
         name: "Z orbitą",
         imageFileIds: [photo.original.fileId],
-        r360FileId: first.fileId,
         r360SetId: firstSet.setId,
         r360Params: defaultR360Params(3),
       }),
     ).rejects.toMatchObject({ code: "invalid_set" });
 
-    // The set kept while the archive changes: refused.
-    const second = await uploadArchive(d, "two");
-    await expect(
-      updateWork(d.deps, id, {
-        name: "Z orbitą",
-        imageFileIds: [photo.original.fileId],
-        r360FileId: second.fileId,
-        r360SetId: firstSet.setId,
-        r360Params: turned,
-      }),
-    ).rejects.toMatchObject({ code: "invalid_set" });
-
-    // A new archive with a new set: the old set's rows and objects go.
+    // A new zip with a new set: the old set's rows and objects go.
     const secondSet = await stageSet(d, 3);
     await updateWork(d.deps, id, {
       name: "Z orbitą",
       imageFileIds: [photo.original.fileId],
-      r360FileId: second.fileId,
       r360SetId: secondSet.setId,
       r360Params: defaultR360Params(3),
     });
@@ -616,20 +553,18 @@ describe("a frame set on a work", () => {
       await testDb.db
         .select()
         .from(files)
-        .where(eq(files.parentFileId, first.fileId)),
-    ).toHaveLength(0);
+        .where(inArray(files.kind, ["r360-1600", "r360-800"])),
+    ).toHaveLength(6);
     const secondPrefix = frameSetPrefix(PREFIX, userId, secondSet.setId);
     expect(await d.deps.storage.listObjects(secondPrefix)).toHaveLength(6);
-    expect(d.objects.has(first.key)).toBe(false);
 
-    // Deleting the work frees the set and the archive.
+    // Deleting the work frees the set.
     await deleteWork(d.deps, id);
     expect(await d.deps.storage.listObjects(secondPrefix)).toHaveLength(0);
     // The photo went with the work too: nothing else named it.
     expect(
       await testDb.db.select().from(files).where(eq(files.userId, userId)),
     ).toHaveLength(0);
-    expect(d.objects.has(second.key)).toBe(false);
   });
 
   it("the parameters are pinned: within the count, a direction of ±1, a flattening in 0.15..1", () => {

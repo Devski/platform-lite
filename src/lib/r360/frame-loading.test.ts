@@ -15,6 +15,8 @@ class FakeImage implements ImageLike {
   onload: HTMLImageElement["onload"] = null;
   onerror: HTMLImageElement["onerror"] = null;
   decoded = 0;
+  naturalWidth = 800;
+  naturalHeight = 450;
   private _src = "";
   static all: FakeImage[] = [];
   static requested: string[] = [];
@@ -61,6 +63,7 @@ describe("startFrameLoading", () => {
   it("fetches the coarse tier in loading order through the queue, a few at a time, and reports decoded frames", async () => {
     FakeImage.reset();
     const loaded: number[] = [];
+    const pictures: ImageLike[] = [];
     const queue = new FrameQueue(3);
     startFrameLoading({
       urls: urls(32),
@@ -68,7 +71,10 @@ describe("startFrameLoading", () => {
       tier: "coarse",
       queue,
       createImage: () => new FakeImage(),
-      onLoaded: (o) => loaded.push(o),
+      onLoaded: (o, picture) => {
+        loaded.push(o);
+        pictures.push(picture);
+      },
     });
     const order = loadingOrder(32, 5);
     expect(FakeImage.requested).toEqual(order.slice(0, 3).map((o) => `f/${o}`));
@@ -76,6 +82,9 @@ describe("startFrameLoading", () => {
     await tick();
     expect(loaded).toEqual([order[0]]);
     expect(FakeImage.all[0].decoded).toBe(1);
+    // #117: the decoded picture comes with the ordinal, so the viewer can
+    // paint it without fetching and decoding it again.
+    expect(pictures).toEqual([FakeImage.all[0]]);
     expect(FakeImage.requested).toHaveLength(4);
     for (let i = 0; i < 10; i++) {
       for (const image of FakeImage.inFlight()) image.finish();

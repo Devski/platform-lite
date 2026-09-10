@@ -336,7 +336,6 @@ export async function assertNotRecorded(
 export async function insertFrameRows(
   tx: Database,
   userId: string,
-  archiveFileId: string,
   verified: VerifiedFrameSet,
 ): Promise<void> {
   await tx.insert(files).values(
@@ -345,7 +344,10 @@ export async function insertFrameRows(
       sha256: `md5-${frame.etag}`,
       sizeBytes: frame.sizeBytes,
       kind: `r360-${frame.width}` as const,
-      parentFileId: archiveFileId,
+      // #120: no parent. The frames used to hang off the archive's row so
+      // that freeing it took them along; there is no archive now, and the
+      // work's own free path removes them by set.
+      parentFileId: null,
       ext: "webp",
       objectKey: frame.finalKey,
     })),

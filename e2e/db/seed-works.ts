@@ -15,8 +15,8 @@ export interface SeededWork {
 
 /**
  * A name, a name with a second channel on its photo (#99), or a name with
- * an R360 set of N frames and no photo (#103) — the archive row and the
- * set id are placeholders, the frames have no objects behind them.
+ * an R360 set of N frames and no photo (#103) — the set id is a
+ * placeholder and the frames have no objects behind them.
  */
 export type SeedWork =
   | string
@@ -53,30 +53,6 @@ async function ownerOf(client: Client, handle: string): Promise<string> {
   return userId;
 }
 
-/**
- * #105: an R360 archive of the account that reached the bucket and no
- * work names — what the form offers to finish from. No object behind it:
- * the e2e stubs the signed address it is read from.
- */
-export async function seedArchive(
-  handle: string,
-  sizeBytes: number,
-): Promise<{ fileId: string }> {
-  const client = await connectForSeed();
-  try {
-    const userId = await ownerOf(client, handle);
-    const etag = randomBytes(16).toString("hex");
-    const row = await client.query<{ id: string }>(
-      `insert into files (user_id, sha256, size_bytes, kind, ext, object_key)
-       values ($1, $2, $3, 'r360-zip', 'zip', $4) returning id`,
-      [userId, `md5-${etag}`, sizeBytes, `u/${userId}/r360-${etag}.zip`],
-    );
-    return { fileId: row.rows[0].id };
-  } finally {
-    await client.end();
-  }
-}
-
 export async function seedWorks(
   handle: string,
   works: SeedWork[],
@@ -110,19 +86,14 @@ export async function seedWorks(
       name: string,
       r360: { frameCount: number; startFrame?: number },
     ) => {
-      const archiveId = await insertId(
-        `insert into files (user_id, sha256, size_bytes, kind, ext)
-         values ($1, $2, 1, 'r360-zip', 'zip') returning id`,
-        [userId, `md5-${randomBytes(16).toString("hex")}`],
-      );
       const params = {
         ...defaultR360Params(r360.frameCount),
         startFrame: r360.startFrame ?? 1,
       };
       return insertId(
-        `insert into works (user_id, name, r360_file_id, r360_set_id, r360_params)
-         values ($1, $2, $3, $4, $5) returning id`,
-        [userId, name, archiveId, randomBytes(16).toString("hex"), params],
+        `insert into works (user_id, name, r360_set_id, r360_params)
+         values ($1, $2, $3, $4) returning id`,
+        [userId, name, randomBytes(16).toString("hex"), params],
       );
     };
     const seeded: SeededWork[] = [];

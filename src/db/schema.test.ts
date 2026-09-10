@@ -54,7 +54,6 @@ describe("schema tables (SPEC §9)", () => {
         "id",
         "investor",
         "name",
-        "r360_file_id",
         "r360_set_id",
         "r360_params",
         "updated_at",
@@ -183,7 +182,6 @@ describe("schema tables (SPEC §9)", () => {
     const columnNames = files.columns.map((c) => c.name).sort();
     expect(columnNames).toEqual(
       [
-        "claimed_at",
         "created_at",
         "ext",
         "id",
@@ -290,7 +288,6 @@ describe("generated migration SQL (G6 — migrations are the source of truth)", 
       'CREATE INDEX "files_object_key_idx" ON "files" USING btree ("object_key")',
       'CREATE INDEX "profiles_cover_file_id_idx" ON "profiles" USING btree ("cover_file_id")',
       'CREATE INDEX "works_user_id_created_at_idx" ON "works" USING btree ("user_id","created_at")',
-      'CREATE INDEX "works_r360_file_id_idx" ON "works" USING btree ("r360_file_id")',
       // #102 review: one set, one work.
       'CREATE UNIQUE INDEX "works_r360_set_id_unique" ON "works" USING btree ("r360_set_id")',
       'CREATE UNIQUE INDEX "work_images_work_id_file_id_unique" ON "work_images" USING btree ("work_id","file_id")',
@@ -379,6 +376,14 @@ describe("generated migration SQL (G6 — migrations are the source of truth)", 
       // 0014 (#102): the variant index re-created once more, with the R360
       // frames left out of it; guarded above. The enum grows by two.
       'DROP INDEX "files_variant_user_parent_kind_unique"',
+      // 0017 (#120): the zip is never uploaded, so nothing on the server
+      // owns an archive. The pointer goes with its index and its foreign
+      // key, and the originals index is re-created leaving the frames out
+      // — they have no parent now, and two frames of one orbit that encode
+      // to identical bytes would collide on (user, sha256, kind).
+      'DROP CONSTRAINT "works_r360_file_id_files_id_fk"',
+      'DROP INDEX "works_r360_file_id_idx"',
+      'DROP INDEX "files_original_user_sha256_unique"',
       ...schema.fileKind.enumValues
         .slice(3)
         .map((value) => `ALTER TYPE "public"."file_kind" ADD VALUE '${value}'`),

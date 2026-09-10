@@ -46,6 +46,8 @@ export interface GalleryImage {
 
 /** #104: the orbit a visitor turns — the parameters and where the frames are. */
 export interface GalleryOrbit {
+  /** The set the frames sit under; the owner's form names it on save. */
+  setId: string;
   params: R360Params;
   frameBase: string;
 }
@@ -58,12 +60,6 @@ export interface GalleryWork {
   images: GalleryImage[];
   /** The work's R360 as shown to everyone; its start frame is the poster. */
   orbit?: GalleryOrbit | null;
-  /** Owner-facing; a visitor never gets it. Since #102 with its frame set. */
-  r360?: {
-    fileId: string;
-    sizeBytes: number;
-    set?: { id: string; params: R360Params; frameBase: string } | null;
-  } | null;
 }
 
 // #104: what the card shows and the lightbox steps through — the orbit
@@ -336,10 +332,10 @@ function WorkCard({
         )}
         {owner && (
           <div className="mt-auto flex flex-wrap items-center justify-between gap-(--sp-3) pt-(--sp-2)">
-            {/* The archive is the owner's business alone; a visitor never
-                learns one exists (decision of 08.09.2026). */}
-            <Badge uppercase tone={work.r360 ? "success" : "neutral"}>
-              {work.r360 ? t("card.r360Uploaded") : t("card.r360None")}
+            {/* Whether the work has an orbit at all, for the owner's own
+                glance down the list. */}
+            <Badge uppercase tone={work.orbit ? "success" : "neutral"}>
+              {work.orbit ? t("card.r360Ready") : t("card.r360None")}
             </Badge>
             {owner.editing && onEdit && onDelete && (
               <div className="flex flex-wrap items-center gap-(--sp-3)">
@@ -602,7 +598,7 @@ function PublicOrbit({
     () => frameUrls(orbit.frameBase, width, orbit.params.frameCount),
     [orbit.frameBase, width, orbit.params.frameCount],
   );
-  const { loaded } = useFrameLoader(urls, orbit.params.startFrame, {
+  const { loaded, pictures } = useFrameLoader(urls, orbit.params.startFrame, {
     enabled,
     tier,
   });
@@ -630,10 +626,11 @@ function PublicOrbit({
       onKeyDownCapture={onTouch}
     >
       <OrbitViewer
-        frames={urls}
-        loaded={loaded}
+        pictures={pictures}
         poster={orbit.params.startFrame}
-        posterSrc={posterSrc}
+        // The card renders its own start frame server-side; the lightbox
+        // is handed the card's cached 800 px one (#104 review).
+        posterSrc={posterSrc ?? urls[orbit.params.startFrame - 1]}
         params={orbit.params}
         orbit={hand}
         alt={t("orbit.frameAlt", { name })}

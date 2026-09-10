@@ -7,6 +7,8 @@ import {
   angleOfFrame,
   angleOfPoint,
   frameAtAngle,
+  loadedRuns,
+  loadedRunsPath,
   ringPoint,
   ringRadii,
   travelPath,
@@ -16,7 +18,8 @@ import type { Orbit } from "./use-orbit";
 // #106 (A13, #68 decisions 2 and 3): the ring dial. An ellipse — a circle
 // flattened to the elevation the render camera had — with the start frame
 // at the bottom and a dot where the orbit is; the ring is the visitor's
-// progress bar too, each loaded frame a solid tick on the translucent arc.
+// progress bar too, what has loaded drawn as a thicker arc over the
+// translucent ring (#117 — the arithmetic is in lib/r360/ring.ts).
 // The ring is absolute: the pointer's angle picks the frame. A click makes
 // the dot travel along the shorter arc with the frames changing on the
 // way (a tie goes the work's way) — the travel itself lives in the orbit
@@ -30,8 +33,11 @@ import type { Orbit } from "./use-orbit";
 const WIDTH = 200;
 /** Room past the arc for the dot (radius 6 plus its 2-wide stroke). */
 const PADDING = 8;
-/** Half a tick: the tick straddles the arc by this much either side. */
-const TICK = 3;
+/** The ring's own line, and the thicker one drawn over what has loaded. */
+const RING_STROKE = 2;
+const LOADED_STROKE = 5;
+/** How far the dark halo reaches past the line it sits under. */
+const HALO_WIDEN = 3;
 /** The band around the arc that takes the pointer: a thumb's width. */
 const HIT_BAND = 36;
 /** A tap moves this little between down and up; more is a drag. */
@@ -39,8 +45,8 @@ const TAP_SLOP_PX = 6;
 
 // The ring's two grounds: over a picture (the gallery overlay) or on the
 // page (the owner's preview) — the strokes and the counter chip differ.
-// Over a picture the arc and the ticks get a dark halo, or a white sky at
-// the foot of a render would swallow them.
+// Over a picture the ring and its loaded arc get a dark halo, or a white
+// sky at the foot of a render would swallow them.
 const TONES = {
   dark: {
     stroke: "#fff",
@@ -67,7 +73,7 @@ export function OrbitRing({
 }: {
   orbit: Orbit;
   params: OrbitParams;
-  /** Ordinals whose frame is loaded: the ticks. */
+  /** Ordinals whose frame is loaded: the arc drawn over the ring. */
   loaded: ReadonlySet<number>;
   /** 1 = a circle, down to 0.15. */
   flattening: number;
@@ -142,18 +148,17 @@ export function OrbitRing({
   };
 
   const dot = ringPoint(angleOfFrame(orbit.frame, params), radiusX, radiusY);
-  // Each loaded frame a solid tick on the arc, all in one path; the
-  // centre stays free.
-  const ticks = useMemo(() => {
-    const parts: string[] = [];
-    for (const frame of loaded) {
-      const angle = angleOfFrame(frame, params);
-      const inner = ringPoint(angle, radiusX - TICK, radiusY - TICK);
-      const outer = ringPoint(angle, radiusX + TICK, radiusY + TICK);
-      parts.push(`M${inner.x} ${inner.y}L${outer.x} ${outer.y}`);
-    }
-    return parts.join("");
-  }, [loaded, params, radiusX, radiusY]);
+  // #117: what has loaded, drawn along the ring — see loadedRuns.
+  const loadedPath = useMemo(
+    () =>
+      loadedRunsPath(
+        loadedRuns(loaded, params.frameCount),
+        params,
+        radiusX,
+        radiusY,
+      ),
+    [loaded, params, radiusX, radiusY],
+  );
 
   return (
     <div
@@ -196,9 +201,16 @@ export function OrbitRing({
               ry={radiusY}
               fill="none"
               stroke={look.halo}
-              strokeWidth={5}
+              strokeWidth={RING_STROKE + HALO_WIDEN}
             />
-            <path d={ticks} fill="none" stroke={look.halo} strokeWidth={5} />
+            <path
+              d={loadedPath}
+              fill="none"
+              stroke={look.halo}
+              strokeWidth={LOADED_STROKE + HALO_WIDEN}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </>
         )}
         <ellipse
@@ -209,14 +221,16 @@ export function OrbitRing({
           fill="none"
           stroke={look.stroke}
           strokeOpacity={0.3}
-          strokeWidth={2}
+          strokeWidth={RING_STROKE}
         />
         <path
-          d={ticks}
+          d={loadedPath}
           fill="none"
           stroke={look.stroke}
-          strokeWidth={2}
+          strokeWidth={LOADED_STROKE}
           strokeLinecap="round"
+          strokeLinejoin="round"
+          data-testid="orbit-ring-loaded"
         />
         <circle
           cx={dot.x}

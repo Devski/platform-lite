@@ -2,10 +2,6 @@
 
 import { postJson } from "@/lib/api-client";
 import {
-  ARCHIVE_CONTENT_TYPES,
-  ARCHIVE_MAX_BYTES,
-} from "@/lib/archive-upload-shared";
-import {
   IMAGE_CONTENT_TYPES,
   IMAGE_MAX_BYTES,
   type ImagePurpose,
@@ -143,13 +139,6 @@ export async function uploadImage(
   }
 }
 
-// #72 / A12: the R360 archive — the same shape as an image, against the
-// archive routes, with no size limit but S3's own. A zip is told by its
-// declared type, or by its name when the browser sends no type at all.
-export type ArchiveUploadResult =
-  | { ok: true; fileId: string; sizeBytes: number }
-  | { ok: false; failure: UploadFailure };
-
 export interface UploadOptions {
   /** 0..1, as the bytes leave the browser. */
   onProgress?: (fraction: number) => void;
@@ -242,121 +231,3 @@ export const frameSetTransport: FrameSetTransport = {
     putWithProgress(url, body, R360_FRAME_CONTENT_TYPE, options),
   abandon,
 };
-
-// #105: the archives that reached the bucket and no work names, and the
-// claim of one — a signed address to read the frames from again.
-export interface UnattachedArchiveJson {
-  fileId: string;
-  sizeBytes: number;
-  /** ISO 8601, as the route writes the date. */
-  createdAt: string;
-}
-
-export async function listUnattachedArchives(): Promise<
-  UnattachedArchiveJson[]
-> {
-  try {
-    const response = await fetch("/api/uploads/unattached-archives", {
-      headers: { accept: "application/json" },
-    });
-    if (!response.ok) return [];
-    const data = (await response.json()) as {
-      archives?: UnattachedArchiveJson[];
-    };
-    return data.archives ?? [];
-  } catch {
-    return [];
-  }
-}
-
-export async function resumeArchive(
-  fileId: string,
-): Promise<
-  | { ok: true; downloadUrl: string; sizeBytes: number }
-  | { ok: false; failure: UploadFailure }
-> {
-  try {
-    const response = await postJson<{
-      error?: string;
-      downloadUrl?: string;
-      sizeBytes?: number;
-    }>("/api/uploads/resume-archive", { fileId });
-    if (!response.ok || !response.data.downloadUrl) {
-      return {
-        ok: false,
-        failure: serverFailure(response.data.error, response.status),
-      };
-    }
-    return {
-      ok: true,
-      downloadUrl: response.data.downloadUrl,
-      sizeBytes: response.data.sizeBytes ?? 0,
-    };
-  } catch {
-    return { ok: false, failure: "generic" };
-  }
-}
-
-export async function uploadArchive(
-  file: File,
-  options: UploadOptions = {},
-): Promise<ArchiveUploadResult> {
-  const type =
-    file.type ||
-    (file.name.toLowerCase().endsWith(".zip") ? "application/zip" : "");
-  if (!(ARCHIVE_CONTENT_TYPES as readonly string[]).includes(type)) {
-    return { ok: false, failure: "archive_type" };
-  }
-  if (file.size === 0 || file.size > ARCHIVE_MAX_BYTES) {
-    return { ok: false, failure: "archive_size" };
-  }
-  try {
-    const presign = await postJson<{
-      error?: string;
-      stagingKey?: string;
-      uploadUrl?: string;
-    }>("/api/uploads/presign-archive", {
-      sizeBytes: file.size,
-      contentType: type,
-    });
-    if (!presign.ok || !presign.data.stagingKey || !presign.data.uploadUrl) {
-      return {
-        ok: false,
-        failure: serverFailure(presign.data.error, presign.status),
-      };
-    }
-    const put = await putWithProgress(
-      presign.data.uploadUrl,
-      file,
-      type,
-      options,
-    );
-    if (put !== "ok") {
-      void abandon(presign.data.stagingKey);
-      return {
-        ok: false,
-        failure: put === "aborted" ? "aborted" : "upload_failed",
-      };
-    }
-    const confirm = await postJson<{
-      error?: string;
-      fileId?: string;
-      sizeBytes?: number;
-    }>("/api/uploads/confirm-archive", {
-      stagingKey: presign.data.stagingKey,
-    });
-    if (!confirm.ok || !confirm.data.fileId) {
-      return {
-        ok: false,
-        failure: serverFailure(confirm.data.error, confirm.status),
-      };
-    }
-    return {
-      ok: true,
-      fileId: confirm.data.fileId,
-      sizeBytes: confirm.data.sizeBytes ?? file.size,
-    };
-  } catch {
-    return { ok: false, failure: "generic" };
-  }
-}

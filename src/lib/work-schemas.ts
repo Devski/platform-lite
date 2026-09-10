@@ -53,13 +53,11 @@ export const workInputSchema = z
       .array(z.uuid().nullable())
       .max(WORK_PHOTOS_MAX)
       .optional(),
-    /** The confirmed r360-zip file id, or none. */
-    r360FileId: z.uuid().nullable().default(null),
     /**
-     * #102: the frame set the owner's browser produced from the archive,
-     * and the viewer's five parameters (#68) — both or neither, and only
-     * with an archive. A set already on the work is sent back unchanged;
-     * a new archive brings a new set.
+     * #102: the frame set the owner's browser produced from a zip on their
+     * own machine, and the viewer's five parameters (#68) — both or
+     * neither. A set already on the work is sent back unchanged; a new zip
+     * brings a new set. Since #120 there is no archive to name beside it.
      */
     r360SetId: z.string().regex(R360_SET_ID_PATTERN).nullable().default(null),
     r360Params: r360ParamsSchema.nullable().default(null),
@@ -67,10 +65,6 @@ export const workInputSchema = z
   .refine((work) => (work.r360SetId === null) === (work.r360Params === null), {
     message: "a set with its parameters",
     path: ["r360Params"],
-  })
-  .refine((work) => work.r360SetId === null || work.r360FileId !== null, {
-    message: "a set needs its archive",
-    path: ["r360SetId"],
   })
   .refine((work) => work.imageFileIds.length > 0 || work.r360SetId !== null, {
     message: "a photo, or an R360 set",

@@ -14,7 +14,7 @@ import {
 } from "./account";
 import { buildZip } from "@/lib/r360/test-zip";
 import { expectNoAxeViolations } from "../axe";
-import { seedArchive, seedWorks } from "./seed-works";
+import { seedWorks } from "./seed-works";
 
 // #72 / A12, step 4: the work form's wiring from the browser's side, every
 // server answer stubbed — which calls it makes, with what, and which it does
@@ -39,7 +39,6 @@ test.describe.configure({ mode: "serial" });
 const UPLOAD_URL = "/__stub-storage/staged-work";
 const STAGING_KEY = "staging/someone/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const FILE_ID = "22222222-2222-4222-8222-222222222222";
-const ARCHIVE_ID = "44444444-4444-4444-8444-444444444444";
 // #102: the frame set the batch presign hands out, and where its PUTs go.
 const SET_ID = "5".repeat(32);
 const FRAME_URL = "/__stub-storage/frames";
@@ -169,21 +168,18 @@ test("a new work: the photo goes through the upload chain as a work, then the fo
   // The first photo is the main one, and says so.
   await expect(page.getByText("Główne", { exact: true })).toBeVisible();
 
-  // The R360 archive: read in the browser first (#101) — what is not an
-  // archive, or holds one frame, is refused before a byte leaves, with the
-  // reason and no presign.
-  const archivePresigns: Request[] = [];
-  const archiveConfirms: Request[] = [];
+  // The R360 zip: read in the browser and NEVER sent (#120). What is not
+  // an archive, or holds one frame, is refused before a byte leaves, with
+  // the reason and no presign at all. The archive routes are gone, so a
+  // call to one would 404 in the browser; this catches it as a regression
+  // rather than letting it read as a network fault.
+  const archiveCalls: string[] = [];
+  await page.route("**/api/uploads/**archive**", (route) => {
+    archiveCalls.push(route.request().url());
+    return route.fulfill({ status: 404, body: "" });
+  });
   const setPresigns: Request[] = [];
   const framePuts: Request[] = [];
-  await page.route("**/api/uploads/presign-archive", (route) => {
-    archivePresigns.push(route.request());
-    return json(200, { stagingKey: STAGING_KEY, uploadUrl: UPLOAD_URL })(route);
-  });
-  await page.route("**/api/uploads/confirm-archive", (route) => {
-    archiveConfirms.push(route.request());
-    return json(200, { fileId: ARCHIVE_ID, sizeBytes: 3 })(route);
-  });
   await page.route("**/api/uploads/presign-r360-set", (route) => {
     setPresigns.push(route.request());
     const { frameCount } = route.request().postDataJSON() as {
@@ -216,21 +212,19 @@ test("a new work: the photo goes through the upload chain as a work, then the fo
   await expect(
     page.getByText("Jedna klatka to nie orbita: potrzeba co najmniej 2."),
   ).toBeVisible();
-  expect(archivePresigns).toHaveLength(0);
   expect(setPresigns).toHaveLength(0);
 
-  // A real orbit of three frames: the archive goes through its own presign
-  // and confirm, never a read by the server, while this browser decodes the
-  // frames, encodes them as WebP at two widths and PUTs the six straight to
-  // the set's URLs (#102). The form then names the file, the set and the
-  // default parameters on the work.
+  // A real orbit of three frames: the zip stays on this machine while the
+  // browser decodes its frames, encodes them as WebP at two widths and PUTs
+  // the six straight to the set's URLs (#102). The form then names the set
+  // and the default parameters on the work — and nothing else.
   const zip = await orbitZip(3);
   await page.getByTestId("work-r360").setInputFiles({
     name: "orbit.zip",
     mimeType: "application/zip",
     buffer: zip,
   });
-  await expect(page.getByText("Wgrany", { exact: true })).toBeVisible();
+  await expect(page.getByText("Gotowy", { exact: true })).toBeVisible();
   await expect(page.getByTestId("work-r360-frames")).toHaveText(
     "· Klatki gotowe: 3",
   );
@@ -242,7 +236,16 @@ test("a new work: the photo goes through the upload chain as a work, then the fo
   );
   const viewer = page.getByTestId("orbit-viewer");
   await expect(viewer).toHaveAttribute("data-frame", "1");
-  await expect(viewer.locator("img")).toHaveAttribute("src", /^blob:/);
+  // #117: the frames made here are painted onto a canvas, decoded once —
+  // there is no address for the preview to hold and nothing to revoke.
+  await expect(viewer.getByTestId("orbit-canvas")).toBeVisible();
+  await expect(viewer.locator("img")).toHaveCount(0);
+  // And the ring fills as an arc along itself, not as a comb of ticks:
+  // three frames in a row are one path with two lines in it.
+  await expect(page.getByTestId("orbit-ring-loaded")).toHaveAttribute(
+    "d",
+    /^M[^M]*L[^M]*L[^M]*$/,
+  );
   // The mouse moves in viewport coordinates: the preview has to be in view.
   await viewer.scrollIntoViewIfNeeded();
   const box = await viewer.boundingBox();
@@ -257,13 +260,8 @@ test("a new work: the photo goes through the upload chain as a work, then the fo
   await page.getByRole("button", { name: "Użyj tej klatki" }).click();
   await expect(page.getByTestId("work-r360-start-frame")).toHaveText("2");
   await expectNoAxeViolations(page, test.info(), "work-form-r360-preview");
-  expect(archivePresigns[0].postDataJSON()).toEqual({
-    sizeBytes: zip.length,
-    contentType: "application/zip",
-  });
-  expect(archiveConfirms[0].postDataJSON()).toEqual({
-    stagingKey: STAGING_KEY,
-  });
+  // #120: not one request carried the archive anywhere.
+  expect(archiveCalls).toEqual([]);
   expect(setPresigns).toHaveLength(1);
   expect(setPresigns[0].postDataJSON()).toEqual({ frameCount: 3 });
   expect(framePuts).toHaveLength(6);
@@ -289,7 +287,6 @@ test("a new work: the photo goes through the upload chain as a work, then the fo
     investor: "Archicom S.A.",
     developer: "",
     imageFileIds: [FILE_ID],
-    r360FileId: ARCHIVE_ID,
     r360SetId: SET_ID,
     r360Params: {
       frameCount: 3,
@@ -413,7 +410,6 @@ test("several at once (#79, #93): a pick that does not fit is refused, replace k
     investor: "",
     developer: "",
     imageFileIds: [fileIdAt(5), fileIdAt(2), fileIdAt(4)],
-    r360FileId: null,
     r360SetId: null,
     r360Params: null,
   });
@@ -422,7 +418,7 @@ test("several at once (#79, #93): a pick that does not fit is refused, replace k
   ).toHaveCount(0);
 });
 
-test("the page's Zapisz waits for the archive, then saves the open form (#85)", async () => {
+test("the page's Zapisz waits for the frames, then saves the open form (#85)", async () => {
   const created: Request[] = [];
   await page.route(
     "**/api/uploads/confirm",
@@ -432,27 +428,13 @@ test("the page's Zapisz waits for the archive, then saves the open form (#85)", 
     created.push(route.request());
     return json(200, { id: "33333333-3333-4333-8333-333333333333" })(route);
   });
-  // The archive's PUT is held open until the test lets it through: what
-  // "Zapisz" does in the meantime is the point.
-  const archiveUrl = "/__stub-storage/staged-archive";
+  // #120: the frames are the only thing in flight now, so THEY are what
+  // "Zapisz" has to wait for. Their PUTs are held open until the test lets
+  // them through; what the page does in the meantime is the point.
   let release: () => void = () => undefined;
   const held = new Promise<void>((resolve) => {
     release = resolve;
   });
-  await page.route(`**${archiveUrl}`, async (route) => {
-    await held;
-    await route.fulfill({ status: 200, body: "" });
-  });
-  await page.route(
-    "**/api/uploads/presign-archive",
-    json(200, { stagingKey: STAGING_KEY, uploadUrl: archiveUrl }),
-  );
-  await page.route(
-    "**/api/uploads/confirm-archive",
-    json(200, { fileId: ARCHIVE_ID, sizeBytes: 3 }),
-  );
-  // #102: the frames go their own way meanwhile; here they are done long
-  // before the archive's PUT is released.
   await page.route(
     "**/api/uploads/presign-r360-set",
     json(200, {
@@ -461,9 +443,10 @@ test("the page's Zapisz waits for the archive, then saves the open form (#85)", 
       urls: { 1600: frameUrls(1600, 2), 800: frameUrls(800, 2) },
     }),
   );
-  await page.route(`**${FRAME_URL}/**`, (route) =>
-    route.fulfill({ status: 200, body: "" }),
-  );
+  await page.route(`**${FRAME_URL}/**`, async (route) => {
+    await held;
+    await route.fulfill({ status: 200, body: "" });
+  });
 
   await page.getByLabel("Nazwa", { exact: true }).fill("Z orbitą");
   await page
@@ -502,7 +485,6 @@ test("the page's Zapisz waits for the archive, then saves the open form (#85)", 
     investor: "",
     developer: "",
     imageFileIds: [FILE_ID],
-    r360FileId: ARCHIVE_ID,
     r360SetId: SET_ID,
     r360Params: {
       frameCount: 2,
@@ -621,7 +603,6 @@ test("a photo's second channel (#99): uploaded through the same chain, posted by
     developer: "",
     imageFileIds: [fileIdAt(4), fileIdAt(2)],
     secondaryFileIds: [fileIdAt(3), null],
-    r360FileId: null,
     r360SetId: null,
     r360Params: null,
   });
@@ -654,7 +635,6 @@ test("a photo's second channel (#99): uploaded through the same chain, posted by
     investor: "",
     developer: "",
     imageFileIds: [fileIdAt(5)],
-    r360FileId: null,
     r360SetId: null,
     r360Params: null,
   });
@@ -786,10 +766,6 @@ test("editing a work puts its form where its card was (#86); cancel and save put
 // After the seeded pair above: this one seeds a work of its own and leaves it.
 test("an archive with a gap is refused on the page and sends nothing; a saved set shows its parameters again (#103)", async () => {
   const presigns: Request[] = [];
-  await page.route("**/api/uploads/presign-archive", (route) => {
-    presigns.push(route.request());
-    return json(200, { stagingKey: STAGING_KEY, uploadUrl: UPLOAD_URL })(route);
-  });
   await page.route("**/api/uploads/presign-r360-set", (route) => {
     presigns.push(route.request());
     return json(400, { error: "invalid_request" })(route);
@@ -808,12 +784,9 @@ test("an archive with a gap is refused on the page and sends nothing; a saved se
   expect(presigns).toHaveLength(0);
   await expect(page.getByTestId("work-r360-preview")).toHaveCount(0);
 
-  // A good archive whose set the server refuses (the quota, say): the
-  // archive stays, without frames and without a preview of frames it does
-  // not have, and the reason is told (#103 review).
-  await page.route("**/api/uploads/confirm-archive", (route) =>
-    json(200, { fileId: ARCHIVE_ID, sizeBytes: 3 })(route),
-  );
+  // A good zip whose set the server refuses (the quota, say): since #120
+  // nothing of it reached the server, so there is nothing to keep — the
+  // picker comes back and the reason is told.
   await page.route("**/api/uploads/presign-r360-set", (route) =>
     json(400, { error: "quota_exceeded" })(route),
   );
@@ -822,16 +795,12 @@ test("an archive with a gap is refused on the page and sends nothing; a saved se
     mimeType: "application/zip",
     buffer: await orbitZip(2),
   });
-  await expect(page.getByText("Wgrany", { exact: true })).toBeVisible();
   await expect(
     page.getByText("Brak miejsca: klatki przekroczyłyby Twój limit 10 GB."),
   ).toBeVisible();
   await expect(page.getByTestId("work-r360-preview")).toHaveCount(0);
   await expect(page.getByTestId("work-r360-frames")).toHaveCount(0);
-  await page
-    .locator("form")
-    .getByRole("button", { name: "Usuń", exact: true })
-    .click();
+  await expect(page.getByTestId("work-r360")).toBeAttached();
 
   // A work saved with a set: its parameters come back in edit mode, with
   // no photo to require.
@@ -867,88 +836,4 @@ test("an archive with a gap is refused on the page and sends nothing; a saved se
   );
   await expect(page.getByTestId("work-r360-frames-per-width")).toHaveValue("2");
   await page.getByRole("button", { name: "Anuluj" }).click();
-});
-// #105: an archive that reached the bucket without its frames is offered
-// on the next form and read again by Range through a signed address —
-// stubbed here with a real archive served in pieces — and the work saves
-// with the set it produced.
-test("an archive that landed without frames is offered, its frames derived again by Range, and the work saves with the set (#105)", async () => {
-  const zip = await orbitZip(3);
-  const { fileId } = await seedArchive(identity.handle, zip.length);
-  const ARCHIVE_URL = "/__stub-storage/landed-archive.zip";
-  const ranges: string[] = [];
-  const created: Request[] = [];
-  await page.route("**/api/uploads/resume-archive", (route) =>
-    json(200, { downloadUrl: ARCHIVE_URL, sizeBytes: zip.length })(route),
-  );
-  // The bucket, as a Range request sees it: 206 with Content-Range for a
-  // range, the whole body without one.
-  await page.route(`**${ARCHIVE_URL}`, (route) => {
-    const range = route.request().headers()["range"];
-    const match = /^bytes=(\d+)-(\d+)$/.exec(range ?? "");
-    if (!match) return route.fulfill({ status: 200, body: zip });
-    ranges.push(range);
-    const start = Number(match[1]);
-    const end = Math.min(Number(match[2]), zip.length - 1);
-    return route.fulfill({
-      status: 206,
-      headers: {
-        "content-range": `bytes ${start}-${end}/${zip.length}`,
-        "accept-ranges": "bytes",
-        "content-type": "application/zip",
-      },
-      body: zip.subarray(start, end + 1),
-    });
-  });
-  await page.route("**/api/uploads/presign-r360-set", (route) =>
-    json(200, {
-      setId: SET_ID,
-      stagingPrefix: `staging/someone/${SET_ID}/`,
-      urls: { 1600: frameUrls(1600, 3), 800: frameUrls(800, 3) },
-    })(route),
-  );
-  await page.route(`**${FRAME_URL}/**`, (route) =>
-    route.fulfill({ status: 200, body: "" }),
-  );
-  await page.route("**/api/uploads/confirm", (route) =>
-    json(200, { original: { fileId: FILE_ID } })(route),
-  );
-  await page.route("**/api/works", (route) => {
-    created.push(route.request());
-    return json(200, { id: "33333333-3333-4333-8333-333333333333" })(route);
-  });
-
-  // A fresh form asks the server what landed: the seeded archive is offered.
-  await page.getByRole("button", { name: "Anuluj" }).click();
-  await page.getByRole("button", { name: "Dodaj realizację" }).click();
-  const offer = page.getByTestId("work-r360-offer");
-  await expect(offer).toBeVisible();
-  await expect(offer).toContainText("dotarło na serwer bez klatek");
-  await offer.getByRole("button", { name: "Dokończ" }).click();
-  await expect(page.getByText("Wgrany", { exact: true })).toBeVisible();
-  await expect(page.getByTestId("work-r360-frames")).toHaveText(
-    "· Klatki gotowe: 3",
-  );
-  // Read in pieces, never whole: the tail, the directory, each frame.
-  expect(ranges.length).toBeGreaterThanOrEqual(4);
-  expect(ranges[0]).toBe("bytes=0-0");
-
-  await page.getByLabel("Nazwa", { exact: true }).fill("Dokończona orbita");
-  await page.getByRole("button", { name: "Zapisz realizację" }).click();
-  await expect.poll(() => created.length).toBe(1);
-  expect(created[0].postDataJSON()).toEqual({
-    name: "Dokończona orbita",
-    investor: "",
-    developer: "",
-    imageFileIds: [],
-    r360FileId: fileId,
-    r360SetId: SET_ID,
-    r360Params: {
-      frameCount: 3,
-      direction: 1,
-      framesPerWidth: 2,
-      startFrame: 1,
-      flattening: 1,
-    },
-  });
 });
