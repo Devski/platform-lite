@@ -125,10 +125,10 @@ size a page needs is produced at upload (G5); a bucket per user is ruled out by 
 ### [R360](https://github.com/Devski/platform-lite/milestone/9)
 
 Opened 09.09.2026 from the design conversation with Dawid; no due date yet. One frame at a
-time from a work's orbit archive: dragged on the picture (relative, discrete, wrapping),
+time from a work's orbit zip: dragged on the picture (relative, discrete, wrapping),
 dialled on an elliptical ring that doubles as the visitor's progress bar, and produced in
-the owner's browser — the server never reads the archive, the one core never decodes a
-frame, no queue and no worker. The decisions, the five parameters and the ordered step
+the owner's browser — since #120 the zip never leaves that browser at all, the one core
+never decodes a frame, no queue and no worker. The decisions, the five parameters and the ordered step
 list live on [#68](https://github.com/Devski/platform-lite/issues/68); the frame contract
 shared with the export instructions on #64. One step, one PR; the order and the
 dependencies are as on #68 (#105 waits on #101 and #103 only). All six steps landed on
@@ -146,17 +146,25 @@ dependencies are as on #68 (#105 waits on #101 and #103 only). All six steps lan
 - ~~[#104](https://github.com/Devski/platform-lite/issues/104) The public work: drag to
   orbit, frames loaded coarse to fine, the start frame as the poster (`ux`).~~ — **done 09.09.2026**.
 - ~~[#105](https://github.com/Devski/platform-lite/issues/105) Resume: derive the frames
-  again from an archive that already reached the bucket (`ux`). Depends on #101 and #103,
-  not on #104; listed here in filing order.~~ — **done 09.09.2026**: needs the CORS rule from #101 on dev; open decision on the issue: the seven-day ceiling on a claimed archive.
+  again from an archive that already reached the bucket (`ux`).~~ — **done 09.09.2026 and
+  removed again 10.09.2026 by [#120](https://github.com/Devski/platform-lite/issues/120)**:
+  there is no archive on the server to resume from any more, and a set that has to be made
+  again is made from the owner's own file. The offer, its two routes and its claim column
+  are gone.
 - ~~[#106](https://github.com/Devski/platform-lite/issues/106) The ring: the ellipse dial
   that shows where you are, travels on click, fills as frames load (`ux`).~~ — **done 09.09.2026**.
 
 After the milestone: [#107](https://github.com/Devski/platform-lite/issues/107) cue points —
 labelled frames on the ring (`ux`), deliberately outside the first cut.
 
-**Checkpoint:** a work with an orbit archive and no photo, added from the form with one
-progress bar, orbits on the public page by drag and by ring on a laptop and on a phone;
-e2e with axe green; the server's CPU untouched by the frames.
+**Checkpoint:** a work with an orbit and no photo, added from the form with the frames
+counted as they are made and sent, orbits on the public page by drag and by ring on a
+laptop and on a phone; e2e with axe green; the server's CPU untouched by the frames.
+
+After the milestone, from the trial on a real 872 MB archive (Dawid, 09–10.09.2026):
+[#117](https://github.com/Devski/platform-lite/issues/117) the canvas viewer (done),
+[#120](https://github.com/Devski/platform-lite/issues/120) the zip stays on the owner's
+machine, and the follow-ups filed from that session — see the issue list.
 
 ### Open decisions (§12)
 

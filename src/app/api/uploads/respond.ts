@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-import { ArchiveUploadError } from "@/lib/archive-upload";
 import { ImageUploadError } from "@/lib/image-upload";
-import { ArchiveResumeError } from "@/lib/r360/archive-resume";
 import { FrameSetError } from "@/lib/r360/frame-set";
 
 // Shared by the upload routes: run the pipeline step, serialize the result,
@@ -13,12 +11,7 @@ export async function respondWithUploadResult(
   try {
     return NextResponse.json((await run()) ?? { ok: true });
   } catch (error) {
-    if (
-      error instanceof ImageUploadError ||
-      error instanceof ArchiveUploadError ||
-      error instanceof FrameSetError ||
-      error instanceof ArchiveResumeError
-    ) {
+    if (error instanceof ImageUploadError || error instanceof FrameSetError) {
       return NextResponse.json({ error: error.code }, { status: 400 });
     }
     throw error;

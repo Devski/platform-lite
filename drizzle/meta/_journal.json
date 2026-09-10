@@ -120,6 +120,13 @@
       "when": 1788933912938,
       "tag": "0016_r360_archive_claim",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1788999157508,
+      "tag": "0017_r360_without_archive",
+      "breakpoints": true
     }
   ]
 }

@@ -275,18 +275,16 @@ export const works = pgTable(
     name: text("name").notNull(),
     investor: text("investor"),
     developer: text("developer"),
-    // The uploaded R360 archive (kind r360-zip), upload only in #72; what
-    // happens to it afterwards is #68's. The file row outlives a detached
-    // pointer so its bytes stay accounted until code removes them.
-    r360FileId: uuid("r360_file_id").references((): AnyPgColumn => files.id, {
-      onDelete: "set null",
-    }),
-    // #102 (A13): the frame set derived from the archive in the owner's
-    // browser — the prefix `u/<user>/r360/<set id>/` the frames sit under
-    // (32 hex digits minted at presign) — and the five viewer parameters
-    // (#68): frame count, direction, frames per picture width, start frame,
-    // ring flattening. Both or neither: a set without parameters cannot be
-    // shown, parameters without a set describe nothing.
+    // #102 (A13): the frame set the owner's browser derived from a zip on
+    // their own disk — the prefix `u/<user>/r360/<set id>/` the frames sit
+    // under (32 hex digits minted at presign) — and the five viewer
+    // parameters (#68): frame count, direction, frames per picture width,
+    // start frame, ring flattening. Both or neither: a set without
+    // parameters cannot be shown, parameters without a set describe
+    // nothing.
+    //
+    // #120: there is no archive column any more. The zip never leaves the
+    // owner's machine, so the work names its frames and nothing else.
     r360SetId: text("r360_set_id"),
     r360Params: jsonb("r360_params").$type<R360ParamsRow>(),
     createdAt: createdAt(),
@@ -295,7 +293,6 @@ export const works = pgTable(
   (table) => [
     // The profile page lists a user's works in adding order.
     index("works_user_id_created_at_idx").on(table.userId, table.createdAt),
-    index("works_r360_file_id_idx").on(table.r360FileId),
     // #102 review: a set belongs to one work — the second save of one set
     // is refused by the code and, should it slip past, by the database.
     uniqueIndex("works_r360_set_id_unique").on(table.r360SetId),
@@ -552,11 +549,6 @@ export const files = pgTable(
     // read paths fall back to the old derivation until it has run. New rows
     // always carry it.
     objectKey: text("object_key"),
-    // #105: an R360 archive the owner is finishing from — the frames are
-    // derived again from it. The orphan sweep (a day after the upload)
-    // leaves a claimed archive alone for a while, or it would delete an
-    // archive near the one-day line while it is being read.
-    claimedAt: timestamp("claimed_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
   (table) => [
@@ -574,9 +566,17 @@ export const files = pgTable(
     // new values also lets the migration that adds them redefine these
     // indexes in the same transaction: Postgres refuses to USE an enum
     // value added in the transaction that added it.)
+    // #120: an R360 frame has no parent any more — the archive row it used
+    // to hang from is gone — so it would fall in here, where two frames of
+    // one orbit that happen to encode to identical bytes (a building that
+    // does not change between two camera positions) would collide on
+    // (user, sha256, kind) and the save would fail. Frames are told by
+    // their key, as they are in the variant index below.
     uniqueIndex("files_original_user_sha256_unique")
       .on(table.userId, table.sha256, table.kind)
-      .where(sql`${table.parentFileId} IS NULL`),
+      .where(
+        sql`${table.parentFileId} IS NULL AND (${table.objectKey} IS NULL OR ${table.objectKey} NOT LIKE '%/r360/%')`,
+      ),
     // #102: the R360 frames are N rows of one kind under one parent — the
     // point of a set — so they are out of this dedup. Told by their key
     // (`…/r360/<set>/…`, SPEC §9): the enum note above rules out naming the
