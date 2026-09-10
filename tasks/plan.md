@@ -162,9 +162,19 @@ counted as they are made and sent, orbits on the public page by drag and by ring
 laptop and on a phone; e2e with axe green; the server's CPU untouched by the frames.
 
 After the milestone, from the trial on a real 872 MB archive (Dawid, 09–10.09.2026):
-[#117](https://github.com/Devski/platform-lite/issues/117) the canvas viewer (done),
-[#120](https://github.com/Devski/platform-lite/issues/120) the zip stays on the owner's
-machine, and the follow-ups filed from that session — see the issue list.
+[#117](https://github.com/Devski/platform-lite/issues/117) the canvas viewer and
+[#120](https://github.com/Devski/platform-lite/issues/120) the zip that stays on the
+owner's machine, both done and on dev on 10.09.2026, and seven follow-ups from the same
+trial, all on this milestone — how fast a frame appears
+([#121](https://github.com/Devski/platform-lite/issues/121) show it at decode time,
+[#122](https://github.com/Devski/platform-lite/issues/122) stop the uplink stalling the
+encoder, [#123](https://github.com/Devski/platform-lite/issues/123) load a visitor's
+frames untouched), the ring
+([#124](https://github.com/Devski/platform-lite/issues/124) which way the dot runs,
+[#125](https://github.com/Devski/platform-lite/issues/125) the arc going strange), and
+what save costs ([#126](https://github.com/Devski/platform-lite/issues/126) ~240 round
+trips in silence, [#127](https://github.com/Devski/platform-lite/issues/127) a dead tab's
+staged frames).
 
 ### Open decisions (§12)
 
