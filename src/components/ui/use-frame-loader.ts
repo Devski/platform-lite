@@ -5,7 +5,6 @@ import {
   FrameQueue,
   prefersLittleData,
   startFrameLoading,
-  type LoadTier,
 } from "@/lib/r360/frame-loading";
 import { FramePictures } from "@/lib/r360/frame-pictures";
 
@@ -94,14 +93,24 @@ function connectionPrefersLittle(): boolean {
 /**
  * `urls` is the set's identity: a new array starts the loading over, so
  * the caller memoizes it for as long as the set is the same. Nothing is
- * fetched while `enabled` is false; the tier may widen at any time.
+ * fetched while `enabled` is false.
+ *
+ * #123: an orbit in view loads its WHOLE set, without waiting to be
+ * touched. It used to stop at every 8th frame until a pointer, a key or
+ * focus arrived — so an orbit nobody touched never filled, and one that
+ * was touched showed a picture that moved in jumps of eight while the
+ * ring's arc said the frames were there. What stays is the order (coarse
+ * first, so the orbit is usable after a dozen requests either way), the
+ * in-view gate (a profile may carry ten orbits) and the escape hatch for
+ * a connection that asked for little, which is a different question from
+ * whether the mouse moved.
  */
 export function useFrameLoader(
   urls: string[],
   startFrame: number,
-  options: { enabled?: boolean; tier?: LoadTier } = {},
+  options: { enabled?: boolean } = {},
 ): FrameLoader {
-  const { enabled = true, tier = "coarse" } = options;
+  const { enabled = true } = options;
   // The loaded set belongs to one `urls`: a new set starts from what the
   // page already knows of it — settled during render, as derived state is.
   const [snapshot, setSnapshot] = useState(() => ({
@@ -124,7 +133,7 @@ export function useFrameLoader(
     const started = startFrameLoading({
       urls,
       startFrame,
-      tier: connectionPrefersLittle() ? "coarse" : tier,
+      tier: connectionPrefersLittle() ? "coarse" : "all",
       known,
       queue: pageQueue,
       createImage: () => new Image(),
@@ -144,16 +153,7 @@ export function useFrameLoader(
       loading.current = null;
       if (flush) window.cancelAnimationFrame(flush);
     };
-    // The tier widens through setTier below; a new tier must not restart
-    // the loading (which would refetch nothing but re-queue everything).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urls, startFrame, enabled]);
-
-  useEffect(() => {
-    if (tier === "all" && !connectionPrefersLittle()) {
-      loading.current?.setTier("all");
-    }
-  }, [tier, urls, enabled]);
 
   return {
     loaded: snapshot.urls === urls ? snapshot.loaded : new Set(),

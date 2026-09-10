@@ -2,7 +2,6 @@
 
 import { useTranslations } from "next-intl";
 import {
-  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -18,7 +17,6 @@ import { OrbitRing } from "@/components/ui/orbit-ring";
 import { OrbitViewer } from "@/components/ui/orbit-viewer";
 import { useOrbit } from "@/components/ui/use-orbit";
 import { useFrameLoader } from "@/components/ui/use-frame-loader";
-import type { LoadTier } from "@/lib/r360/frame-loading";
 import {
   frameUrl,
   frameUrls,
@@ -572,9 +570,7 @@ function PublicOrbit({
   className,
   imageClassName,
   enabled,
-  tier,
   posterSrc,
-  onTouch,
   ring,
 }: {
   name: string;
@@ -585,11 +581,7 @@ function PublicOrbit({
   imageClassName: string;
   /** Fetch frames at all — once the picture is in view. */
   enabled: boolean;
-  /** The coarse tier until the visitor touches the orbit, then all. */
-  tier: LoadTier;
   posterSrc?: string;
-  /** The first pointer, key or focus on the orbit. */
-  onTouch: () => void;
   /** #106: the ring over the picture's foot, or below the picture. */
   ring: "overlay" | "below";
 }) {
@@ -600,7 +592,6 @@ function PublicOrbit({
   );
   const { loaded, pictures } = useFrameLoader(urls, orbit.params.startFrame, {
     enabled,
-    tier,
   });
   const hand = useOrbit(orbit.params);
   const dial = (
@@ -621,9 +612,6 @@ function PublicOrbit({
   return (
     <div
       className={ring === "below" ? "flex flex-col items-center" : "contents"}
-      onPointerDownCapture={onTouch}
-      onFocusCapture={onTouch}
-      onKeyDownCapture={onTouch}
     >
       <OrbitViewer
         pictures={pictures}
@@ -684,13 +672,6 @@ function usePageLoaded(): boolean {
   return loaded;
 }
 
-/** The tier: coarse until the orbit is touched, then everything. */
-function useTouchedTier(): [LoadTier, () => void] {
-  const [touched, setTouched] = useState(false);
-  const touch = useCallback(() => setTouched(true), []);
-  return [touched ? "all" : "coarse", touch];
-}
-
 // The orbit on the card, a drag across the picture turning it. The
 // picture is the control, so the way into the lightbox is a button of
 // its own beside the 360° mark.
@@ -708,7 +689,6 @@ function OrbitTile({
   const t = useTranslations("Works");
   const [ref, inView] = useInView();
   const pageLoaded = usePageLoaded();
-  const [tier, touch] = useTouchedTier();
   return (
     <div
       ref={ref}
@@ -722,8 +702,6 @@ function OrbitTile({
         className="h-full w-full"
         imageClassName="object-cover"
         enabled={inView && pageLoaded}
-        tier={tier}
-        onTouch={touch}
         ring="overlay"
       />
       <span
@@ -752,7 +730,6 @@ function OrbitFull({ name, orbit }: { name: string; orbit: GalleryOrbit }) {
   const [width] = useState<R360Width>(() =>
     typeof window !== "undefined" && window.innerWidth > 900 ? 1600 : 800,
   );
-  const [tier, touch] = useTouchedTier();
   return (
     <PublicOrbit
       name={name}
@@ -764,11 +741,9 @@ function OrbitFull({ name, orbit }: { name: string; orbit: GalleryOrbit }) {
       className="flex max-h-[calc(100vh-140px-12rem)] w-[min(96vw,1600px)] items-center justify-center"
       imageClassName="max-h-[calc(100vh-140px-12rem)] object-contain"
       enabled
-      tier={tier}
       // The card's 800 px start frame is in the cache already: painted at
       // once, while the larger set is on its way.
       posterSrc={frameUrl(orbit.frameBase, 800, orbit.params.startFrame)}
-      onTouch={touch}
       ring="below"
     />
   );
