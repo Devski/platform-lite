@@ -287,6 +287,16 @@ export const works = pgTable(
     // owner's machine, so the work names its frames and nothing else.
     r360SetId: text("r360_set_id"),
     r360Params: jsonb("r360_params").$type<R360ParamsRow>(),
+    // #140: WHERE the set's frames are, as a storage key prefix — recorded
+    // at save, not rebuilt from the environment at every read. Rebuilt, it
+    // was `<this environment's prefix>u/<user>/r360/<set>/`, and a work made
+    // on one preview pointed at nothing on the next (previews share dev's
+    // database, each under its own key prefix): its orbit showed empty, its
+    // frames answered AccessDenied, and deleting it freed none of them.
+    // Photos have carried their own keys since #49; this is the orbit
+    // catching up. Null on a row the backfill could not place — the reader
+    // falls back to the rebuilt prefix, which is what it did before.
+    r360KeyPrefix: text("r360_key_prefix"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -303,6 +313,13 @@ export const works = pgTable(
     check(
       "works_r360_set_id_format",
       sql`${table.r360SetId} IS NULL OR ${table.r360SetId} ~ '^[0-9a-f]{32}$'`,
+    ),
+    // A recorded prefix names THIS work's set and nothing else: it ends in
+    // `/r360/<the work's own set id>/`. A prefix pointing at another set
+    // would show one work's frames on another's card.
+    check(
+      "works_r360_key_prefix_names_the_set",
+      sql`${table.r360KeyPrefix} IS NULL OR (${table.r360SetId} IS NOT NULL AND right(${table.r360KeyPrefix}, 39) = '/r360/' || ${table.r360SetId} || '/')`,
     ),
     // Same guard as the display name (#36): NOT NULL does not stop "".
     check("works_name_not_blank", sql`length(btrim(${table.name})) > 0`),

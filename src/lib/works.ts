@@ -102,6 +102,7 @@ export async function listWorks(deps: ProfileReadDeps): Promise<WorkView[]> {
       developer: works.developer,
       r360SetId: works.r360SetId,
       r360Params: works.r360Params,
+      r360KeyPrefix: works.r360KeyPrefix,
     })
     .from(works)
     .where(eq(works.userId, userId))
@@ -185,8 +186,11 @@ export async function listWorks(deps: ProfileReadDeps): Promise<WorkView[]> {
         ? {
             setId: row.r360SetId,
             params: row.r360Params,
+            // #140: where the frames ARE — recorded at save. The rebuilt
+            // prefix is only for a row the backfill could not place.
             frameBase: storage.publicUrl(
-              frameSetPrefix(prefix, userId, row.r360SetId),
+              row.r360KeyPrefix ??
+                frameSetPrefix(prefix, userId, row.r360SetId),
             ),
           }
         : null;
@@ -336,7 +340,11 @@ export async function createWork(
       if (verified) await assertNotRecorded(tx, userId, verified.setId);
       const [created] = await tx
         .insert(works)
-        .values({ userId, ...workColumnsOf(parsed) })
+        .values({
+          userId,
+          ...workColumnsOf(parsed),
+          r360KeyPrefix: verified?.keyPrefix ?? null,
+        })
         .returning({ id: works.id });
       await insertImageRows(tx, created.id, parsed);
       if (verified) await insertFrameRows(tx, userId, verified);
@@ -415,7 +423,16 @@ export async function updateWork(
       await insertImageRows(tx, workId, parsed);
       await tx
         .update(works)
-        .set({ ...workColumnsOf(parsed), updatedAt: sql`now()` })
+        .set({
+          ...workColumnsOf(parsed),
+          // A new set records where it landed; a removed one clears it. A
+          // set kept across an edit keeps the prefix it was saved with —
+          // including one saved under another environment's key prefix,
+          // which is exactly the work that used to go blank on the next
+          // preview (#140).
+          ...(setChanges ? { r360KeyPrefix: verified?.keyPrefix ?? null } : {}),
+          updatedAt: sql`now()`,
+        })
         .where(eq(works.id, workId));
       if (verified) await insertFrameRows(tx, userId, verified);
       const kept = new Set([

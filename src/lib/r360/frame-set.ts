@@ -475,7 +475,14 @@ export async function removeFrameSetRows(
   const keys: string[] = [];
   for (const setId of new Set(setIds)) {
     if (!R360_SET_ID_PATTERN.test(setId)) continue;
-    const pattern = `${escapeLike(frameSetPrefix(deps.prefix, deps.userId, setId))}%`;
+    // #140: matched by the SET, whatever environment wrote its frames. The
+    // pattern used to be rebuilt from this environment's key prefix, so
+    // deleting on pr-143 a work made on pr-142 matched nothing: the work
+    // went and its 240 frame rows and objects stayed, counted against the
+    // owner's quota and reachable by nothing. A set id is 16 random bytes,
+    // and the owner is in the WHERE, so `/r360/<set>/` finds that set's
+    // frames and no other.
+    const pattern = `%/r360/${escapeLike(setId)}/%`;
     const rows = await tx
       .delete(files)
       .where(and(eq(files.userId, deps.userId), like(files.objectKey, pattern)))
