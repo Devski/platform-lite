@@ -35,6 +35,19 @@ const pageQueue = new FrameQueue(3);
 
 /** What each set (its first address stands for it) has loaded so far. */
 const knownBySet = new Map<string, Set<number>>();
+/**
+ * Sets that answered nothing but failures, and are not asked again for the
+ * page's life. A work made under another environment's key prefix answers
+ * AccessDenied to every frame (#140), and without this it cost a
+ * hundred-odd failing requests every time it came into view — through the
+ * queue of three that every orbit shares, so the orbits that COULD load
+ * queued behind the one that never would.
+ *
+ * Whole sets, not single frames: to an <img> a cancelled request and a
+ * refused one are the same event, so remembering each failure would let a
+ * lightbox closed mid-load put a permanent hole in an orbit.
+ */
+const unreachableSets = new Set<string>();
 /** And the decoded pictures it still holds, for the page's life. */
 const picturesBySet = new Map<string, FramePictures>();
 
@@ -57,14 +70,25 @@ function shared(): boolean {
 }
 
 function knownOf(urls: readonly string[]): Set<number> {
+  return setFor(knownBySet, urls);
+}
+
+function keyOf(urls: readonly string[]): string {
+  return urls[0] ?? "";
+}
+
+function setFor(
+  store: Map<string, Set<number>>,
+  urls: readonly string[],
+): Set<number> {
   const key = urls[0] ?? "";
   if (!shared()) return new Set();
-  let known = knownBySet.get(key);
-  if (!known) {
-    known = new Set();
-    knownBySet.set(key, known);
+  let held = store.get(key);
+  if (!held) {
+    held = new Set();
+    store.set(key, held);
   }
-  return known;
+  return held;
 }
 
 function picturesOf(urls: readonly string[]): FramePictures {
@@ -125,6 +149,7 @@ export function useFrameLoader(
 
   useEffect(() => {
     if (!enabled || urls.length === 0) return;
+    if (unreachableSets.has(keyOf(urls))) return;
     const known = knownOf(urls);
     const held = picturesOf(urls);
     // One render per animation frame, not per picture: the frames arrive
@@ -134,9 +159,25 @@ export function useFrameLoader(
       urls,
       startFrame,
       tier: connectionPrefersLittle() ? "coarse" : "all",
-      known,
+      // "Fetched once" and "can be painted now" are two different facts,
+      // and only the second one is worth skipping a fetch for. They were
+      // one: the loader skipped every ordinal `known` had, whether or not
+      // a picture for it still existed — so a viewer opened a second time
+      // fetched nothing and painted nothing but its poster, for good.
+      // Reported by Dawid on the #143 preview, 10.09.2026: the lightbox
+      // opened, closed with Escape and opened again would not load.
+      //
+      // A frame that is known AND still held is skipped, as before; a
+      // frame whose picture has gone is fetched again, which is what the
+      // browser's own cache makes cheap. Whatever drops a picture — the
+      // store's budget, a set evicted for another, a change made later —
+      // stops being able to strand a viewer.
+      known: new Set([...known].filter((ordinal) => held.has(ordinal))),
+      // Anything this set has ever given us settles that it is there.
+      loadedBefore: known.size > 0,
       queue: pageQueue,
       createImage: () => new Image(),
+      onUnreachable: () => unreachableSets.add(keyOf(urls)),
       onLoaded: (ordinal, picture) => {
         known.add(ordinal);
         held.put(ordinal, elementPicture(picture));

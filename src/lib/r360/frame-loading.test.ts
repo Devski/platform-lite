@@ -60,6 +60,154 @@ describe("coarseCount", () => {
 });
 
 describe("startFrameLoading", () => {
+  // The queue is ONE for the whole page, three places, and a place is given
+  // back only when a job settles. Closing a viewer mid-load stops its run;
+  // if the frames in flight never settle, their places are gone for good,
+  // and after two or three closes nothing on the page loads any more
+  // (Dawid, 10.09.2026: "powiększenie, ESC, powiększenie, ESC i potem już
+  // nie doładowuje").
+  // Dawid's sequence, as he did it: enlarge, Escape, enlarge, Escape,
+  // enlarge — each close while frames are still in the air, on the
+  // page's queue of three. The third opening is the one that died.
+  it("still loads on the third opening after two closes mid-load", async () => {
+    FakeImage.reset();
+    const queue = new FrameQueue(3);
+    const open = (n: number) =>
+      startFrameLoading({
+        urls: urls(40).map((url) => `open${n}/${url}`),
+        startFrame: 1,
+        tier: "all",
+        queue,
+        createImage: () => new FakeImage(),
+        onLoaded: () => {},
+      });
+    for (const n of [1, 2]) {
+      const viewer = open(n);
+      await tick();
+      // Three frames in the air when Escape is pressed.
+      expect(FakeImage.inFlight()).toHaveLength(3);
+      viewer.stop();
+      await tick();
+    }
+    open(3);
+    await tick();
+    // The third opening gets the whole queue, not what two closes left.
+    const third = FakeImage.requested.filter((url) => url.startsWith("open3/"));
+    expect(third).toHaveLength(3);
+  });
+
+  it("gives its places in the page's queue back when stopped mid-flight", async () => {
+    FakeImage.reset();
+    const queue = new FrameQueue(1);
+    const first = startFrameLoading({
+      urls: urls(8),
+      startFrame: 1,
+      tier: "all",
+      queue,
+      createImage: () => new FakeImage(),
+      onLoaded: () => {},
+    });
+    await tick();
+    // One frame in the air, and the queue has no other place.
+    expect(FakeImage.requested).toEqual(["f/1"]);
+    first.stop();
+    await tick();
+    // The next viewer on the page must get the place the first one left.
+    startFrameLoading({
+      urls: urls(8).map((url) => `next/${url}`),
+      startFrame: 1,
+      tier: "all",
+      queue,
+      createImage: () => new FakeImage(),
+      onLoaded: () => {},
+    });
+    await tick();
+    expect(FakeImage.requested).toEqual(["f/1", "next/f/1"]);
+  });
+
+  // A set that answers nothing but failures is dropped after three tries
+  // rather than asked for in full on every mount: a work made under
+  // another environment's key prefix answers AccessDenied to every one of
+  // its frames (#140), and that used to cost a hundred-odd failing
+  // requests each time it came into view.
+  it("gives a set up after three failures with nothing loaded, and drops what is queued", async () => {
+    FakeImage.reset();
+    const queue = new FrameQueue(1);
+    let unreachable = 0;
+    startFrameLoading({
+      urls: urls(40),
+      startFrame: 1,
+      tier: "all",
+      queue,
+      createImage: () => new FakeImage(),
+      onLoaded: () => {},
+      onUnreachable: () => (unreachable += 1),
+    });
+    for (let i = 0; i < 6; i++) {
+      await tick();
+      for (const image of FakeImage.inFlight()) image.finish(false);
+    }
+    await tick();
+    expect(unreachable).toBe(1);
+    // Three asked for, and the other 37 never left the queue.
+    expect(FakeImage.requested).toHaveLength(3);
+  });
+
+  // Every close of a viewer cancels what was in flight, and a cancelled
+  // request is a failure to an <img>. A set that has already given the
+  // page frames must survive a run that opens on three of them — opening
+  // a lightbox for the third time used to kill the orbit.
+  it("never gives up on a set that has loaded before, however badly a run starts", async () => {
+    FakeImage.reset();
+    const queue = new FrameQueue(1);
+    let unreachable = 0;
+    startFrameLoading({
+      urls: urls(20),
+      startFrame: 1,
+      tier: "all",
+      queue,
+      createImage: () => new FakeImage(),
+      loadedBefore: true,
+      onLoaded: () => {},
+      onUnreachable: () => (unreachable += 1),
+    });
+    for (let i = 0; i < 6; i++) {
+      await tick();
+      for (const image of FakeImage.inFlight()) image.finish(false);
+    }
+    await tick();
+    expect(unreachable).toBe(0);
+    // Still asking, rather than three and out.
+    expect(FakeImage.requested.length).toBeGreaterThan(3);
+  });
+
+  // A cancelled request looks exactly like a refused one to an <img>, and
+  // a lightbox closed mid-load cancels several at once. One failure among
+  // frames that ARE arriving must not end the run.
+  it("keeps going when a frame fails among frames that load", async () => {
+    FakeImage.reset();
+    const queue = new FrameQueue(1);
+    let unreachable = 0;
+    const loaded: number[] = [];
+    startFrameLoading({
+      urls: urls(12),
+      startFrame: 1,
+      tier: "all",
+      queue,
+      createImage: () => new FakeImage(),
+      onLoaded: (ordinal) => loaded.push(ordinal),
+      onUnreachable: () => (unreachable += 1),
+    });
+    for (let i = 0; i < 8; i++) {
+      await tick();
+      // Every third one fails; the rest arrive.
+      for (const image of FakeImage.inFlight()) image.finish(i % 3 !== 0);
+    }
+    await tick();
+    expect(unreachable).toBe(0);
+    expect(loaded.length).toBeGreaterThan(3);
+  });
+
   it("fetches the coarse tier in loading order through the queue, a few at a time, and reports decoded frames", async () => {
     FakeImage.reset();
     const loaded: number[] = [];

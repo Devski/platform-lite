@@ -22,6 +22,14 @@ export type ImageLike = Pick<
   "onload" | "onerror" | "src" | "decode" | "naturalWidth" | "naturalHeight"
 >;
 
+/**
+ * Failures in a row, with nothing loaded, that mean the set is not there
+ * rather than that the network hiccuped. Three: enough that a single
+ * cancelled request cannot end a run, few enough that a set of 720
+ * objects which answers nothing costs three requests and not 720.
+ */
+const GIVE_UP_AFTER = 3;
+
 /** The coarse tier: every 8th frame from the start — ⌈N / 8⌉ of them. */
 export function coarseCount(frameCount: number): number {
   return Math.ceil(frameCount / 8);
@@ -71,8 +79,20 @@ export interface FrameLoadingOptions<TImage extends ImageLike = ImageLike> {
   urls: readonly string[];
   startFrame: number;
   tier: LoadTier;
-  /** Ordinals already loaded (a remount): fetched again never. */
+  /** Ordinals not to ask for: their picture is already held. */
   known?: ReadonlySet<number>;
+  /**
+   * This set has given the page a frame before, in an earlier run. Then it
+   * is reachable, whatever this run runs into, and the giving-up below is
+   * off — it is there to catch a set that has NEVER answered, not a run
+   * that began badly.
+   *
+   * Load it wrong and closing a viewer twice kills the orbit: each close
+   * cancels what was in flight, a cancelled request is a failure to an
+   * <img>, and the next run opens on three of them (Dawid, 10.09.2026 —
+   * "powiększenie, ESC, powiększenie, ESC i potem już nie doładowuje").
+   */
+  loadedBefore?: boolean;
   queue: FrameQueue;
   createImage: () => TImage;
   /**
@@ -80,6 +100,24 @@ export interface FrameLoadingOptions<TImage extends ImageLike = ImageLike> {
    * the viewer can paint it without fetching and decoding again (#117).
    */
   onLoaded: (ordinal: number, picture: TImage) => void;
+  /**
+   * Told once, when a set has answered nothing but failures: none of it
+   * can load, and the run gives up rather than asking for the rest.
+   *
+   * A whole set can be unreachable — a work made under another
+   * environment's key prefix answers AccessDenied to every frame (#140) —
+   * and it used to cost a hundred-odd failing requests EVERY time it came
+   * into view, through the queue of three that every orbit on the page
+   * shares. The orbits that could load queued behind the one that never
+   * would.
+   *
+   * Counted rather than remembered per frame: a cancelled request and a
+   * refused one are the same event to an <img>, so remembering each
+   * failure would let a closed lightbox, or a blip, put a permanent hole
+   * in an orbit. A run that has loaded nothing and failed three times in
+   * a row is not a blip.
+   */
+  onUnreachable?: () => void;
 }
 
 /**
@@ -89,7 +127,7 @@ export interface FrameLoadingOptions<TImage extends ImageLike = ImageLike> {
 export function startFrameLoading<TImage extends ImageLike>(
   options: FrameLoadingOptions<TImage>,
 ): FrameLoading {
-  const { urls, queue, createImage, onLoaded } = options;
+  const { urls, queue, createImage, onLoaded, onUnreachable } = options;
   const order = loadingOrder(urls.length, options.startFrame).filter(
     (ordinal) => !options.known?.has(ordinal),
   );
@@ -102,7 +140,13 @@ export function startFrameLoading<TImage extends ImageLike>(
   let limit = options.tier;
   let cursor = 0;
   let stopped = false;
-  const inFlight = new Set<TImage>();
+  let failuresInARow = 0;
+  let everLoaded = options.loadedBefore ?? false;
+  /**
+   * The frames in the air, each with the way to settle its job. A job that
+   * never settles never gives the page's queue its place back — see stop.
+   */
+  const inFlight = new Map<TImage, () => void>();
 
   const wanted = (ordinal: number) => limit === "all" || coarse.has(ordinal);
   const live = () => !stopped;
@@ -110,12 +154,26 @@ export function startFrameLoading<TImage extends ImageLike>(
   const load = (ordinal: number) =>
     new Promise<void>((resolve) => {
       const image = createImage();
-      inFlight.add(image);
       const finish = (ok: boolean) => {
-        inFlight.delete(image);
+        // Once: an image stopped mid-decode may still have a decode()
+        // settle after the job already has.
+        if (!inFlight.delete(image)) return;
         image.onload = null;
         image.onerror = null;
-        if (ok && !stopped) onLoaded(ordinal, image);
+        if (!stopped) {
+          if (ok) {
+            everLoaded = true;
+            failuresInARow = 0;
+            onLoaded(ordinal, image);
+          } else {
+            failuresInARow += 1;
+            if (!everLoaded && failuresInARow >= GIVE_UP_AFTER) {
+              // `live()` reads this, so what is queued is dropped unrun.
+              stopped = true;
+              onUnreachable?.();
+            }
+          }
+        }
         resolve();
       };
       image.onload = () => {
@@ -127,6 +185,7 @@ export function startFrameLoading<TImage extends ImageLike>(
         );
       };
       image.onerror = () => finish(false);
+      inFlight.set(image, () => finish(false));
       image.src = urls[ordinal - 1];
     });
 
@@ -149,13 +208,18 @@ export function startFrameLoading<TImage extends ImageLike>(
     },
     stop() {
       stopped = true;
-      for (const image of inFlight) {
-        image.onload = null;
-        image.onerror = null;
+      // Each frame in the air is SETTLED here, not merely silenced. The
+      // page has one queue with three places, and a place comes back only
+      // when its job settles — which, with the handlers taken away, used to
+      // be never. Every viewer closed mid-load kept the places of its
+      // frames in flight for the life of the page, and after two or three
+      // closes there were none left: nothing on the page loaded again.
+      // `stopped` is set first, so settling reports nothing to the caller.
+      for (const [image, settle] of [...inFlight]) {
+        settle();
         // An empty source aborts a fetch in flight in every browser.
         image.src = "";
       }
-      inFlight.clear();
     },
   };
 }
