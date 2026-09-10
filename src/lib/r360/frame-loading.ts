@@ -81,6 +81,18 @@ export interface FrameLoadingOptions<TImage extends ImageLike = ImageLike> {
   tier: LoadTier;
   /** Ordinals not to ask for: their picture is already held. */
   known?: ReadonlySet<number>;
+  /**
+   * This set has given the page a frame before, in an earlier run. Then it
+   * is reachable, whatever this run runs into, and the giving-up below is
+   * off — it is there to catch a set that has NEVER answered, not a run
+   * that began badly.
+   *
+   * Load it wrong and closing a viewer twice kills the orbit: each close
+   * cancels what was in flight, a cancelled request is a failure to an
+   * <img>, and the next run opens on three of them (Dawid, 10.09.2026 —
+   * "powiększenie, ESC, powiększenie, ESC i potem już nie doładowuje").
+   */
+  loadedBefore?: boolean;
   queue: FrameQueue;
   createImage: () => TImage;
   /**
@@ -129,7 +141,7 @@ export function startFrameLoading<TImage extends ImageLike>(
   let cursor = 0;
   let stopped = false;
   let failuresInARow = 0;
-  let everLoaded = false;
+  let everLoaded = options.loadedBefore ?? false;
   const inFlight = new Set<TImage>();
 
   const wanted = (ordinal: number) => limit === "all" || coarse.has(ordinal);

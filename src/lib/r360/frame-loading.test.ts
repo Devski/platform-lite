@@ -88,6 +88,34 @@ describe("startFrameLoading", () => {
     expect(FakeImage.requested).toHaveLength(3);
   });
 
+  // Every close of a viewer cancels what was in flight, and a cancelled
+  // request is a failure to an <img>. A set that has already given the
+  // page frames must survive a run that opens on three of them — opening
+  // a lightbox for the third time used to kill the orbit.
+  it("never gives up on a set that has loaded before, however badly a run starts", async () => {
+    FakeImage.reset();
+    const queue = new FrameQueue(1);
+    let unreachable = 0;
+    startFrameLoading({
+      urls: urls(20),
+      startFrame: 1,
+      tier: "all",
+      queue,
+      createImage: () => new FakeImage(),
+      loadedBefore: true,
+      onLoaded: () => {},
+      onUnreachable: () => (unreachable += 1),
+    });
+    for (let i = 0; i < 6; i++) {
+      await tick();
+      for (const image of FakeImage.inFlight()) image.finish(false);
+    }
+    await tick();
+    expect(unreachable).toBe(0);
+    // Still asking, rather than three and out.
+    expect(FakeImage.requested.length).toBeGreaterThan(3);
+  });
+
   // A cancelled request looks exactly like a refused one to an <img>, and
   // a lightbox closed mid-load cancels several at once. One failure among
   // frames that ARE arriving must not end the run.

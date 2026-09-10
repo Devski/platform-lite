@@ -173,6 +173,8 @@ export function useFrameLoader(
       // store's budget, a set evicted for another, a change made later —
       // stops being able to strand a viewer.
       known: new Set([...known].filter((ordinal) => held.has(ordinal))),
+      // Anything this set has ever given us settles that it is there.
+      loadedBefore: known.size > 0,
       queue: pageQueue,
       createImage: () => new Image(),
       onUnreachable: () => unreachableSets.add(keyOf(urls)),

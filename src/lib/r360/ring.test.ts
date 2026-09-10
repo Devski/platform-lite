@@ -228,6 +228,39 @@ describe("loadedRunsPath", () => {
       expect(subpaths(every(8), 5)).toBe(15);
     });
 
+    it("closes the ring when one run all but meets itself", () => {
+      // 119 of 120 is a single run, so there is no second run to compare a
+      // gap with — and its own gap at the wrap is 4 px on this ring, less
+      // than the 5 px stroke drawing it. It used to show as a nick.
+      const missingOne = new Set(
+        Array.from({ length: 120 }, (_, i) => i + 1).filter((n) => n !== 60),
+      );
+      expect(loadedRuns(missingOne, 120)).toHaveLength(1);
+      expect(subpaths(missingOne, 5)).toBe(1);
+      // It closes: the last point drawn is the first one. Not the same
+      // STRING as a full set's path — this ring is traced from frame 61,
+      // where the run begins — but the same circle.
+      const ends = (d: string) => {
+        const points = d.replace(/^M/, "").split("L");
+        return [points[0], points[points.length - 1]];
+      };
+      const [from, to] = ends(
+        loadedRunsPath(loadedRuns(missingOne, 120), orbit, 80, 80, 5),
+      );
+      expect(to).toBe(from);
+      // A hole of three frames is 12.6 px: wider than the stroke, so it
+      // stays a hole. The dial does not lie about a set that is short.
+      const missingThree = new Set(
+        Array.from({ length: 120 }, (_, i) => i + 1).filter(
+          (n) => n < 60 || n > 62,
+        ),
+      );
+      const [openFrom, openTo] = ends(
+        loadedRunsPath(loadedRuns(missingThree, 120), orbit, 80, 80, 5),
+      );
+      expect(openTo).not.toBe(openFrom);
+    });
+
     it("draws every gap when the caller strokes nothing", () => {
       expect(subpaths(every(2), 0)).toBe(60);
     });

@@ -180,7 +180,9 @@ function joinInvisibleGaps(
   radiusY: number,
   strokeWidth: number,
 ): LoadedRun[] {
-  if (strokeWidth <= 0 || runs.length < 2) return [...runs];
+  // One run is not a special case: its own gap, at the wrap, is the one
+  // that shows when a set is a single frame short.
+  if (strokeWidth <= 0 || runs.length === 0) return [...runs];
   // The ink gap is the distance less the two caps that reach into it;
   // it stops reading as a gap once it is thinner than the line.
   const joinUnderPx = 2 * strokeWidth;
@@ -216,6 +218,21 @@ function joinInvisibleGaps(
       to: first.to,
       length: last.length + gapFrames + first.length - 1,
     };
+  }
+  // One run that all but closes the ring has a gap too — its own, at the
+  // wrap — and the loop above never looks at it, because there is no
+  // second run to compare it with. A single frame missing from a set of
+  // 120 is 4 px on the card's ring, less than the stroke that draws it, so
+  // it read as a nick in an otherwise full circle: "zawsze zostaje taki
+  // punkcik w tym kole kiedy wszystko już jest załadowane" (Dawid,
+  // 10.09.2026). Wider than the rule allows, it stays visible.
+  if (
+    joined.length === 1 &&
+    joined[0].length < frameCount &&
+    gapBetween(endOf(joined[0]), joined[0].from, params, radiusX, radiusY) <
+      joinUnderPx
+  ) {
+    joined[0].length = frameCount;
   }
   for (const run of joined) run.length = Math.min(run.length, frameCount);
   return joined;
