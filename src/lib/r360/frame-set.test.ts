@@ -549,6 +549,79 @@ describe("a frame set on a work", () => {
     expect(await reservationsOf(set.keyPrefix)).toHaveLength(0);
   });
 
+  // #140. Previews share dev's database, each under its own key prefix,
+  // so a work made on one preview is read, edited and deleted on the next.
+  // Dawid hit all three on 10.09.2026: the orbit blank on pr-143, its
+  // frames answering AccessDenied, and a delete that freed none of them.
+  describe("a work made under another environment's key prefix (#140)", () => {
+    const on = (prefix: string, d: ReturnType<typeof makeDeps>) => ({
+      ...d,
+      deps: { ...d.deps, prefix },
+    });
+
+    it("records where its frames are, and is shown from there on the next preview", async () => {
+      const made = on("pr-142/", makeDeps());
+      const photo = await uploadPhoto(made);
+      const set = await stageSet(made, 2);
+      await createWork(made.deps, {
+        name: "Z innego podglądu",
+        imageFileIds: [photo.original.fileId],
+        r360SetId: set.setId,
+        r360Params: defaultR360Params(2),
+      });
+      const [row] = await testDb.db
+        .select({ keyPrefix: works.r360KeyPrefix })
+        .from(works);
+      expect(row.keyPrefix).toBe(`pr-142/u/${userId}/r360/${set.setId}/`);
+
+      // The same work, read by the next preview: its own prefix, not ours.
+      const [view] = await listWorks(on("pr-143/", made).deps);
+      expect(view.orbit?.frameBase).toBe(`memory://${row.keyPrefix}`);
+    });
+
+    it("keeps that prefix across an edit that keeps the set", async () => {
+      const made = on("pr-142/", makeDeps());
+      const photo = await uploadPhoto(made);
+      const set = await stageSet(made, 2);
+      const input = {
+        name: "Przed",
+        imageFileIds: [photo.original.fileId],
+        r360SetId: set.setId,
+        r360Params: defaultR360Params(2),
+      };
+      const { id } = await createWork(made.deps, input);
+      await updateWork(on("pr-143/", made).deps, id, { ...input, name: "Po" });
+      const [row] = await testDb.db
+        .select({ keyPrefix: works.r360KeyPrefix })
+        .from(works);
+      expect(row.keyPrefix).toBe(`pr-142/u/${userId}/r360/${set.setId}/`);
+    });
+
+    it("frees its frames when deleted from another preview", async () => {
+      const made = on("pr-142/", makeDeps());
+      const photo = await uploadPhoto(made);
+      const set = await stageSet(made, 2);
+      const { id } = await createWork(made.deps, {
+        name: "Do usunięcia gdzie indziej",
+        imageFileIds: [photo.original.fileId],
+        r360SetId: set.setId,
+        r360Params: defaultR360Params(2),
+      });
+      await deleteWork(on("pr-143/", made).deps, id);
+      // The rows went — they used to stay, 240 of them, on the quota.
+      expect(
+        await testDb.db
+          .select()
+          .from(files)
+          .where(inArray(files.kind, ["r360-1600", "r360-800"])),
+      ).toHaveLength(0);
+      // And so did the objects, under the prefix they were written to.
+      expect(await made.deps.storage.listObjects(set.keyPrefix)).toHaveLength(
+        0,
+      );
+    });
+  });
+
   it("replaces the set, keeps it across an edit, refuses a change of its count, and frees it with the work", async () => {
     const d = makeDeps();
     const photo = await uploadPhoto(d);

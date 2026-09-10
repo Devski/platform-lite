@@ -56,6 +56,8 @@ describe("schema tables (SPEC §9)", () => {
         "name",
         "r360_set_id",
         "r360_params",
+        // #140: where the set's frames are, recorded at save.
+        "r360_key_prefix",
         "updated_at",
         "user_id",
       ].sort(),
