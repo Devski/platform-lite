@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { hashPassword } from "better-auth/crypto";
 import { eq } from "drizzle-orm";
 import sharp from "sharp";
@@ -47,7 +47,25 @@ import type { FileStorage } from "@/lib/storage";
 //              uses (auth.ts sets no custom password.hash) }
 // A Better Auth upgrade that changes this shape is a change here too.
 
-export const SEED_PASSWORD = "architekt-seed-2026";
+/**
+ * The seed accounts' password for this run (#144). It used to be a
+ * constant here — fine while the repository was private, and public for
+ * good the day it was not: anyone could sign in to the demo profiles on
+ * dev and publish on our domain. Rotating the constant would not have
+ * undone that; the value lives in the history.
+ *
+ * From SEED_PASSWORD when set, so a team can share one on purpose;
+ * otherwise minted fresh for this run and printed once, as the CLI always
+ * printed it. Nothing about a developer's workflow changes but that the
+ * password is no longer in the source.
+ */
+export function seedPassword(
+  env: Record<string, string | undefined> = process.env,
+): string {
+  const given = env.SEED_PASSWORD?.trim();
+  if (given) return given;
+  return randomBytes(12).toString("base64url");
+}
 
 // A reserved domain (RFC 2606): no seed address can ever receive mail.
 const SEED_EMAIL_DOMAIN = "seed.example";
@@ -354,6 +372,8 @@ export interface SeedDeps {
   storage: FileStorage | null;
   /** Environment key prefix (keyPrefix(); SPEC.md §4). */
   prefix: string;
+  /** What every account created by this run signs in with (seedPassword). */
+  password: string;
   log: (line: string) => void;
 }
 
@@ -418,6 +438,7 @@ async function createProfile(
   db: Database,
   profile: SeedProfile,
   canAddPhoto: boolean,
+  plainPassword: string,
 ): Promise<CreateOutcome> {
   const [existing] = await db
     .select({
@@ -464,7 +485,7 @@ async function createProfile(
 
   // scrypt takes ~100 ms — hashed before the transaction opens, per account
   // (a fresh salt each, as sign-up would).
-  const password = await hashPassword(SEED_PASSWORD);
+  const password = await hashPassword(plainPassword);
   try {
     return await db.transaction(async (tx) => {
       const userId = await insertAccount(tx, profile, password);
@@ -560,11 +581,16 @@ async function uploadImage(
  * sections existed (#72) gets them on the next run.
  */
 export async function seedProfiles(deps: SeedDeps): Promise<SeedSummary> {
-  const { db, storage, prefix, log } = deps;
+  const { db, storage, prefix, password, log } = deps;
   const summary: SeedSummary = { created: [], skipped: [], photos: [] };
   for (const profile of SEED_PROFILES) {
     const { handle } = profile;
-    const outcome = await createProfile(db, profile, storage !== null);
+    const outcome = await createProfile(
+      db,
+      profile,
+      storage !== null,
+      password,
+    );
     if (outcome.kind === "skipped") {
       summary.skipped.push(handle);
       log(`skipped  ${handle}  (${outcome.reason})`);
