@@ -156,6 +156,9 @@ export function OrbitRing({
         params,
         radiusX,
         radiusY,
+        // #125: a gap thinner than the line it is drawn with is not a gap
+        // on screen, only a lump in the band.
+        LOADED_STROKE,
       ),
     [loaded, params, radiusX, radiusY],
   );
