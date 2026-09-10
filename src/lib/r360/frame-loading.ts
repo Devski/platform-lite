@@ -22,6 +22,14 @@ export type ImageLike = Pick<
   "onload" | "onerror" | "src" | "decode" | "naturalWidth" | "naturalHeight"
 >;
 
+/**
+ * Failures in a row, with nothing loaded, that mean the set is not there
+ * rather than that the network hiccuped. Three: enough that a single
+ * cancelled request cannot end a run, few enough that a set of 720
+ * objects which answers nothing costs three requests and not 720.
+ */
+const GIVE_UP_AFTER = 3;
+
 /** The coarse tier: every 8th frame from the start — ⌈N / 8⌉ of them. */
 export function coarseCount(frameCount: number): number {
   return Math.ceil(frameCount / 8);
@@ -71,7 +79,7 @@ export interface FrameLoadingOptions<TImage extends ImageLike = ImageLike> {
   urls: readonly string[];
   startFrame: number;
   tier: LoadTier;
-  /** Ordinals not to ask for: already held, or already refused. */
+  /** Ordinals not to ask for: their picture is already held. */
   known?: ReadonlySet<number>;
   queue: FrameQueue;
   createImage: () => TImage;
@@ -81,14 +89,23 @@ export interface FrameLoadingOptions<TImage extends ImageLike = ImageLike> {
    */
   onLoaded: (ordinal: number, picture: TImage) => void;
   /**
-   * One ordinal the browser refused. Told to the caller so it can stop
-   * asking: a frame that failed used to be retried in full on every mount,
-   * and a set that cannot load at all — a work made under another
-   * environment's key prefix (#140) — then cost a hundred-odd failing
-   * requests each time it was opened, through a queue of three that every
-   * orbit on the page shares. The sets that COULD load waited behind them.
+   * Told once, when a set has answered nothing but failures: none of it
+   * can load, and the run gives up rather than asking for the rest.
+   *
+   * A whole set can be unreachable — a work made under another
+   * environment's key prefix answers AccessDenied to every frame (#140) —
+   * and it used to cost a hundred-odd failing requests EVERY time it came
+   * into view, through the queue of three that every orbit on the page
+   * shares. The orbits that could load queued behind the one that never
+   * would.
+   *
+   * Counted rather than remembered per frame: a cancelled request and a
+   * refused one are the same event to an <img>, so remembering each
+   * failure would let a closed lightbox, or a blip, put a permanent hole
+   * in an orbit. A run that has loaded nothing and failed three times in
+   * a row is not a blip.
    */
-  onFailed?: (ordinal: number) => void;
+  onUnreachable?: () => void;
 }
 
 /**
@@ -98,7 +115,7 @@ export interface FrameLoadingOptions<TImage extends ImageLike = ImageLike> {
 export function startFrameLoading<TImage extends ImageLike>(
   options: FrameLoadingOptions<TImage>,
 ): FrameLoading {
-  const { urls, queue, createImage, onLoaded, onFailed } = options;
+  const { urls, queue, createImage, onLoaded, onUnreachable } = options;
   const order = loadingOrder(urls.length, options.startFrame).filter(
     (ordinal) => !options.known?.has(ordinal),
   );
@@ -111,6 +128,8 @@ export function startFrameLoading<TImage extends ImageLike>(
   let limit = options.tier;
   let cursor = 0;
   let stopped = false;
+  let failuresInARow = 0;
+  let everLoaded = false;
   const inFlight = new Set<TImage>();
 
   const wanted = (ordinal: number) => limit === "all" || coarse.has(ordinal);
@@ -125,8 +144,18 @@ export function startFrameLoading<TImage extends ImageLike>(
         image.onload = null;
         image.onerror = null;
         if (!stopped) {
-          if (ok) onLoaded(ordinal, image);
-          else onFailed?.(ordinal);
+          if (ok) {
+            everLoaded = true;
+            failuresInARow = 0;
+            onLoaded(ordinal, image);
+          } else {
+            failuresInARow += 1;
+            if (!everLoaded && failuresInARow >= GIVE_UP_AFTER) {
+              // `live()` reads this, so what is queued is dropped unrun.
+              stopped = true;
+              onUnreachable?.();
+            }
+          }
         }
         resolve();
       };

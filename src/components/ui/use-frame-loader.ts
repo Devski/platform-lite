@@ -36,16 +36,18 @@ const pageQueue = new FrameQueue(3);
 /** What each set (its first address stands for it) has loaded so far. */
 const knownBySet = new Map<string, Set<number>>();
 /**
- * And which of its frames the browser refused. Kept for the page's life,
- * like what it loaded: a frame that failed is not asked for again until a
- * reload. A whole set can be unreachable — a work made under another
- * environment's key prefix answers AccessDenied to every frame (#140) —
- * and without this it cost a hundred-odd failing requests every time it
- * came into view, through the queue of three that every orbit shares. The
- * price is a frame lost to a blip staying lost until a reload; the orbit
- * shows its nearest neighbour, which it does for a missing frame anyway.
+ * Sets that answered nothing but failures, and are not asked again for the
+ * page's life. A work made under another environment's key prefix answers
+ * AccessDenied to every frame (#140), and without this it cost a
+ * hundred-odd failing requests every time it came into view — through the
+ * queue of three that every orbit shares, so the orbits that COULD load
+ * queued behind the one that never would.
+ *
+ * Whole sets, not single frames: to an <img> a cancelled request and a
+ * refused one are the same event, so remembering each failure would let a
+ * lightbox closed mid-load put a permanent hole in an orbit.
  */
-const failedBySet = new Map<string, Set<number>>();
+const unreachableSets = new Set<string>();
 /** And the decoded pictures it still holds, for the page's life. */
 const picturesBySet = new Map<string, FramePictures>();
 
@@ -71,8 +73,8 @@ function knownOf(urls: readonly string[]): Set<number> {
   return setFor(knownBySet, urls);
 }
 
-function failedOf(urls: readonly string[]): Set<number> {
-  return setFor(failedBySet, urls);
+function keyOf(urls: readonly string[]): string {
+  return urls[0] ?? "";
 }
 
 function setFor(
@@ -147,8 +149,8 @@ export function useFrameLoader(
 
   useEffect(() => {
     if (!enabled || urls.length === 0) return;
+    if (unreachableSets.has(keyOf(urls))) return;
     const known = knownOf(urls);
-    const failed = failedOf(urls);
     const held = picturesOf(urls);
     // One render per animation frame, not per picture: the frames arrive
     // in bursts and each would otherwise be a commit of its own.
@@ -170,13 +172,10 @@ export function useFrameLoader(
       // browser's own cache makes cheap. Whatever drops a picture — the
       // store's budget, a set evicted for another, a change made later —
       // stops being able to strand a viewer.
-      known: new Set([
-        ...[...known].filter((ordinal) => held.has(ordinal)),
-        ...failed,
-      ]),
+      known: new Set([...known].filter((ordinal) => held.has(ordinal))),
       queue: pageQueue,
       createImage: () => new Image(),
-      onFailed: (ordinal) => failed.add(ordinal),
+      onUnreachable: () => unreachableSets.add(keyOf(urls)),
       onLoaded: (ordinal, picture) => {
         known.add(ordinal);
         held.put(ordinal, elementPicture(picture));

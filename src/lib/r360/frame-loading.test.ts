@@ -60,34 +60,59 @@ describe("coarseCount", () => {
 });
 
 describe("startFrameLoading", () => {
-  // A frame the browser refuses is told to the caller, so a set that
-  // cannot load at all is not asked for again on every mount — a work made
-  // under another environment's key prefix answers AccessDenied to every
-  // one of its frames (#140), and that used to cost a hundred-odd failing
+  // A set that answers nothing but failures is dropped after three tries
+  // rather than asked for in full on every mount: a work made under
+  // another environment's key prefix answers AccessDenied to every one of
+  // its frames (#140), and that used to cost a hundred-odd failing
   // requests each time it came into view.
-  it("reports the frames that failed, and never counts them as loaded", async () => {
+  it("gives a set up after three failures with nothing loaded, and drops what is queued", async () => {
     FakeImage.reset();
-    const queue = new FrameQueue(2);
-    const loaded: number[] = [];
-    const failed: number[] = [];
+    const queue = new FrameQueue(1);
+    let unreachable = 0;
     startFrameLoading({
-      urls: urls(8),
+      urls: urls(40),
+      startFrame: 1,
+      tier: "all",
+      queue,
+      createImage: () => new FakeImage(),
+      onLoaded: () => {},
+      onUnreachable: () => (unreachable += 1),
+    });
+    for (let i = 0; i < 6; i++) {
+      await tick();
+      for (const image of FakeImage.inFlight()) image.finish(false);
+    }
+    await tick();
+    expect(unreachable).toBe(1);
+    // Three asked for, and the other 37 never left the queue.
+    expect(FakeImage.requested).toHaveLength(3);
+  });
+
+  // A cancelled request looks exactly like a refused one to an <img>, and
+  // a lightbox closed mid-load cancels several at once. One failure among
+  // frames that ARE arriving must not end the run.
+  it("keeps going when a frame fails among frames that load", async () => {
+    FakeImage.reset();
+    const queue = new FrameQueue(1);
+    let unreachable = 0;
+    const loaded: number[] = [];
+    startFrameLoading({
+      urls: urls(12),
       startFrame: 1,
       tier: "all",
       queue,
       createImage: () => new FakeImage(),
       onLoaded: (ordinal) => loaded.push(ordinal),
-      onFailed: (ordinal) => failed.push(ordinal),
+      onUnreachable: () => (unreachable += 1),
     });
+    for (let i = 0; i < 8; i++) {
+      await tick();
+      // Every third one fails; the rest arrive.
+      for (const image of FakeImage.inFlight()) image.finish(i % 3 !== 0);
+    }
     await tick();
-    for (const image of FakeImage.inFlight()) image.finish(false);
-    await tick();
-    for (const image of FakeImage.inFlight()) image.finish(true);
-    await tick();
-    expect(failed.length).toBeGreaterThan(0);
-    expect(loaded.length).toBeGreaterThan(0);
-    // No ordinal is in both: a frame either arrived or it did not.
-    expect(loaded.filter((o) => failed.includes(o))).toEqual([]);
+    expect(unreachable).toBe(0);
+    expect(loaded.length).toBeGreaterThan(3);
   });
 
   it("fetches the coarse tier in loading order through the queue, a few at a time, and reports decoded frames", async () => {
