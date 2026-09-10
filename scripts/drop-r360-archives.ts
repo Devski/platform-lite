@@ -107,4 +107,9 @@ async function main(): Promise<void> {
   );
 }
 
-await main();
+// Not a top-level await: tsx compiles these scripts as CommonJS, where one
+// is a build error — the same shape as scripts/backfill-file-keys.ts.
+main().catch((error) => {
+  console.error(error instanceof Error ? error.message : error);
+  process.exitCode = 1;
+});
