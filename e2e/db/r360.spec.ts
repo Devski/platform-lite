@@ -129,12 +129,14 @@ test("a tap on the ring's centre falls through to the picture, and a reduced-mot
   // which without movement changes nothing.
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await expect(viewer).toHaveAttribute("data-frame", "3");
-  // On the band, opposite the dot: a jump, no frames on the way.
+  // On the band, opposite the dot: a jump, no frames on the way. The
+  // right of the ring is frame 4 since #124 turned the dial round; it was
+  // frame 2, and it is the same click on the same pixel.
   await page.mouse.click(
     box.x + (box.width * (100 + 92)) / 200,
     box.y + box.height / 2,
   );
-  await expect(viewer).toHaveAttribute("data-frame", "2");
+  await expect(viewer).toHaveAttribute("data-frame", "4");
   await still.close();
 });
 
@@ -147,23 +149,24 @@ test("a click on the ring travels the shorter arc to the frame at that angle (#1
   const box = await ring.boundingBox();
   if (!box) throw new Error("no ring box");
   // The ring's view box is 200 wide with a 92 px radius: from the start
-  // frame (3, at the bottom) the frames go clockwise on screen — 4 on the
-  // left, 1 at the top, 2 on the right.
+  // frame (3, at the bottom) the frames go ANTICLOCKWISE on screen since
+  // #124 — 2 on the left, 1 at the top, 4 on the right. Every number here
+  // is the old one mirrored, on the same pixels.
   const right = {
     x: box.x + (box.width * (100 + 92)) / 200,
     y: box.y + box.height / 2,
   };
   await visitor.mouse.click(right.x, right.y);
-  await expect(viewer).toHaveAttribute("data-frame", "2");
+  await expect(viewer).toHaveAttribute("data-frame", "4");
   await expect(visitor.getByTestId("orbit-counter").first()).toHaveText(
-    "2 / 4",
+    "4 / 4",
   );
   const left = {
     x: box.x + (box.width * (100 - 92)) / 200,
     y: box.y + box.height / 2,
   };
   await visitor.mouse.click(left.x, left.y);
-  await expect(viewer).toHaveAttribute("data-frame", "4");
+  await expect(viewer).toHaveAttribute("data-frame", "2");
 });
 
 test("the enlarge button opens the orbit in the lightbox, where it turns too; Escape closes it", async () => {

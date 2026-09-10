@@ -23,15 +23,19 @@ const params = (
 const close = (a: number, b: number) => expect(a).toBeCloseTo(b, 10);
 
 describe("angleOfFrame and frameAtAngle", () => {
-  it("puts the start frame at the bottom and the next one a step clockwise, the work's way", () => {
+  // #124: the start frame is still at the bottom, and the numbers still
+  // grow the work's way — but round the screen the other way than they
+  // did, which is the whole of that issue. Every one of these expectations
+  // is the old one with its sign turned.
+  it("puts the start frame at the bottom and the next one a step anticlockwise, the work's way", () => {
     const p = params(8, 1, 3);
     close(angleOfFrame(3, p), 0);
-    close(angleOfFrame(4, p), Math.PI / 4);
-    close(angleOfFrame(7, p), Math.PI);
-    close(angleOfFrame(2, p), (7 * Math.PI) / 4);
+    close(angleOfFrame(4, p), -Math.PI / 4);
+    close(angleOfFrame(7, p), -Math.PI);
+    close(angleOfFrame(2, p), -(7 * Math.PI) / 4);
     const reversed = params(8, -1, 3);
-    close(angleOfFrame(4, reversed), -Math.PI / 4);
-    close(angleOfFrame(2, reversed), -(7 * Math.PI) / 4);
+    close(angleOfFrame(4, reversed), Math.PI / 4);
+    close(angleOfFrame(2, reversed), (7 * Math.PI) / 4);
   });
 
   it("maps every angle back to the nearest frame, both ways round", () => {
@@ -47,7 +51,9 @@ describe("angleOfFrame and frameAtAngle", () => {
     // Just short of halfway to the next frame stays; just past it moves.
     const p = params(8);
     expect(frameAtAngle(Math.PI / 8 - 0.01, p)).toBe(1);
-    expect(frameAtAngle(Math.PI / 8 + 0.01, p)).toBe(2);
+    // Anticlockwise now (#124): a step clockwise of the bottom is the
+    // frame BEFORE the start, not the one after it.
+    expect(frameAtAngle(Math.PI / 8 + 0.01, p)).toBe(8);
   });
 });
 
@@ -185,6 +191,56 @@ describe("loadedRunsPath", () => {
     expect(path.endsWith(`L${start.x.toFixed(2)} ${start.y.toFixed(2)}`)).toBe(
       true,
     );
+  });
+
+  // #125: the loading order is 8, 4, 2, 1, so every orbit passes through
+  // "every other frame" — 60 lone frames on a 120-frame ring, each drawn
+  // as a round dot the full width of the stroke. On the card's 160 px ring
+  // their centres are 8.4 px apart, which leaves 3.4 px of ink between
+  // 5 px blobs: beads, not a band. That is what looked strange.
+  describe("gaps the stroke closes", () => {
+    const orbit = { ...params, frameCount: 120, framesPerWidth: 60 };
+    const every = (stride: number) =>
+      new Set(
+        Array.from(
+          { length: Math.ceil(120 / stride) },
+          (_, i) => i * stride + 1,
+        ),
+      );
+    const subpaths = (loaded: Set<number>, stroke: number, flat = 1) =>
+      (
+        loadedRunsPath(
+          loadedRuns(loaded, 120),
+          orbit,
+          80,
+          80 * flat,
+          stroke,
+        ).match(/M/g) ?? []
+      ).length;
+
+    it("joins every other frame into one band, and leaves sparser tiers as dots", () => {
+      expect(loadedRuns(every(2), 120)).toHaveLength(60);
+      // 8.4 px apart, 3.4 px of it visible: closed.
+      expect(subpaths(every(2), 5)).toBe(1);
+      // 16.7 px apart on the fourths and 33.3 on the eighths: those gaps
+      // are real on screen, and a quarter loaded should look like it.
+      expect(subpaths(every(4), 5)).toBe(30);
+      expect(subpaths(every(8), 5)).toBe(15);
+    });
+
+    it("draws every gap when the caller strokes nothing", () => {
+      expect(subpaths(every(2), 0)).toBe(60);
+    });
+
+    it("follows the ellipse: the same gap closes along the flat and stays at the ends", () => {
+      // A ring flattened to 0.15 crowds the frames along the top and
+      // bottom and spreads them at the sides, so one tier cannot be all
+      // dots or all band — which is the point of measuring the distance
+      // rather than counting frames.
+      const flat = subpaths(every(4), 5, 0.15);
+      expect(flat).toBeGreaterThan(1);
+      expect(flat).toBeLessThan(30);
+    });
   });
 
   it("runs the other way round for a reversed orbit", () => {
