@@ -60,6 +60,36 @@ describe("coarseCount", () => {
 });
 
 describe("startFrameLoading", () => {
+  // A frame the browser refuses is told to the caller, so a set that
+  // cannot load at all is not asked for again on every mount — a work made
+  // under another environment's key prefix answers AccessDenied to every
+  // one of its frames (#140), and that used to cost a hundred-odd failing
+  // requests each time it came into view.
+  it("reports the frames that failed, and never counts them as loaded", async () => {
+    FakeImage.reset();
+    const queue = new FrameQueue(2);
+    const loaded: number[] = [];
+    const failed: number[] = [];
+    startFrameLoading({
+      urls: urls(8),
+      startFrame: 1,
+      tier: "all",
+      queue,
+      createImage: () => new FakeImage(),
+      onLoaded: (ordinal) => loaded.push(ordinal),
+      onFailed: (ordinal) => failed.push(ordinal),
+    });
+    await tick();
+    for (const image of FakeImage.inFlight()) image.finish(false);
+    await tick();
+    for (const image of FakeImage.inFlight()) image.finish(true);
+    await tick();
+    expect(failed.length).toBeGreaterThan(0);
+    expect(loaded.length).toBeGreaterThan(0);
+    // No ordinal is in both: a frame either arrived or it did not.
+    expect(loaded.filter((o) => failed.includes(o))).toEqual([]);
+  });
+
   it("fetches the coarse tier in loading order through the queue, a few at a time, and reports decoded frames", async () => {
     FakeImage.reset();
     const loaded: number[] = [];

@@ -35,6 +35,17 @@ const pageQueue = new FrameQueue(3);
 
 /** What each set (its first address stands for it) has loaded so far. */
 const knownBySet = new Map<string, Set<number>>();
+/**
+ * And which of its frames the browser refused. Kept for the page's life,
+ * like what it loaded: a frame that failed is not asked for again until a
+ * reload. A whole set can be unreachable — a work made under another
+ * environment's key prefix answers AccessDenied to every frame (#140) —
+ * and without this it cost a hundred-odd failing requests every time it
+ * came into view, through the queue of three that every orbit shares. The
+ * price is a frame lost to a blip staying lost until a reload; the orbit
+ * shows its nearest neighbour, which it does for a missing frame anyway.
+ */
+const failedBySet = new Map<string, Set<number>>();
 /** And the decoded pictures it still holds, for the page's life. */
 const picturesBySet = new Map<string, FramePictures>();
 
@@ -57,14 +68,25 @@ function shared(): boolean {
 }
 
 function knownOf(urls: readonly string[]): Set<number> {
+  return setFor(knownBySet, urls);
+}
+
+function failedOf(urls: readonly string[]): Set<number> {
+  return setFor(failedBySet, urls);
+}
+
+function setFor(
+  store: Map<string, Set<number>>,
+  urls: readonly string[],
+): Set<number> {
   const key = urls[0] ?? "";
   if (!shared()) return new Set();
-  let known = knownBySet.get(key);
-  if (!known) {
-    known = new Set();
-    knownBySet.set(key, known);
+  let held = store.get(key);
+  if (!held) {
+    held = new Set();
+    store.set(key, held);
   }
-  return known;
+  return held;
 }
 
 function picturesOf(urls: readonly string[]): FramePictures {
@@ -126,6 +148,7 @@ export function useFrameLoader(
   useEffect(() => {
     if (!enabled || urls.length === 0) return;
     const known = knownOf(urls);
+    const failed = failedOf(urls);
     const held = picturesOf(urls);
     // One render per animation frame, not per picture: the frames arrive
     // in bursts and each would otherwise be a commit of its own.
@@ -147,9 +170,13 @@ export function useFrameLoader(
       // browser's own cache makes cheap. Whatever drops a picture — the
       // store's budget, a set evicted for another, a change made later —
       // stops being able to strand a viewer.
-      known: new Set([...known].filter((ordinal) => held.has(ordinal))),
+      known: new Set([
+        ...[...known].filter((ordinal) => held.has(ordinal)),
+        ...failed,
+      ]),
       queue: pageQueue,
       createImage: () => new Image(),
+      onFailed: (ordinal) => failed.add(ordinal),
       onLoaded: (ordinal, picture) => {
         known.add(ordinal);
         held.put(ordinal, elementPicture(picture));

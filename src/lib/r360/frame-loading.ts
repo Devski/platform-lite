@@ -71,7 +71,7 @@ export interface FrameLoadingOptions<TImage extends ImageLike = ImageLike> {
   urls: readonly string[];
   startFrame: number;
   tier: LoadTier;
-  /** Ordinals already loaded (a remount): fetched again never. */
+  /** Ordinals not to ask for: already held, or already refused. */
   known?: ReadonlySet<number>;
   queue: FrameQueue;
   createImage: () => TImage;
@@ -80,6 +80,15 @@ export interface FrameLoadingOptions<TImage extends ImageLike = ImageLike> {
    * the viewer can paint it without fetching and decoding again (#117).
    */
   onLoaded: (ordinal: number, picture: TImage) => void;
+  /**
+   * One ordinal the browser refused. Told to the caller so it can stop
+   * asking: a frame that failed used to be retried in full on every mount,
+   * and a set that cannot load at all — a work made under another
+   * environment's key prefix (#140) — then cost a hundred-odd failing
+   * requests each time it was opened, through a queue of three that every
+   * orbit on the page shares. The sets that COULD load waited behind them.
+   */
+  onFailed?: (ordinal: number) => void;
 }
 
 /**
@@ -89,7 +98,7 @@ export interface FrameLoadingOptions<TImage extends ImageLike = ImageLike> {
 export function startFrameLoading<TImage extends ImageLike>(
   options: FrameLoadingOptions<TImage>,
 ): FrameLoading {
-  const { urls, queue, createImage, onLoaded } = options;
+  const { urls, queue, createImage, onLoaded, onFailed } = options;
   const order = loadingOrder(urls.length, options.startFrame).filter(
     (ordinal) => !options.known?.has(ordinal),
   );
@@ -115,7 +124,10 @@ export function startFrameLoading<TImage extends ImageLike>(
         inFlight.delete(image);
         image.onload = null;
         image.onerror = null;
-        if (ok && !stopped) onLoaded(ordinal, image);
+        if (!stopped) {
+          if (ok) onLoaded(ordinal, image);
+          else onFailed?.(ordinal);
+        }
         resolve();
       };
       image.onload = () => {
