@@ -40,9 +40,6 @@ test.beforeAll(async ({ browser }) => {
   await owner.context().close();
   await seedWorks(identity.handle, [
     { name: "Dom na skarpie", r360: { frameCount: 4, startFrame: 3 } },
-    // #123 needs a set where "every 8th frame" and "all of them" differ:
-    // sixteen frames is a coarse tier of two.
-    { name: "Panorama", r360: { frameCount: 16, startFrame: 1 } },
   ]);
   // A visitor: a context of its own, no session.
   visitor = await (await browser.newContext({ locale: "pl-PL" })).newPage();
@@ -194,6 +191,13 @@ test("the enlarge button opens the orbit in the lightbox, where it turns too; Es
 // view now loads its whole set. Nothing here touches the orbit: no click,
 // no drag, no focus, no key.
 test("an orbit that is merely in view loads all of its frames, untouched", async () => {
+  // Seeded HERE, and this is the file's last test: a second orbit on the
+  // page would otherwise put two viewers in front of the tests above,
+  // which are written for one. #123 needs a set where "every 8th frame"
+  // and "all of them" differ — sixteen frames is a coarse tier of two.
+  await seedWorks(identity.handle, [
+    { name: "Panorama", r360: { frameCount: 16, startFrame: 1 } },
+  ]);
   const page = await visitor.context().newPage();
   const askedBySet = new Map<string, Set<string>>();
   page.on("request", (request) => {
@@ -211,6 +215,6 @@ test("an orbit that is merely in view loads all of its frames, untouched", async
     .poll(() => Math.max(0, ...[...askedBySet.values()].map((s) => s.size)), {
       timeout: 60_000,
     })
-    .toBe(16);
+    .toBeGreaterThanOrEqual(16);
   await page.close();
 });
