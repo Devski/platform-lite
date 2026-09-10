@@ -35,14 +35,32 @@ async function orbit(frameCount: number) {
   return { archive, frames: order.frames };
 }
 
-/** Encodes a frame as a "WebP" whose bytes name the frame and the width. */
+/**
+ * Decodes a frame into a picture nothing can paint (there is no canvas
+ * here) and a "WebP" per width whose bytes name the frame and the width.
+ * `released` records the pictures the pipeline freed itself; `closed` the
+ * decodes it let go of — the browser's are ImageBitmaps, and a decode the
+ * loop forgets is a leak nothing else would catch.
+ */
 function fakeEncoder(
-  options: { type?: string; sizeOf?: (width: R360Width) => number } = {},
-): FrameEncoder & { encoded: string[] } {
+  options: {
+    type?: string;
+    sizeOf?: (width: R360Width) => number;
+    onEncode?: (ordinal: number) => void;
+  } = {},
+): FrameEncoder & {
+  encoded: string[];
+  released: number[];
+  closed: number[];
+} {
   const encoded: string[] = [];
+  const released: number[] = [];
+  const closed: number[] = [];
   return {
     encoded,
-    async encode(bytes, name) {
+    released,
+    closed,
+    async decode(bytes, name) {
       encoded.push(name);
       const label = new TextDecoder().decode(bytes).trim().split(" ")[1];
       const make = (width: R360Width) =>
@@ -57,9 +75,33 @@ function fakeEncoder(
             type: options.type ?? "image/webp",
           },
         );
-      return { 1600: make(1600), 800: make(800) };
+      return {
+        picture: {
+          source: {} as CanvasImageSource,
+          width: 800,
+          height: 450,
+          bytes: 0,
+          release: () => released.push(Number(label)),
+        },
+        close() {
+          closed.push(Number(label));
+        },
+        async encode() {
+          options.onEncode?.(Number(label));
+          return { 1600: make(1600), 800: make(800) };
+        },
+      };
     },
   };
+}
+
+/** Waits for something the loop does on its own, without fixing a delay. */
+async function until(condition: () => boolean, ms = 2000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error("timed out waiting");
+    await new Promise((r) => setTimeout(r, 1));
+  }
 }
 
 function presignOf(frameCount: number): FrameSetPresign {
@@ -173,17 +215,24 @@ describe("produceFrameSet", () => {
   it("gives up on a failed upload, waits for the ones in flight, and abandons the set", async () => {
     const { archive, frames } = await orbit(6);
     const transport = fakeTransport({ failOn: "put://800/2", delay: 3 });
+    const encoder = fakeEncoder();
     const outcome = await produceFrameSet({
       archive,
       frames,
-      encoder: fakeEncoder(),
+      encoder,
       transport,
       concurrency: 2,
+      // Short on purpose: with the default queue the producer outruns the
+      // failure and encodes the whole orbit before seeing it (#122), and
+      // then this says nothing about stopping.
+      queuedFrames: 1,
     });
     expect(outcome).toEqual({ ok: false, failure: "upload_failed" });
     expect(transport.abandoned).toEqual(["devski/staging/u/s/"]);
     // Not every frame was encoded: the loop stopped once the failure showed.
-    expect(transport.puts.length).toBeLessThan(12);
+    expect(encoder.encoded.length).toBeLessThan(6);
+    // And every decode it did make was let go of on the way out.
+    expect(encoder.closed).toEqual(encoder.encoded.map((_, i) => i + 1));
   });
 
   it("refuses an encoder that produces no WebP, or a frame past the ceiling, or nothing", async () => {
@@ -198,7 +247,7 @@ describe("produceFrameSet", () => {
       ],
       [
         {
-          async encode() {
+          async decode() {
             throw new Error("decode failed");
           },
         },
@@ -246,5 +295,119 @@ describe("produceFrameSet", () => {
     expect(outcome).toEqual({ ok: false, failure: "aborted" });
     expect(seen).toBeLessThan(4);
     expect(transport.abandoned).toHaveLength(1);
+  });
+
+  // #121: the preview used to wait for both WebPs and then decode one of
+  // them again. The picture comes out of the decode instead.
+  it("hands the picture over before the frame is encoded, and leaves it to the taker", async () => {
+    const { archive, frames } = await orbit(3);
+    const order: string[] = [];
+    const encoder = fakeEncoder({
+      onEncode: (ordinal) => order.push(`encoded ${ordinal}`),
+    });
+    const outcome = await produceFrameSet({
+      archive,
+      frames,
+      encoder,
+      transport: fakeTransport(),
+      onPicture: (ordinal) => order.push(`picture ${ordinal}`),
+      onFrame: (ordinal) => order.push(`frame ${ordinal}`),
+    });
+    expect(outcome.ok).toBe(true);
+    expect(order.slice(0, 4)).toEqual([
+      "picture 1",
+      "encoded 1",
+      "frame 1",
+      "picture 2",
+    ]);
+    // Handed on is handed over: the store closes it, not the pipeline.
+    expect(encoder.released).toEqual([]);
+    // The decode behind it is the pipeline's, and it lets go of each.
+    expect(encoder.closed).toEqual([1, 2, 3]);
+  });
+
+  it("frees the picture nobody is watching for", async () => {
+    const { archive, frames } = await orbit(3);
+    const encoder = fakeEncoder();
+    const outcome = await produceFrameSet({
+      archive,
+      frames,
+      encoder,
+      transport: fakeTransport(),
+    });
+    expect(outcome.ok).toBe(true);
+    expect(encoder.released).toEqual([1, 2, 3]);
+  });
+
+  it("gives the decode up, and the set, when the watcher itself throws", async () => {
+    const { archive, frames } = await orbit(3);
+    const encoder = fakeEncoder();
+    const transport = fakeTransport();
+    const outcome = await produceFrameSet({
+      archive,
+      frames,
+      encoder,
+      transport,
+      onPicture: () => {
+        throw new Error("the form blew up");
+      },
+    });
+    // Not a rejected run: the staged bytes still have to stop counting.
+    expect(outcome).toEqual({ ok: false, failure: "encode_failed" });
+    expect(transport.abandoned).toEqual(["devski/staging/u/s/"]);
+    expect(encoder.closed).toEqual([1]);
+  });
+
+  // A concurrency of zero, or one that came out of a bad Number(), would
+  // start no upload at all — and the run would report a set it had never
+  // sent, which the save then refuses server-side.
+  it("falls back on an upload concurrency it cannot use", async () => {
+    const { archive, frames } = await orbit(3);
+    const transport = fakeTransport();
+    const outcome = await produceFrameSet({
+      archive,
+      frames,
+      encoder: fakeEncoder(),
+      transport,
+      concurrency: Number("half a dozen"),
+      queuedFrames: 0,
+    });
+    expect(outcome.ok).toBe(true);
+    expect(transport.puts).toHaveLength(6);
+  });
+
+  // #122: the producer used to queue a frame's PUTs and wait for room
+  // before reading the next one, so a slow uplink set the pace of the
+  // decoding. Now it runs ahead — as far as the queue's cap, no further.
+  it("keeps encoding while the uplink is busy, and stops at the queue cap", async () => {
+    const { archive, frames } = await orbit(12);
+    let letThemLand: () => void = () => {};
+    const held = new Promise<void>((resolve) => (letThemLand = resolve));
+    const encoder = fakeEncoder();
+    const transport: FrameSetTransport = {
+      async presign(frameCount) {
+        return { ok: true, set: presignOf(frameCount) };
+      },
+      async put() {
+        await held;
+        return "ok";
+      },
+      async abandon() {},
+    };
+    const run = produceFrameSet({
+      archive,
+      frames,
+      encoder,
+      transport,
+      // Two PUTs in the air and six parts queued: four frames' worth.
+      concurrency: 2,
+      queuedFrames: 3,
+    });
+    await until(() => encoder.encoded.length >= 4);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(encoder.encoded).toHaveLength(4);
+    letThemLand();
+    expect((await run).ok).toBe(true);
+    expect(encoder.encoded).toHaveLength(12);
   });
 });

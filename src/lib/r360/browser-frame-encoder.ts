@@ -1,25 +1,35 @@
+import { pictureBytes } from "./frame-pictures";
 import {
   R360_FRAME_CONTENT_TYPE,
+  R360_PREVIEW_WIDTH,
   R360_WIDTHS,
   type R360Width,
 } from "./frame-set-shared";
-import type { FrameEncoder } from "./frame-pipeline";
+import type { DecodedFrame, FrameEncoder } from "./frame-pipeline";
 
 // #102 (A13): the one piece of the pipeline that needs a browser — the
 // platform's image decoder and its canvas WebP encoder. Each frame is
 // decoded once, at the largest width kept (an 8K render decoded whole is
 // a hundred megabytes of pixels — the decoder is asked for 1600 wide, #102
 // review), drawn at every width (aspect kept, never enlarged) and encoded;
-// the bitmap is closed before the next frame is read, so one frame's
+// the decode is closed before the next frame is read, so one frame's
 // pixels are in memory at a time. Untested under Node on purpose: there is
 // no canvas there; the pipeline around it is.
+//
+// #121: the decode also yields a PICTURE, at the preview's width, handed
+// back before either WebP is encoded. It costs one more draw — a resize
+// blit — and saves the preview both encodes and a decode of its own: the
+// form used to wait for the 1600 and the 800 WebP and then decode the 800
+// again to paint it.
 
 /** WebP at this quality is a few hundred kilobytes for a 1600 px render. */
 const WEBP_QUALITY = 0.82;
 
+type Canvas = OffscreenCanvas | HTMLCanvasElement;
+
 export function browserFrameEncoder(quality = WEBP_QUALITY): FrameEncoder {
   return {
-    async encode(bytes) {
+    async decode(bytes): Promise<DecodedFrame> {
       const largest = R360_WIDTHS[0];
       const native = imageWidthOf(bytes);
       const bitmap = await createImageBitmap(new Blob([bytes]), {
@@ -27,16 +37,40 @@ export function browserFrameEncoder(quality = WEBP_QUALITY): FrameEncoder {
         resizeWidth: Math.min(largest, native ?? largest),
         resizeQuality: "high",
       });
-      try {
-        const out: Partial<Record<R360Width, Blob>> = {};
-        for (const width of R360_WIDTHS) {
-          const w = Math.min(width, bitmap.width);
-          const h = Math.max(1, Math.round((bitmap.height * w) / bitmap.width));
-          out[width] = await draw(bitmap, w, h, quality);
-        }
-        return out as Record<R360Width, Blob>;
-      } finally {
+      let open = true;
+      const close = () => {
+        if (!open) return;
+        open = false;
         bitmap.close();
+      };
+      try {
+        const width = Math.min(R360_PREVIEW_WIDTH, bitmap.width);
+        const height = heightFor(bitmap, width);
+        const shown = await createImageBitmap(painted(bitmap, width, height));
+        return {
+          picture: {
+            source: shown,
+            width: shown.width,
+            height: shown.height,
+            bytes: pictureBytes(shown.width, shown.height),
+            release: () => shown.close(),
+          },
+          close,
+          async encode() {
+            const out: Partial<Record<R360Width, Blob>> = {};
+            for (const each of R360_WIDTHS) {
+              const w = Math.min(each, bitmap.width);
+              out[each] = await encodeCanvas(
+                painted(bitmap, w, heightFor(bitmap, w)),
+                quality,
+              );
+            }
+            return out as Record<R360Width, Blob>;
+          },
+        };
+      } catch (error) {
+        close();
+        throw error;
       }
     },
   };
@@ -50,7 +84,7 @@ export function browserFrameEncoder(quality = WEBP_QUALITY): FrameEncoder {
 export async function canEncodeWebp(): Promise<boolean> {
   try {
     const bitmap = await createImageBitmap(new ImageData(1, 1));
-    const blob = await draw(bitmap, 1, 1, WEBP_QUALITY);
+    const blob = await encodeCanvas(painted(bitmap, 1, 1), WEBP_QUALITY);
     bitmap.close();
     return blob.type === R360_FRAME_CONTENT_TYPE;
   } catch {
@@ -102,22 +136,30 @@ export function imageWidthOf(bytes: Uint8Array): number | null {
   return null;
 }
 
-async function draw(
-  bitmap: ImageBitmap,
-  width: number,
-  height: number,
-  quality: number,
-): Promise<Blob> {
+/** The height that keeps the aspect at a width, never below one pixel. */
+function heightFor(bitmap: ImageBitmap, width: number): number {
+  return Math.max(1, Math.round((bitmap.height * width) / bitmap.width));
+}
+
+/** The bitmap drawn to fill a canvas of this size; both canvas kinds. */
+function painted(bitmap: ImageBitmap, width: number, height: number): Canvas {
   if (typeof OffscreenCanvas !== "undefined") {
     const canvas = new OffscreenCanvas(width, height);
     paint(canvas.getContext("2d"), bitmap, width, height);
-    return canvas.convertToBlob({ type: R360_FRAME_CONTENT_TYPE, quality });
+    return canvas;
   }
   // A browser without OffscreenCanvas: the same through a detached element.
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
   paint(canvas.getContext("2d"), bitmap, width, height);
+  return canvas;
+}
+
+async function encodeCanvas(canvas: Canvas, quality: number): Promise<Blob> {
+  if ("convertToBlob" in canvas) {
+    return canvas.convertToBlob({ type: R360_FRAME_CONTENT_TYPE, quality });
+  }
   return new Promise((resolve, reject) => {
     canvas.toBlob(
       (blob) => (blob ? resolve(blob) : reject(new Error("toBlob failed"))),
@@ -127,7 +169,7 @@ async function draw(
   });
 }
 
-/** The bitmap drawn to fill the canvas; both canvas kinds share the brush. */
+/** The brush both canvas kinds share. */
 function paint(
   context: (CanvasDrawImage & CanvasImageSmoothing) | null,
   bitmap: ImageBitmap,
