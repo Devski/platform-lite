@@ -134,7 +134,20 @@ export function useFrameLoader(
       urls,
       startFrame,
       tier: connectionPrefersLittle() ? "coarse" : "all",
-      known,
+      // "Fetched once" and "can be painted now" are two different facts,
+      // and only the second one is worth skipping a fetch for. They were
+      // one: the loader skipped every ordinal `known` had, whether or not
+      // a picture for it still existed — so a viewer opened a second time
+      // fetched nothing and painted nothing but its poster, for good.
+      // Reported by Dawid on the #143 preview, 10.09.2026: the lightbox
+      // opened, closed with Escape and opened again would not load.
+      //
+      // A frame that is known AND still held is skipped, as before; a
+      // frame whose picture has gone is fetched again, which is what the
+      // browser's own cache makes cheap. Whatever drops a picture — the
+      // store's budget, a set evicted for another, a change made later —
+      // stops being able to strand a viewer.
+      known: new Set([...known].filter((ordinal) => held.has(ordinal))),
       queue: pageQueue,
       createImage: () => new Image(),
       onLoaded: (ordinal, picture) => {
