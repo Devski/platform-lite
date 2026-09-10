@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -659,17 +660,35 @@ function useInView(): [React.RefObject<HTMLDivElement | null>, boolean] {
 }
 
 /** The page's own pictures first: frames wait for the load event. */
+/**
+ * Whether the page has finished loading — the orbits wait for it so their
+ * frames never compete with the page's own pictures.
+ *
+ * Through `useSyncExternalStore` rather than an effect that subscribes,
+ * because the state and the subscription have to be settled TOGETHER. As
+ * an effect it was a race: the initial state is read during hydration,
+ * when the document is usually still loading, and the effect runs a tick
+ * later — on a warm cache `load` fires in between, the listener is
+ * attached to an event that has already happened, and it never arrives.
+ * `enabled` then stays false for good and the orbit shows its poster and
+ * nothing else. Reported by Dawid on 10.09.2026: "przeładowałem stronę i
+ * nie ładują się inne klatki, poza pierwszą" — a reload, with everything
+ * already in cache, which is exactly when the race is lost.
+ *
+ * React re-reads the snapshot after subscribing, so a `load` that beat the
+ * subscription is caught rather than waited for.
+ */
 function usePageLoaded(): boolean {
-  const [loaded, setLoaded] = useState(
-    () => typeof document !== "undefined" && document.readyState === "complete",
+  return useSyncExternalStore(
+    (onChange) => {
+      if (document.readyState === "complete") return () => {};
+      window.addEventListener("load", onChange, { once: true });
+      return () => window.removeEventListener("load", onChange);
+    },
+    () => document.readyState === "complete",
+    // On the server there is no document, and nothing to fetch anyway.
+    () => false,
   );
-  useEffect(() => {
-    if (loaded) return;
-    const onLoad = () => setLoaded(true);
-    window.addEventListener("load", onLoad, { once: true });
-    return () => window.removeEventListener("load", onLoad);
-  }, [loaded]);
-  return loaded;
 }
 
 // The orbit on the card, a drag across the picture turning it. The

@@ -87,13 +87,22 @@ interface R360 {
   sizeBytes: number;
   /** The pipeline is running: frames are being made and sent. */
   working: boolean;
+  /**
+   * #103: the owner's four parameters. They live HERE and not on `set`,
+   * because they are the owner's from the moment the frame count is known
+   * — which is before a single frame has been made, let alone landed. Held
+   * on the set, they could not be offered until the run finished, and an
+   * owner watching 360 frames go by had nothing to do but wait (Dawid,
+   * 10.09.2026).
+   */
+  params: R360Params;
   /** #102/#103: the frames as they go — encoded, and landed in storage. */
   frames?: { done: number; total: number; landed: number };
   /**
-   * #102: the set the work will name — produced now (with the staging
-   * prefix to abandon if the form closes unsaved), or saved before.
+   * #102: the set the work will name — produced now (with the key prefix
+   * to abandon if the form closes unsaved), or saved before.
    */
-  set?: { id: string; params: R360Params; keyPrefix?: string };
+  set?: { id: string; keyPrefix?: string };
 }
 
 /** The dictionary key for an archive the reader refused (#101). */
@@ -267,7 +276,8 @@ export function WorkForm({
           name: "",
           sizeBytes: 0,
           working: false,
-          set: { id: work.orbit.setId, params: work.orbit.params },
+          params: work.orbit.params,
+          set: { id: work.orbit.setId },
         }
       : null,
   );
@@ -331,9 +341,7 @@ export function WorkForm({
   );
   // The hand on the preview: the parameters as the owner has them so far,
   // or the defaults for the count while the set is still being produced.
-  const previewParams =
-    r360?.set?.params ??
-    defaultR360Params(Math.max(2, r360?.frames?.total ?? 2));
+  const previewParams = r360?.params ?? defaultR360Params(2);
   const previewOrbit = useOrbit(previewParams);
   // What the preview paints from, what the ring's arc fills with, and
   // what stands in until the first frame is there: the frames made here
@@ -774,6 +782,10 @@ export function WorkForm({
     commitR360({
       ...entry,
       working: true,
+      // The parameters are offered from here: the count is known, and the
+      // owner can set the start frame and the rest while the frames are
+      // still being made.
+      params: defaultR360Params(frames.length),
       frames: { done: 0, total: frames.length, landed: 0 },
     });
     commitLocalFrames(new FramePictures(frames.length));
@@ -828,11 +840,7 @@ export function WorkForm({
 
   /** #102: the set produced, as the work will name it. */
   function producedSet(set: FrameSetOutcome & { ok: true }): R360["set"] {
-    return {
-      id: set.setId,
-      params: defaultR360Params(set.frameCount),
-      keyPrefix: set.keyPrefix,
-    };
+    return { id: set.setId, keyPrefix: set.keyPrefix };
   }
 
   /**
@@ -868,12 +876,15 @@ export function WorkForm({
       if (set.failure !== "aborted") setError(t(`r360.failed.${set.failure}`));
       return;
     }
-    commitR360({
+    commitR360((current) => ({
       name: file.name,
       sizeBytes: file.size,
       working: false,
+      // Whatever the owner set while the frames were being made stands:
+      // the run finishing must not put the defaults back.
+      params: current?.params ?? defaultR360Params(set.frameCount),
       set: producedSet(set),
-    });
+    }));
   }
 
   // A set produced here and not saved is abandoned, so its ceiling stops
@@ -893,11 +904,11 @@ export function WorkForm({
 
   // #103: the owner's four parameters, on the set the work will name.
   function setParams(change: Partial<R360Params>) {
-    commitR360((current) => {
-      if (!current?.set) return current;
-      const params = { ...current.set.params, ...change };
-      return { ...current, set: { ...current.set, params } };
-    });
+    commitR360((current) =>
+      current
+        ? { ...current, params: { ...current.params, ...change } }
+        : current,
+    );
   }
 
   function removePhoto(fileId: string) {
@@ -963,7 +974,9 @@ export function WorkForm({
           }
         : {}),
       r360SetId: orbit?.set?.id ?? null,
-      r360Params: orbit?.set?.params ?? null,
+      // Paired with the set id: the schema refuses one without the other,
+      // and parameters for a set that never landed name nothing.
+      r360Params: orbit?.set ? orbit.params : null,
     });
     if (!parsed.success) {
       const path = parsed.error.issues[0]?.path[0];
@@ -1036,7 +1049,8 @@ export function WorkForm({
       .map((slot) => `${slot.fileId}+${slot.secondary?.fileId ?? ""}`)
       .join(",");
     const setId = r360Ref.current?.set?.id ?? null;
-    const params = JSON.stringify(r360Ref.current?.set?.params ?? null);
+    const current = r360Ref.current;
+    const params = JSON.stringify(current?.set ? current.params : null);
     if (work && params !== JSON.stringify(work.orbit?.params ?? null)) {
       return false;
     }
@@ -1371,7 +1385,7 @@ export function WorkForm({
                 >
                   {" · "}
                   {t("r360.framesDone", {
-                    total: r360.set.params.frameCount,
+                    total: r360.params.frameCount,
                   })}
                 </span>
               ) : null}
@@ -1464,14 +1478,15 @@ export function WorkForm({
                 {previewParams.frameCount}
               </span>
             </p>
-            {r360.set && (
-              <R360ParamControls
-                params={r360.set.params}
-                frameInView={previewOrbit.frame}
-                disabled={saving}
-                onChange={setParams}
-              />
-            )}
+            {/* #103, widened 10.09.2026: shown while the frames are still
+                being made, not only once the set has landed — the preview
+                they act on is already on screen. */}
+            <R360ParamControls
+              params={r360.params}
+              frameInView={previewOrbit.frame}
+              disabled={saving}
+              onChange={setParams}
+            />
           </div>
         )}
       </div>
