@@ -32,11 +32,15 @@ import {
   produceFrameSet,
   type FrameSetOutcome,
 } from "@/lib/r360/frame-pipeline";
-import { FramePictures, pictureBytes } from "@/lib/r360/frame-pictures";
+import {
+  FramePictures,
+  pictureBytes,
+  type FramePicture,
+} from "@/lib/r360/frame-pictures";
 import {
   defaultR360Params,
   frameUrls,
-  R360_WIDTHS,
+  R360_PREVIEW_WIDTH,
   type R360Params,
 } from "@/lib/r360/frame-set-shared";
 import {
@@ -145,12 +149,12 @@ function discardFile(fileId: string): Promise<unknown> {
   return postJson("/api/uploads/discard", { fileId }).catch(() => undefined);
 }
 
-/** The public addresses of a saved set's 800 px frames (#103). */
+/** The public addresses of a saved set's preview-width frames (#103). */
 function savedFrames(
   set: { params: R360Params; frameBase: string } | null,
 ): string[] {
   if (!set) return [];
-  return frameUrls(set.frameBase, R360_WIDTHS[1], set.params.frameCount);
+  return frameUrls(set.frameBase, R360_PREVIEW_WIDTH, set.params.frameCount);
 }
 
 // "412 MB", "3,2 GB": enough precision for a badge, the decimal separator
@@ -686,11 +690,32 @@ export function WorkForm({
   }
 
   /**
-   * #117: one encoded frame, decoded once and kept ready to paint. The
-   * store it started for is checked again afterwards — a decode that lands
-   * after the owner removed the orbit, or after another pick, belongs to a
-   * store nobody is showing. A frame the browser cannot decode is left out
-   * rather than shown broken; the viewer paints its nearest neighbour.
+   * #121: the frame as the pipeline decoded it, kept ready to paint. It
+   * arrives before either WebP is encoded, so this is the earliest the
+   * preview can show anything at all. The store it was made for is checked
+   * again — a picture for a store nobody is showing (the orbit removed,
+   * another pick) holds a bitmap until something closes it.
+   */
+  function showFrame(
+    into: FramePictures | null,
+    ordinal: number,
+    picture: FramePicture,
+  ): void {
+    if (!into || closed.current || localFramesRef.current !== into) {
+      picture.release?.();
+      return;
+    }
+    into.put(ordinal, picture);
+    setLocalLoaded(into.ordinals);
+  }
+
+  /**
+   * #117: one encoded frame, decoded and kept ready to paint — the way
+   * back for a frame the store evicted, out of the encoding the form kept.
+   * The store it started for is checked again afterwards — a decode that
+   * lands after the owner removed the orbit, or after another pick, belongs
+   * to a store nobody is showing. A frame the browser cannot decode is left
+   * out rather than shown broken; the viewer paints its nearest neighbour.
    */
   async function keepFrame(
     into: FramePictures | null,
@@ -698,7 +723,6 @@ export function WorkForm({
     encoded: Blob,
   ): Promise<void> {
     if (!into) return;
-    localEncodings.current.set(ordinal, encoded);
     let bitmap: ImageBitmap;
     try {
       bitmap = await createImageBitmap(encoded);
@@ -769,13 +793,22 @@ export function WorkForm({
       encoder: browserFrameEncoder(),
       transport: frameSetTransport,
       signal,
+      onPicture: (ordinal, picture) => {
+        // A picture for a run that is no longer the form's goes to
+        // showFrame as a picture with no store: it frees it.
+        showFrame(live() ? localFramesRef.current : null, ordinal, picture);
+      },
+      // Not painted — the picture above already was. Kept so a frame the
+      // store evicts can be decoded again without going to the archive.
       onFrame: (ordinal, encoded) => {
         if (!live()) return;
-        void keepFrame(
-          localFramesRef.current,
-          ordinal,
-          encoded[R360_WIDTHS[1]],
-        );
+        const store = localFramesRef.current;
+        localEncodings.current.set(ordinal, encoded[R360_PREVIEW_WIDTH]);
+        // #121 showed this frame before this encoding existed, and the
+        // encode is the long part. A store that has already dropped it
+        // means the effect below ran with nothing to recover it from:
+        // say so now that there is something.
+        if (store && !store.has(ordinal)) setLocalLoaded(store.ordinals);
       },
       onProgress: (p) => {
         const bucket = p.framesDone * 1000 + p.framesLanded;
