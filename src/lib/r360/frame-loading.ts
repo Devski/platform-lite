@@ -142,7 +142,11 @@ export function startFrameLoading<TImage extends ImageLike>(
   let stopped = false;
   let failuresInARow = 0;
   let everLoaded = options.loadedBefore ?? false;
-  const inFlight = new Set<TImage>();
+  /**
+   * The frames in the air, each with the way to settle its job. A job that
+   * never settles never gives the page's queue its place back — see stop.
+   */
+  const inFlight = new Map<TImage, () => void>();
 
   const wanted = (ordinal: number) => limit === "all" || coarse.has(ordinal);
   const live = () => !stopped;
@@ -150,9 +154,10 @@ export function startFrameLoading<TImage extends ImageLike>(
   const load = (ordinal: number) =>
     new Promise<void>((resolve) => {
       const image = createImage();
-      inFlight.add(image);
       const finish = (ok: boolean) => {
-        inFlight.delete(image);
+        // Once: an image stopped mid-decode may still have a decode()
+        // settle after the job already has.
+        if (!inFlight.delete(image)) return;
         image.onload = null;
         image.onerror = null;
         if (!stopped) {
@@ -180,6 +185,7 @@ export function startFrameLoading<TImage extends ImageLike>(
         );
       };
       image.onerror = () => finish(false);
+      inFlight.set(image, () => finish(false));
       image.src = urls[ordinal - 1];
     });
 
@@ -202,13 +208,18 @@ export function startFrameLoading<TImage extends ImageLike>(
     },
     stop() {
       stopped = true;
-      for (const image of inFlight) {
-        image.onload = null;
-        image.onerror = null;
+      // Each frame in the air is SETTLED here, not merely silenced. The
+      // page has one queue with three places, and a place comes back only
+      // when its job settles — which, with the handlers taken away, used to
+      // be never. Every viewer closed mid-load kept the places of its
+      // frames in flight for the life of the page, and after two or three
+      // closes there were none left: nothing on the page loaded again.
+      // `stopped` is set first, so settling reports nothing to the caller.
+      for (const [image, settle] of [...inFlight]) {
+        settle();
         // An empty source aborts a fetch in flight in every browser.
         image.src = "";
       }
-      inFlight.clear();
     },
   };
 }

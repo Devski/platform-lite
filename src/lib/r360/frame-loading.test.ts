@@ -60,6 +60,71 @@ describe("coarseCount", () => {
 });
 
 describe("startFrameLoading", () => {
+  // The queue is ONE for the whole page, three places, and a place is given
+  // back only when a job settles. Closing a viewer mid-load stops its run;
+  // if the frames in flight never settle, their places are gone for good,
+  // and after two or three closes nothing on the page loads any more
+  // (Dawid, 10.09.2026: "powiększenie, ESC, powiększenie, ESC i potem już
+  // nie doładowuje").
+  // Dawid's sequence, as he did it: enlarge, Escape, enlarge, Escape,
+  // enlarge — each close while frames are still in the air, on the
+  // page's queue of three. The third opening is the one that died.
+  it("still loads on the third opening after two closes mid-load", async () => {
+    FakeImage.reset();
+    const queue = new FrameQueue(3);
+    const open = (n: number) =>
+      startFrameLoading({
+        urls: urls(40).map((url) => `open${n}/${url}`),
+        startFrame: 1,
+        tier: "all",
+        queue,
+        createImage: () => new FakeImage(),
+        onLoaded: () => {},
+      });
+    for (const n of [1, 2]) {
+      const viewer = open(n);
+      await tick();
+      // Three frames in the air when Escape is pressed.
+      expect(FakeImage.inFlight()).toHaveLength(3);
+      viewer.stop();
+      await tick();
+    }
+    open(3);
+    await tick();
+    // The third opening gets the whole queue, not what two closes left.
+    const third = FakeImage.requested.filter((url) => url.startsWith("open3/"));
+    expect(third).toHaveLength(3);
+  });
+
+  it("gives its places in the page's queue back when stopped mid-flight", async () => {
+    FakeImage.reset();
+    const queue = new FrameQueue(1);
+    const first = startFrameLoading({
+      urls: urls(8),
+      startFrame: 1,
+      tier: "all",
+      queue,
+      createImage: () => new FakeImage(),
+      onLoaded: () => {},
+    });
+    await tick();
+    // One frame in the air, and the queue has no other place.
+    expect(FakeImage.requested).toEqual(["f/1"]);
+    first.stop();
+    await tick();
+    // The next viewer on the page must get the place the first one left.
+    startFrameLoading({
+      urls: urls(8).map((url) => `next/${url}`),
+      startFrame: 1,
+      tier: "all",
+      queue,
+      createImage: () => new FakeImage(),
+      onLoaded: () => {},
+    });
+    await tick();
+    expect(FakeImage.requested).toEqual(["f/1", "next/f/1"]);
+  });
+
   // A set that answers nothing but failures is dropped after three tries
   // rather than asked for in full on every mount: a work made under
   // another environment's key prefix answers AccessDenied to every one of
