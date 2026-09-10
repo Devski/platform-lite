@@ -40,6 +40,9 @@ test.beforeAll(async ({ browser }) => {
   await owner.context().close();
   await seedWorks(identity.handle, [
     { name: "Dom na skarpie", r360: { frameCount: 4, startFrame: 3 } },
+    // #123 needs a set where "every 8th frame" and "all of them" differ:
+    // sixteen frames is a coarse tier of two.
+    { name: "Panorama", r360: { frameCount: 16, startFrame: 1 } },
   ]);
   // A visitor: a context of its own, no session.
   visitor = await (await browser.newContext({ locale: "pl-PL" })).newPage();
@@ -182,4 +185,32 @@ test("the enlarge button opens the orbit in the lightbox, where it turns too; Es
   await expectNoAxeViolations(visitor, test.info(), "public-r360-lightbox");
   await visitor.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
+});
+
+// #123: the card used to stop at every 8th frame until a pointer, a key or
+// focus arrived. With 120 frames that is fifteen of them, so a drag moved
+// the picture in jumps of eight while the ring's arc said the frames were
+// there — reported by Dawid on the #139 preview, 10.09.2026. An orbit in
+// view now loads its whole set. Nothing here touches the orbit: no click,
+// no drag, no focus, no key.
+test("an orbit that is merely in view loads all of its frames, untouched", async () => {
+  const page = await visitor.context().newPage();
+  const askedBySet = new Map<string, Set<string>>();
+  page.on("request", (request) => {
+    const at = request.url().match(/\/r360\/([0-9a-f]+)\/800\/(\d{3})\.webp$/);
+    if (!at) return;
+    const asked = askedBySet.get(at[1]) ?? new Set<string>();
+    asked.add(at[2]);
+    askedBySet.set(at[1], asked);
+  });
+  await page.goto(`/${identity.handle}`);
+  await page.getByTestId("orbit-viewer").last().scrollIntoViewIfNeeded();
+  // Sixteen, not the coarse two. The poll is what waits: the frames go
+  // through one queue for the page, a few requests at a time.
+  await expect
+    .poll(() => Math.max(0, ...[...askedBySet.values()].map((s) => s.size)), {
+      timeout: 60_000,
+    })
+    .toBe(16);
+  await page.close();
 });

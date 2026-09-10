@@ -19,7 +19,6 @@ import { OrbitRing } from "@/components/ui/orbit-ring";
 import { OrbitViewer } from "@/components/ui/orbit-viewer";
 import { UploadProgress } from "@/components/ui/upload-progress";
 import { useFrameLoader } from "@/components/ui/use-frame-loader";
-import type { LoadTier } from "@/lib/r360/frame-loading";
 import { useOrbit } from "@/components/ui/use-orbit";
 import { postJson } from "@/lib/api-client";
 import { IMAGE_CONTENT_TYPES } from "@/lib/image-upload-shared";
@@ -321,17 +320,14 @@ export function WorkForm({
     () => savedFrames(work?.orbit ?? null),
     [work?.orbit],
   );
-  // A saved set is fetched like a visitor's (#104): every 8th frame to
-  // begin with, the rest once the owner takes hold of the preview. Opening
-  // a work to fix its name must not pull down 360 frames.
-  const [previewTier, setPreviewTier] = useState<LoadTier>("coarse");
+  // A saved set is fetched like a visitor's (#104), and since #123 that
+  // means the whole of it, coarse frames first — the owner who opens a
+  // work to fix its name gets the same orbit a visitor gets, rather than
+  // one that moves in jumps of eight until they take hold of it.
   const savedSet = useFrameLoader(
     savedUrls,
     work?.orbit?.params.startFrame ?? 1,
-    {
-      enabled: savedUrls.length > 0 && localFrames === null,
-      tier: previewTier,
-    },
+    { enabled: savedUrls.length > 0 && localFrames === null },
   );
   // The hand on the preview: the parameters as the owner has them so far,
   // or the defaults for the count while the set is still being produced.
@@ -1435,9 +1431,6 @@ export function WorkForm({
           <div
             className="flex flex-col gap-(--sp-4)"
             data-testid="work-r360-preview"
-            onPointerDownCapture={() => setPreviewTier("all")}
-            onFocusCapture={() => setPreviewTier("all")}
-            onKeyDownCapture={() => setPreviewTier("all")}
           >
             {/* #103/#117: the preview from the frames themselves — the ones
                 encoded here, decoded once and painted onto a canvas, or the
