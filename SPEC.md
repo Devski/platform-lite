@@ -364,7 +364,7 @@ export function ownerKey(
   target of a foreign key — all relations point at `users.id`, so a handle change touches
   no relation.
 - `works` (#72): `id`, `user_id` (cascade — a work is profile content), `name`,
-  `investor`, `developer`, `r360_file_id`, timestamps. At most 10 per user, counted by the
+  `investor`, `developer`, timestamps. At most 10 per user, counted by the
   application under the per-user advisory lock the quota uses; a `CHECK` cannot count
   rows. Order on the page = `created_at`. Since #68 (A13) also `r360_set_id` — the prefix
   of the frame set — and `r360_params` (`jsonb`: frame count, direction, frames per picture
@@ -400,10 +400,12 @@ export function ownerKey(
   `object_key`, `created_at`. `kind` names every stored representation: the avatar set
   (`avatar-original|avatar-512|avatar-128`), and since #72 the cover set
   (`cover-original|cover-1600|cover-480`), the work-photo set
-  (`work-original|work-1600|work-480`) and `r360-zip`. An original (and the zip) has no
-  parent; a variant hangs off its original by `parent_file_id`, which is how the dedup
-  indexes tell the roles apart. The per-user sum of `size_bytes` = quota usage (A9; #69
-  narrows it to the largest kept representation of every asset).
+  (`work-original|work-1600|work-480`). An original has no parent; a variant hangs off its
+  original by `parent_file_id`, which is how the dedup indexes tell the roles apart. The
+  enum still carries `r360-zip` from before #120 and nothing writes it — a Postgres enum
+  value cannot be dropped, and migration 0017 deleted the last rows that used it.
+  The per-user sum of `size_bytes` = quota usage (A9; #69 narrows it to the largest kept
+  representation of every asset).
   The R360 frames (A13, #68, decision of 09.09.2026) are the exception to the hash-named
   key: kinds `r360-1600|r360-800`, **no parent** — the zip they were made from never
   reached us (#120), so there is no row to hang them from — and keys

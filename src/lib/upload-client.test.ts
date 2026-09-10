@@ -4,7 +4,7 @@ import { uploadImage } from "./upload-client";
 // The browser's half of the upload contract (#12, shared since #72), run
 // in node with fetch stubbed: which calls it makes, in what order, and how
 // every answer maps to the failure the page words for the owner. The
-// server's half is proven in image-upload.test.ts / archive-upload.test.ts.
+// server's half is proven in image-upload.test.ts.
 
 type Call = { url: string; init?: RequestInit };
 
