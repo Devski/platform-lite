@@ -200,6 +200,16 @@ fi
 # Content-Range header (not safelisted for responses), or the script never
 # learns the archive's size. "range" in the allowed headers is a belt for
 # browsers that predate the safelisting.
+#
+# "x-amz-acl" is for #126: R360 frames are presigned straight to their final
+# keys, and OVHcloud implements no PutBucketPolicy (see src/lib/storage.ts), so
+# a per-object ACL sent WITH the upload is the only thing that makes them
+# readable at their unsigned addresses (G3). The header has to be signed rather
+# than hoisted into the query — verified 10.09.2026 against this bucket: hoisted
+# into the query, the PUT is accepted and the ACL SILENTLY IGNORED, and the
+# frames are private with nothing failing until the public page shows nothing.
+# Applied to the live dev bucket the same day; a preflight carrying the header
+# answers 200 with it in Access-Control-Allow-Headers.
 echo "==> CORS on $BUCKET: browser PUT to presigned URLs (G4), ranged GET (A13)"
 CORS_JSON="$(mktemp)"
 cat >"$CORS_JSON" <<JSON
@@ -208,7 +218,7 @@ cat >"$CORS_JSON" <<JSON
     {
       "AllowedOrigins": ["*"],
       "AllowedMethods": ["PUT", "GET"],
-      "AllowedHeaders": ["content-type", "cache-control", "content-length", "range"],
+      "AllowedHeaders": ["content-type", "cache-control", "content-length", "range", "x-amz-acl"],
       "ExposeHeaders": ["Content-Range", "Accept-Ranges", "Content-Length", "ETag"],
       "MaxAgeSeconds": 3000
     }

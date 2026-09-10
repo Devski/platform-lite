@@ -94,7 +94,7 @@ interface R360 {
    * #102: the set the work will name — produced now (with the staging
    * prefix to abandon if the form closes unsaved), or saved before.
    */
-  set?: { id: string; params: R360Params; stagingPrefix?: string };
+  set?: { id: string; params: R360Params; keyPrefix?: string };
 }
 
 /** The dictionary key for an archive the reader refused (#101). */
@@ -384,7 +384,7 @@ export function WorkForm({
       closed.current = true;
       framesAbort.current?.abort();
       // A set produced here and never saved stops counting now (#102).
-      const staged = r360Ref.current?.set?.stagingPrefix;
+      const staged = r360Ref.current?.set?.keyPrefix;
       if (staged) void abandon(staged);
       // Photos still on their way go with the form too (#80 review).
       for (const slot of slotsRef.current) {
@@ -835,7 +835,7 @@ export function WorkForm({
     return {
       id: set.setId,
       params: defaultR360Params(set.frameCount),
-      stagingPrefix: set.stagingPrefix,
+      keyPrefix: set.keyPrefix,
     };
   }
 
@@ -861,7 +861,7 @@ export function WorkForm({
     );
     framesAbort.current = null;
     if (closed.current) {
-      if (set.ok) void abandon(set.stagingPrefix);
+      if (set.ok) void abandon(set.keyPrefix);
       return;
     }
     if (!set.ok) {
@@ -883,7 +883,7 @@ export function WorkForm({
   // A set produced here and not saved is abandoned, so its ceiling stops
   // counting against the quota now rather than in two hours (#102 review).
   function abandonUnsavedSet(current: R360 | null) {
-    if (current?.set?.stagingPrefix) void abandon(current.set.stagingPrefix);
+    if (current?.set?.keyPrefix) void abandon(current.set.keyPrefix);
   }
 
   function removeArchive() {
@@ -1021,7 +1021,7 @@ export function WorkForm({
       unsaved.current.clear();
       commitR360((current) =>
         current?.set
-          ? { ...current, set: { ...current.set, stagingPrefix: undefined } }
+          ? { ...current, set: { ...current.set, keyPrefix: undefined } }
           : current,
       );
       onSaved();

@@ -53,6 +53,13 @@ export interface FileStorage {
       maxBytes?: number;
       contentType: string;
       expiresInSeconds?: number;
+      /**
+       * The upload publishes the object as it writes it (#126). The uploader
+       * MUST send `x-amz-acl: public-read` with the PUT — it is part of the
+       * signature — and the bucket's CORS rule must allow that request header
+       * or the browser's preflight refuses the upload.
+       */
+      publicRead?: boolean;
     },
   ): Promise<string>;
   /**
@@ -243,6 +250,11 @@ export function createS3Storage(config: {
         ContentType: opts.contentType,
         ...(signedLength ? { ContentLength: opts.maxBytes } : {}),
         CacheControl: IMMUTABLE_CACHE_CONTROL,
+        // #126: the uploader publishes as it writes. OVHcloud implements no
+        // PutBucketPolicy, so a per-object ACL is what makes G3's unsigned
+        // addresses readable, and a key written straight to its final home
+        // (an R360 frame set) has no later copy to acquire one.
+        ...(opts.publicRead ? { ACL: "public-read" as const } : {}),
       });
       return getSignedUrl(client, command, {
         expiresIn: opts.expiresInSeconds ?? PRESIGN_EXPIRES_SECONDS,
@@ -259,6 +271,15 @@ export function createS3Storage(config: {
           "content-type",
           "cache-control",
         ]),
+        // x-amz-acl must be SIGNED, not hoisted into the query, and the
+        // difference is invisible from here: verified against the dev bucket
+        // on 10.09.2026, an ACL in the query string is accepted and silently
+        // ignored — the PUT answers 200 and the object stays private, which
+        // shows up as an empty public page and nowhere else. `signableHeaders`
+        // does not reach it; this is the option that does.
+        ...(opts.publicRead
+          ? { unhoistableHeaders: new Set(["x-amz-acl"]) }
+          : {}),
       });
     },
 
@@ -436,8 +457,9 @@ export function createMemoryStorage(): {
     storage: {
       async presignUpload(key, opts) {
         // Not fetchable — dependent tests either assert the URL or write
-        // through putObject directly.
-        return `memory://upload/${key}?maxBytes=${opts.maxBytes ?? "any"}&contentType=${encodeURIComponent(opts.contentType)}`;
+        // through putObject directly. `acl` is in it so a caller's intent to
+        // publish on upload (#126) is assertable without a bucket.
+        return `memory://upload/${key}?maxBytes=${opts.maxBytes ?? "any"}&contentType=${encodeURIComponent(opts.contentType)}${opts.publicRead ? "&acl=public-read" : ""}`;
       },
       async putObject(key, body, contentType, opts) {
         objects.set(key, {

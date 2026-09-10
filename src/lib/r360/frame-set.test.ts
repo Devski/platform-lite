@@ -3,26 +3,24 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { files, pendingUploads, works } from "@/db/schema";
 import { insertTestAccount } from "@/db/test-account";
 import { createTestDb, type TestDb } from "@/db/test-db";
-import { sweepExpiredUploads } from "@/lib/image-upload";
 import { QUOTA_BYTES, quotaUsageBytes } from "@/lib/quota";
-import { createMemoryStorage, ObjectNotFoundError } from "@/lib/storage";
+import { createMemoryStorage } from "@/lib/storage";
 import { updateDisplayName } from "@/lib/profile";
 import { uploadTestPhoto } from "@/lib/test-uploads";
 import { createWork, deleteWork, listWorks, updateWork } from "@/lib/works";
 import sharp from "sharp";
 import {
-  CopyFailed,
-  copyFrameSet,
+  collectUnfinishedFrameSets,
   FrameSetError,
   frameSetReservationSeconds,
-  isStagingGone,
   frameSetUrlSeconds,
+  headerSample,
   isWebpHeader,
   presignFrameSet,
   verifyFrameSet,
 } from "./frame-set";
 import { imageWidthOf } from "./browser-frame-encoder";
-import { escapeLike } from "@/lib/image-upload";
+import { abandonStagedUpload, escapeLike } from "@/lib/image-upload";
 import {
   defaultR360Params,
   frameKey,
@@ -65,6 +63,22 @@ function makeDeps() {
   };
 }
 
+/** A reservation pushed into the past, as a walked-away browser leaves it. */
+const expireReservation = (keyPrefix: string) =>
+  testDb.db
+    .update(pendingUploads)
+    .set({
+      createdAt: sql`now() - interval '2 minutes'`,
+      expiresAt: sql`now() - interval '1 minute'`,
+    })
+    .where(eq(pendingUploads.stagingKey, keyPrefix));
+
+const reservationsOf = (keyPrefix: string) =>
+  testDb.db
+    .select({ key: pendingUploads.stagingKey })
+    .from(pendingUploads)
+    .where(eq(pendingUploads.stagingKey, keyPrefix));
+
 /** A small photo: the tests here are about the frames, not the variants. */
 const uploadPhoto = (d: ReturnType<typeof makeDeps>) =>
   uploadTestPhoto(d.deps, { seed: 68, width: 40, height: 30 });
@@ -99,7 +113,7 @@ async function stageSet(
     }
     if (options.notWebp === short) body = Buffer.from("not a webp at all");
     await d.deps.storage.putObject(
-      frameKey(set.stagingPrefix, width, ordinal),
+      frameKey(set.keyPrefix, width, ordinal),
       body,
       "image/webp",
     );
@@ -112,17 +126,24 @@ describe("presignFrameSet", () => {
     const d = makeDeps();
     const set = await presignFrameSet(d.deps, { frameCount: 3 });
     expect(set.setId).toMatch(/^[0-9a-f]{32}$/);
-    expect(set.stagingPrefix).toBe(`${PREFIX}staging/${userId}/${set.setId}/`);
+    // #126: the frames are signed straight to where they will live, and
+    // every URL publishes what it writes — nothing copies them afterwards
+    // to give them an ACL, and a private frame is a hole in a public page.
+    expect(set.keyPrefix).toBe(`${PREFIX}u/${userId}/r360/${set.setId}/`);
+    expect(set.keyPrefix).toBe(frameSetPrefix(PREFIX, userId, set.setId));
     expect(set.urls[1600]).toHaveLength(3);
     expect(set.urls[800]).toHaveLength(3);
     expect(set.urls[1600][2]).toContain(
-      `${set.stagingPrefix}1600/003.webp?maxBytes=any`,
+      `${set.keyPrefix}1600/003.webp?maxBytes=any`,
     );
+    for (const url of [...set.urls[1600], ...set.urls[800]]) {
+      expect(url).toContain("acl=public-read");
+    }
     const [reservation] = await testDb.db
       .select()
       .from(pendingUploads)
       .where(eq(pendingUploads.userId, userId));
-    expect(reservation.stagingKey).toBe(set.stagingPrefix);
+    expect(reservation.stagingKey).toBe(set.keyPrefix);
     expect(reservation.sizeBytes).toBe(frameSetBytesCeiling(3));
     expect(await quotaUsageBytes(testDb.db, userId)).toBe(
       frameSetBytesCeiling(3),
@@ -155,7 +176,7 @@ describe("presignFrameSet", () => {
     ).rejects.toThrow();
   });
 
-  it("sweeps an expired set's staged frames on the next presign, as one prefix (#30)", async () => {
+  it("collects an expired set on the next presign, as one prefix (#30, #126)", async () => {
     const d = makeDeps();
     const stale = await stageSet(d, 2);
     await testDb.db
@@ -164,19 +185,15 @@ describe("presignFrameSet", () => {
         createdAt: sql`now() - interval '2 minutes'`,
         expiresAt: sql`now() - interval '1 minute'`,
       })
-      .where(eq(pendingUploads.stagingKey, stale.stagingPrefix));
-    expect(await d.deps.storage.listObjects(stale.stagingPrefix)).toHaveLength(
-      4,
-    );
-    await sweepExpiredUploads(d.deps);
-    expect(await d.deps.storage.listObjects(stale.stagingPrefix)).toHaveLength(
-      0,
-    );
+      .where(eq(pendingUploads.stagingKey, stale.keyPrefix));
+    expect(await d.deps.storage.listObjects(stale.keyPrefix)).toHaveLength(4);
+    await presignFrameSet(d.deps, { frameCount: 2 });
+    expect(await d.deps.storage.listObjects(stale.keyPrefix)).toHaveLength(0);
     expect(
       await testDb.db
         .select()
         .from(pendingUploads)
-        .where(eq(pendingUploads.stagingKey, stale.stagingPrefix)),
+        .where(eq(pendingUploads.stagingKey, stale.keyPrefix)),
     ).toHaveLength(0);
   });
 });
@@ -193,8 +210,7 @@ describe("verifyFrameSet", () => {
     expect(verified.frames[0]).toMatchObject({
       width: 1600,
       ordinal: 1,
-      stagingKey: `${set.stagingPrefix}1600/001.webp`,
-      finalKey: `${PREFIX}u/${userId}/r360/${set.setId}/1600/001.webp`,
+      key: `${PREFIX}u/${userId}/r360/${set.setId}/1600/001.webp`,
     });
     expect(verified.frames[0].etag).toMatch(/^[0-9a-f]{32}$/);
     expect(verified.totalBytes).toBeGreaterThan(0);
@@ -256,9 +272,7 @@ describe("verifyFrameSet", () => {
         verifyFrameSet(d.deps, { setId: renamed.setId, frameCount: 4 }),
       ),
     ).toBe("not_webp");
-    expect(
-      await d.deps.storage.listObjects(renamed.stagingPrefix),
-    ).toHaveLength(0);
+    expect(await d.deps.storage.listObjects(renamed.keyPrefix)).toHaveLength(0);
     // A reservation that ran out: the frames may be swept any moment.
     const stale = await stageSet(d, 2);
     await testDb.db
@@ -267,7 +281,7 @@ describe("verifyFrameSet", () => {
         createdAt: sql`now() - interval '2 minutes'`,
         expiresAt: sql`now() - interval '1 minute'`,
       })
-      .where(eq(pendingUploads.stagingKey, stale.stagingPrefix));
+      .where(eq(pendingUploads.stagingKey, stale.keyPrefix));
     expect(
       await refusal(() =>
         verifyFrameSet(d.deps, { setId: stale.setId, frameCount: 2 }),
@@ -310,13 +324,31 @@ describe("verifyFrameSet", () => {
     expect(imageWidthOf(Buffer.from("not a picture"))).toBeNull();
   });
 
+  // #126: A13 asked for a sample of headers, and reading all 2N of them
+  // was most of what made a save take a minute. What the sample must not
+  // do is cluster: the first and the last frame are the ones a truncated
+  // or misordered upload gets wrong.
+  it("samples headers evenly, ends included, and reads them all when there are few", () => {
+    const of = (n: number) => Array.from({ length: n }, (_, i) => i + 1);
+    expect(headerSample(of(6))).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(headerSample(of(8))).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    const sampled = headerSample(of(240));
+    expect(sampled).toHaveLength(8);
+    expect(sampled[0]).toBe(1);
+    expect(sampled[sampled.length - 1]).toBe(240);
+    expect(new Set(sampled).size).toBe(sampled.length);
+    // Evenly: no two neighbours further apart than one step plus a round.
+    const gaps = sampled.slice(1).map((at, i) => at - sampled[i]);
+    expect(Math.max(...gaps) - Math.min(...gaps)).toBeLessThanOrEqual(1);
+  });
+
   it("escapes LIKE wildcards in a prefix", () => {
     expect(escapeLike("pr_7/u/x%")).toBe("pr\\_7/u/x\\%");
   });
 });
 
 describe("a frame set on a work", () => {
-  it("saves the set: the frames copied public under the final keys, a row each, the reservation settled, staging cleared", async () => {
+  it("saves the set: the frames where they were uploaded, a row each, the reservation dropped", async () => {
     const d = makeDeps();
     const photo = await uploadPhoto(d);
     const set = await stageSet(d, 3);
@@ -337,8 +369,10 @@ describe("a frame set on a work", () => {
       "800/002.webp",
       "800/003.webp",
     ]);
-    expect(d.objects.get(`${finalPrefix}1600/001.webp`)?.publicRead).toBe(true);
-    expect(await d.deps.storage.listObjects(set.stagingPrefix)).toHaveLength(0);
+    // #126: the frames were uploaded here; the save moved nothing. What
+    // publishes them is the ACL on the presigned PUT, asserted where the
+    // presign is — a memory storage has no bucket to carry one.
+    expect(finalPrefix).toBe(set.keyPrefix);
     const rows = await testDb.db
       .select({
         kind: files.kind,
@@ -351,11 +385,14 @@ describe("a frame set on a work", () => {
     expect(rows).toHaveLength(6);
     expect(rows.filter((r) => r.kind === "r360-1600")).toHaveLength(3);
     expect(rows.every((r) => r.sha256.startsWith("md5-"))).toBe(true);
-    const [reservation] = await testDb.db
-      .select({ expiresAt: pendingUploads.expiresAt })
-      .from(pendingUploads)
-      .where(eq(pendingUploads.stagingKey, set.stagingPrefix));
-    expect(reservation.expiresAt.getTime()).toBeLessThanOrEqual(Date.now());
+    // The row is gone, not expired: while it exists the set counts as
+    // unfinished, and the collector deletes what unfinished sets hold.
+    expect(
+      await testDb.db
+        .select({ key: pendingUploads.stagingKey })
+        .from(pendingUploads)
+        .where(eq(pendingUploads.stagingKey, set.keyPrefix)),
+    ).toEqual([]);
     // The quota counts the frames now, not the ceiling.
     expect(await quotaUsageBytes(testDb.db, userId)).toBeLessThan(
       frameSetBytesCeiling(3),
@@ -374,7 +411,7 @@ describe("a frame set on a work", () => {
     expect(row).toEqual({ setId: set.setId, params });
   });
 
-  it("refuses a save that names a set the staging prefix does not hold, leaving nothing behind", async () => {
+  it("refuses a save of a set a frame short, records nothing, and leaves the rest for the owner to finish", async () => {
     const d = makeDeps();
     const photo = await uploadPhoto(d);
     const set = await stageSet(d, 3, { skip: "1600/3" });
@@ -388,10 +425,21 @@ describe("a frame set on a work", () => {
     ).rejects.toMatchObject({ code: "incomplete_set" });
     expect(await listWorks(d.deps)).toHaveLength(0);
     expect(
-      await d.deps.storage.listObjects(
-        frameSetPrefix(PREFIX, userId, set.setId),
-      ),
+      await testDb.db
+        .select()
+        .from(files)
+        .where(inArray(files.kind, ["r360-1600", "r360-800"])),
     ).toHaveLength(0);
+    // #126: the five frames that did land stay where they were uploaded,
+    // and so does the reservation. A set a frame short is what a save
+    // pressed mid-upload looks like, and the missing frame may still be on
+    // its way — this is not the moment to throw the other five away. The
+    // collector takes them when the window closes and nothing named them.
+    expect(await d.deps.storage.listObjects(set.keyPrefix)).toHaveLength(5);
+    expect(await reservationsOf(set.keyPrefix)).toHaveLength(1);
+    await expireReservation(set.keyPrefix);
+    expect(await collectUnfinishedFrameSets(d.deps)).toEqual([set.keyPrefix]);
+    expect(await d.deps.storage.listObjects(set.keyPrefix)).toHaveLength(0);
   });
 
   it("refuses a second save of the same set, and a save that lost the race keeps the winner's frames", async () => {
@@ -404,8 +452,9 @@ describe("a frame set on a work", () => {
       r360SetId: set.setId,
       r360Params: defaultR360Params(2),
     };
-    // Two saves at once: both verify against a live reservation, both copy
-    // the same keys; the second finds the set recorded under the lock.
+    // Two saves at once: both verify against a live reservation and both
+    // name the same keys — which is harmless now that neither writes any
+    // (#126); the second finds the set recorded under the lock.
     const outcomes = await Promise.allSettled([
       createWork(d.deps, input),
       createWork(d.deps, { ...input, name: "Dwa" }),
@@ -417,94 +466,87 @@ describe("a frame set on a work", () => {
     });
     const finalPrefix = frameSetPrefix(PREFIX, userId, set.setId);
     expect(await d.deps.storage.listObjects(finalPrefix)).toHaveLength(4);
-    // A replay after the save: the reservation is settled.
+    // A replay after the save: the reservation is gone, so there is no set
+    // to verify — and the winner's frames are untouched by the refusal.
     await expect(
       createWork(d.deps, { ...input, name: "Trzy" }),
     ).rejects.toMatchObject({ code: "invalid_set" });
     expect(await d.deps.storage.listObjects(finalPrefix)).toHaveLength(4);
   });
 
-  it("a copy whose staging vanished under it — the other save settled — is told apart, and the winner's frames stay", async () => {
+  // The owner's cancel goes through the same route as an image's, by the
+  // set's prefix — which since #126 is where the frames LIVE. A cancel
+  // that arrives after the save (a replay, a late unmount) must not take
+  // the saved work's pictures with it.
+  it("abandons an unsaved set, and refuses to abandon a saved one", async () => {
+    const d = makeDeps();
+    const photo = await uploadPhoto(d);
+    const unsaved = await stageSet(d, 2);
+    await abandonStagedUpload(d.deps, { stagingKey: unsaved.keyPrefix });
+    expect(await d.deps.storage.listObjects(unsaved.keyPrefix)).toHaveLength(0);
+    // The row stays, expired: it is what makes the collector look again,
+    // for a PUT that landed after this listing (#127).
+    expect(await reservationsOf(unsaved.keyPrefix)).toHaveLength(1);
+    expect(await quotaUsageBytes(testDb.db, userId)).toBeLessThan(
+      frameSetBytesCeiling(2),
+    );
+
+    const saved = await stageSet(d, 2);
+    await createWork(d.deps, {
+      name: "Nie ruszać",
+      imageFileIds: [photo.original.fileId],
+      r360SetId: saved.setId,
+      r360Params: defaultR360Params(2),
+    });
+    await abandonStagedUpload(d.deps, { stagingKey: saved.keyPrefix });
+    expect(await d.deps.storage.listObjects(saved.keyPrefix)).toHaveLength(4);
+  });
+
+  it("collects an unfinished set: the frames it holds and the row that says so", async () => {
+    const d = makeDeps();
+    const stale = await stageSet(d, 2);
+    await expireReservation(stale.keyPrefix);
+    expect(await d.deps.storage.listObjects(stale.keyPrefix)).toHaveLength(4);
+    expect(await collectUnfinishedFrameSets(d.deps)).toEqual([stale.keyPrefix]);
+    expect(await d.deps.storage.listObjects(stale.keyPrefix)).toHaveLength(0);
+    expect(await reservationsOf(stale.keyPrefix)).toHaveLength(0);
+  });
+
+  it("leaves a set whose window is still open", async () => {
+    const d = makeDeps();
+    const live = await stageSet(d, 2);
+    expect(await collectUnfinishedFrameSets(d.deps)).toEqual([]);
+    expect(await d.deps.storage.listObjects(live.keyPrefix)).toHaveLength(4);
+    expect(await reservationsOf(live.keyPrefix)).toHaveLength(1);
+  });
+
+  // The guard the whole of #126 rests on. `settleFrameSet` is best effort,
+  // so a saved set CAN keep its reservation — and collecting on "the row is
+  // still here" alone would then delete a saved work's frames, at the final
+  // keys the public page serves. The `files` rows are asked first.
+  it("spares a saved set whose reservation outlived the save, and drops the row alone", async () => {
     const d = makeDeps();
     const photo = await uploadPhoto(d);
     const set = await stageSet(d, 2);
-    const verified = await verifyFrameSet(d.deps, {
-      setId: set.setId,
-      frameCount: 2,
-    });
-    const { id } = await createWork(d.deps, {
-      name: "Zwycięzca",
+    await createWork(d.deps, {
+      name: "Zapisana",
       imageFileIds: [photo.original.fileId],
       r360SetId: set.setId,
       r360Params: defaultR360Params(2),
     });
-    expect(id).toBeTruthy();
-    // The loser verified before the winner settled, and copies now: the
-    // staging is gone. What it copied before that is the winner's.
-    let failure: unknown;
-    try {
-      await copyFrameSet(d.deps.storage, verified);
-    } catch (error) {
-      failure = error;
-    }
-    expect(failure).toBeInstanceOf(CopyFailed);
-    expect(isStagingGone(failure)).toBe(true);
-    expect((failure as CopyFailed).cause).toBeInstanceOf(ObjectNotFoundError);
-    expect((failure as CopyFailed).copied).toEqual([]);
-    expect(isStagingGone(new CopyFailed(new Error("503"), []))).toBe(false);
-    const finalPrefix = frameSetPrefix(PREFIX, userId, set.setId);
-    expect(await d.deps.storage.listObjects(finalPrefix)).toHaveLength(4);
-  });
-
-  it("a copy that fails midway leaves no public object, and a settle that fails does not fail the save", async () => {
-    const d = makeDeps();
-    const photo = await uploadPhoto(d);
-    const set = await stageSet(d, 3);
-    const finalPrefix = frameSetPrefix(PREFIX, userId, set.setId);
-    const storage = d.deps.storage;
-    let copies = 0;
-    const flaky = {
-      ...storage,
-      async copyObject(...args: Parameters<typeof storage.copyObject>) {
-        if (++copies === 4) throw new Error("503 from the bucket");
-        return storage.copyObject(...args);
-      },
-    };
-    await expect(
-      createWork(
-        { ...d.deps, storage: flaky },
-        {
-          name: "Urwana kopia",
-          imageFileIds: [photo.original.fileId],
-          r360SetId: set.setId,
-          r360Params: defaultR360Params(3),
-        },
-      ),
-    ).rejects.toThrow("503");
-    expect(await storage.listObjects(finalPrefix)).toHaveLength(0);
-    // Still staged and still reserved: the owner can save again.
-    expect(await storage.listObjects(set.stagingPrefix)).toHaveLength(6);
-    // The save lists the staging prefix once to verify; the settle lists
-    // it again to discard — that second listing fails.
-    let listings = 0;
-    const deaf = {
-      ...storage,
-      async listObjects(...args: Parameters<typeof storage.listObjects>) {
-        if (++listings === 2) throw new Error("timeout");
-        return storage.listObjects(...args);
-      },
-    };
-    const { id } = await createWork(
-      { ...d.deps, storage: deaf },
-      {
-        name: "Zapisana mimo to",
-        imageFileIds: [photo.original.fileId],
-        r360SetId: set.setId,
-        r360Params: defaultR360Params(3),
-      },
-    );
-    expect(id).toBeTruthy();
-    expect(await storage.listObjects(finalPrefix)).toHaveLength(6);
+    // The settle that did not happen: the row is back, and expired. It
+    // goes in with its window open — `pending_uploads_window_forward`
+    // refuses a row that expired before it was created — and is aged after.
+    await testDb.db.insert(pendingUploads).values({
+      stagingKey: set.keyPrefix,
+      userId,
+      sizeBytes: frameSetBytesCeiling(2),
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await expireReservation(set.keyPrefix);
+    expect(await collectUnfinishedFrameSets(d.deps)).toEqual([]);
+    expect(await d.deps.storage.listObjects(set.keyPrefix)).toHaveLength(4);
+    expect(await reservationsOf(set.keyPrefix)).toHaveLength(0);
   });
 
   it("replaces the set, keeps it across an edit, refuses a change of its count, and frees it with the work", async () => {

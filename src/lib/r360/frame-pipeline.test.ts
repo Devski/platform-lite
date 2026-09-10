@@ -109,7 +109,7 @@ function presignOf(frameCount: number): FrameSetPresign {
     Array.from({ length: frameCount }, (_, i) => `put://${width}/${i + 1}`);
   return {
     setId: "s".repeat(32),
-    stagingPrefix: "devski/staging/u/s/",
+    keyPrefix: "devski/staging/u/s/",
     urls: { 1600: urls(1600), 800: urls(800) },
   };
 }
@@ -171,7 +171,7 @@ describe("produceFrameSet", () => {
     expect(outcome).toEqual({
       ok: true,
       setId: "s".repeat(32),
-      stagingPrefix: "devski/staging/u/s/",
+      keyPrefix: "devski/staging/u/s/",
       frameCount: 5,
     });
     expect(encoder.encoded).toEqual(frames.map((f) => f.name));

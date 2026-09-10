@@ -3,6 +3,7 @@ import { and, eq, inArray, like, lte, sql } from "drizzle-orm";
 import sharp from "sharp";
 import type { Database } from "@/db/client";
 import { files, pendingUploads } from "@/db/schema";
+import { frameSetOwnerPrefix } from "@/lib/r360/frame-set-shared";
 import { quotaAllows, reservePendingUpload } from "@/lib/quota";
 import { ObjectNotFoundError, ownerKey, type FileStorage } from "@/lib/storage";
 import {
@@ -171,6 +172,12 @@ export async function abandonStagedUpload(
   input: { stagingKey: string },
 ): Promise<void> {
   if (!isOwnStagingKey(deps.prefix, deps.userId, input.stagingKey)) return;
+  // #126: a prefix key can now name an R360 set at its FINAL location, so
+  // an abandon must never touch bytes a row already names. Without this, a
+  // replayed or late abandon of a set that was saved in the meantime would
+  // delete the work's own frames off the public page. Cheap for an image:
+  // a staging key never has a row.
+  if (await namesObjects(deps.db, deps.userId, input.stagingKey)) return;
   await deps.db
     .update(pendingUploads)
     .set({ expiresAt: sql`now()` })
@@ -183,6 +190,27 @@ export async function abandonStagedUpload(
   await discardStagedObject(deps.storage, input.stagingKey);
 }
 
+/** A `files` row of this user names the key, or something under it. */
+async function namesObjects(
+  db: Database,
+  userId: string,
+  key: string,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ id: files.id })
+    .from(files)
+    .where(
+      and(
+        eq(files.userId, userId),
+        key.endsWith("/")
+          ? like(files.objectKey, `${escapeLike(key)}%`)
+          : eq(files.objectKey, key),
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
+}
+
 /** Only this user's staging namespace: other users' keys, content keys and
  * arbitrary paths are refused unread. A trailing slash names a frame set's
  * prefix (#102), abandoned the same way. */
@@ -191,9 +219,17 @@ export function isOwnStagingKey(
   userId: string,
   key: string,
 ): boolean {
-  return new RegExp(
+  const staged = new RegExp(
     `^${escapeRegExp(prefix)}staging/${escapeRegExp(userId)}/[0-9a-f]{32}/?$`,
-  ).test(key);
+  );
+  // #126: an R360 set is given up by its own prefix, and its frames are
+  // uploaded where they will live — so that prefix is no longer under
+  // `staging/`. The promise is the same shape: this environment, this
+  // owner, one set id, nothing else.
+  const frames = new RegExp(
+    `^${escapeRegExp(frameSetOwnerPrefix(prefix, userId))}[0-9a-f]{32}/$`,
+  );
+  return staged.test(key) || frames.test(key);
 }
 
 /**
