@@ -68,7 +68,8 @@ one run: `try { $env:DATABASE_URL = "…"; pnpm db:seed } finally { Remove-Item 
   printed before seeding; a blank one means the bucket root, which SPEC.md §4 reserves for
   production. Without `S3_*` the seed still creates accounts, names and handles, and says so.
 - Every seed account is `<handle>@seed.example` (verified; the domain can never receive
-  mail) with the password `architekt-seed-2026`, printed at the end.
+  mail). Its password is `SEED_PASSWORD` when set, otherwise minted fresh for the run —
+  either way printed at the end. It is not in the source: the repository is public.
 - Safe to re-run: a profile whose e-mail already exists (or whose handle another account
   holds) is skipped and reported; nothing is deleted. Photos and profile sections are resumable: after a run
   without `S3_*`, a later run with `S3_*` adds the missing photos. For a fresh set, start

@@ -15,7 +15,7 @@ import { createMemoryStorage, type FileStorage } from "@/lib/storage";
 import { listWorks } from "@/lib/works";
 import {
   avatarPng,
-  SEED_PASSWORD,
+  seedPassword,
   SEED_PROFILES,
   seedProfiles,
 } from "../../scripts/seed-profiles";
@@ -71,12 +71,16 @@ beforeEach(async () => {
   await testDb.reset();
 });
 
+/** What this suite seeds with — known here, as the CLI's is known to it. */
+const SEED_PASSWORD = "seed-suite-password";
+
 async function run(storage: FileStorage | null) {
   const lines: string[] = [];
   const summary = await seedProfiles({
     db: testDb.db,
     storage,
     prefix: PREFIX,
+    password: SEED_PASSWORD,
     log: (line) => {
       lines.push(line);
     },
@@ -250,6 +254,21 @@ describe("seedProfiles", () => {
       expect(key.startsWith(`${PREFIX}u/`)).toBe(true);
     }
   }, 60_000);
+
+  // #144: the password is not in the source. The repository went public on
+  // 10.09.2026, and the constant that stood here was readable by anyone —
+  // who could then sign in to every demo profile on dev.
+  it("takes the password from SEED_PASSWORD, or mints a fresh one per run", () => {
+    expect(seedPassword({ SEED_PASSWORD: " shared-on-purpose " })).toBe(
+      "shared-on-purpose",
+    );
+    const minted = seedPassword({});
+    expect(minted.length).toBeGreaterThanOrEqual(16);
+    expect(seedPassword({})).not.toBe(minted);
+    expect(seedPassword({ SEED_PASSWORD: "   " })).not.toBe("");
+    // The value that was published must never come back by default.
+    expect(seedPassword({})).not.toBe("architekt-seed-2026");
+  });
 
   it("stores a scrypt hash of SEED_PASSWORD in an account shaped like a 1.7.2 sign-up", async () => {
     await run(null);

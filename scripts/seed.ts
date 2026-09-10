@@ -2,8 +2,8 @@ import { getDb } from "@/db/client";
 import { requireEnv } from "@/lib/env";
 import { getStorage, isStorageConfigured, keyPrefix } from "@/lib/storage";
 import {
-  SEED_PASSWORD,
   SEED_PROFILES,
+  seedPassword,
   seedProfiles,
   type SeedSummary,
 } from "./seed-profiles";
@@ -40,7 +40,7 @@ function announcePhotoDestination(prefix: string): void {
   console.log(`photos under S3_PREFIX "${prefix}"`);
 }
 
-function printSummary(summary: SeedSummary): void {
+function printSummary(summary: SeedSummary, password: string): void {
   const photos = new Set(summary.photos);
   const skipped = new Set(summary.skipped);
   const photoCell = (handle: string): string => {
@@ -62,7 +62,9 @@ function printSummary(summary: SeedSummary): void {
   console.log(
     `created ${summary.created.length}, skipped ${summary.skipped.length}, photos ${summary.photos.length}`,
   );
-  console.log(`Password for every seed account: ${SEED_PASSWORD}`);
+  // Printed once, here, and nowhere else: it is not in the source any more
+  // (#144). Accounts this run skipped keep whatever password they had.
+  console.log(`Password for every account created now: ${password}`);
 }
 
 async function main(argv: readonly string[]): Promise<number> {
@@ -96,13 +98,15 @@ async function main(argv: readonly string[]): Promise<number> {
       "S3_* not set: seeding accounts, names and handles without photos.",
     );
   }
+  const password = seedPassword(process.env);
   const summary = await seedProfiles({
     db: getDb(),
     storage,
     prefix,
+    password,
     log: (line) => console.log(line),
   });
-  printSummary(summary);
+  printSummary(summary, password);
   return 0;
 }
 
