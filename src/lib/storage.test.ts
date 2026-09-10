@@ -260,6 +260,36 @@ describe("S3 storage (offline: URL composition and signing)", () => {
     expect(signedHeaders).toContain("cache-control");
   });
 
+  // #126, verified against the dev bucket on 10.09.2026: with x-amz-acl
+  // hoisted into the query string — which is what the SDK does unless told
+  // otherwise — OVHcloud accepts the PUT and IGNORES the ACL. The upload
+  // answers 200, the object stays private, and the only symptom is a public
+  // page with no pictures on it. Nothing but this assertion catches that.
+  it("signs the public-read ACL as a header, never as a query parameter (#126)", async () => {
+    const storage = createS3Storage(config);
+    const url = new URL(
+      await storage.presignUpload("devski/u/u1/r360/s1/800/001.webp", {
+        contentType: "image/webp",
+        publicRead: true,
+      }),
+    );
+    expect(url.searchParams.get("X-Amz-SignedHeaders")).toContain("x-amz-acl");
+    expect(url.searchParams.has("x-amz-acl")).toBe(false);
+  });
+
+  it("asks for no ACL unless the caller wants one", async () => {
+    const storage = createS3Storage(config);
+    const url = new URL(
+      await storage.presignUpload("devski/staging/u/s/800/001.webp", {
+        contentType: "image/webp",
+      }),
+    );
+    expect(url.searchParams.get("X-Amz-SignedHeaders")).not.toContain(
+      "x-amz-acl",
+    );
+    expect(url.searchParams.has("x-amz-acl")).toBe(false);
+  });
+
   it("leaves the length out of the signature when the caller has none (#102)", async () => {
     const storage = createS3Storage(config);
     const url = new URL(

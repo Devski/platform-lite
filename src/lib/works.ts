@@ -11,15 +11,9 @@ import {
 } from "@/lib/profile";
 import {
   assertNotRecorded,
-  copyFrameSet,
-  CopyFailed,
-  FrameSetError,
   insertFrameRows,
-  isRecorded,
-  isStagingGone,
   removeFrameSetRows,
   settleFrameSet,
-  takeBackCopies,
   verifyFrameSet,
   type VerifiedFrameSet,
 } from "@/lib/r360/frame-set";
@@ -211,12 +205,20 @@ export async function listWorks(deps: ProfileReadDeps): Promise<WorkView[]> {
 }
 
 /**
- * #102: a new set on a work is verified and copied under its final keys
- * BEFORE the work's transaction — a listing and a few hundred server-side
- * copies have no business under the per-user lock — and taken back if the
- * transaction fails; success settles the reservation. `run` gets the
- * verified set to record its rows with the work. With no set to stage
+ * #102: a new set on a work is verified BEFORE the work's transaction — a
+ * listing has no business under the per-user lock. `run` gets the verified
+ * set to record its rows with the work; success then drops the
+ * reservation, which is what marks the set finished (#126). With no set
  * (`null`), `run` simply runs.
+ *
+ * #126 took the copy out of here. The frames were uploaded to the keys the
+ * rows will name, so there is nothing to move and nothing to take back:
+ * a transaction that fails leaves objects that no row names and a
+ * reservation that still stands, which is exactly what the sweep collects.
+ * The race this used to guard — two saves of one set, the loser deleting
+ * the winner's frames — cannot arise, because the loser has nothing of its
+ * own to delete; `assertNotRecorded` inside the transaction and the unique
+ * index on `works.r360_set_id` still decide which one wins.
  */
 async function withFrameSet<T>(
   deps: ProfileDeps,
@@ -228,29 +230,7 @@ async function withFrameSet<T>(
     setId: set.r360SetId,
     frameCount: set.r360Params.frameCount,
   });
-  let copied: string[];
-  try {
-    copied = await copyFrameSet(deps.storage, verified);
-  } catch (error) {
-    if (!(error instanceof CopyFailed)) throw error;
-    // Only the copies no row names by now: a second save of the same set
-    // that lost the race must not delete the winner's frames.
-    await takeBackCopies(deps, error.copied);
-    if (
-      isStagingGone(error) &&
-      (await isRecorded(deps.db, deps.userId, verified.setId))
-    ) {
-      throw new FrameSetError("invalid_set");
-    }
-    throw error.cause;
-  }
-  let result: T;
-  try {
-    result = await run(verified);
-  } catch (error) {
-    await takeBackCopies(deps, copied);
-    throw error;
-  }
+  const result = await run(verified);
   await settleFrameSet(deps, verified);
   return result;
 }

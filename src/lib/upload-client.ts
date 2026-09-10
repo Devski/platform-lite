@@ -155,12 +155,20 @@ function putWithProgress(
   file: Blob,
   type: string,
   options: UploadOptions,
+  /**
+   * #126: the object publishes itself as it lands, because nothing copies it
+   * afterwards to give it an ACL. The header has to match what the URL was
+   * signed with or the bucket refuses the signature, and the bucket's CORS
+   * rule has to allow it or the browser refuses the request before sending.
+   */
+  publicRead = false,
 ): Promise<"ok" | "failed" | "aborted"> {
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", url);
     xhr.setRequestHeader("content-type", type);
     xhr.setRequestHeader("cache-control", IMMUTABLE_CACHE_CONTROL);
+    if (publicRead) xhr.setRequestHeader("x-amz-acl", "public-read");
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable && options.onProgress) {
         options.onProgress(event.loaded / event.total);
@@ -211,8 +219,8 @@ export const frameSetTransport: FrameSetTransport = {
       const response = await postJson<
         { error?: string } & Partial<FrameSetPresign>
       >("/api/uploads/presign-r360-set", { frameCount });
-      const { setId, stagingPrefix, urls } = response.data;
-      if (!response.ok || !setId || !stagingPrefix || !urls) {
+      const { setId, keyPrefix, urls } = response.data;
+      if (!response.ok || !setId || !keyPrefix || !urls) {
         const code = serverFailure(response.data.error, response.status);
         return {
           ok: false,
@@ -222,12 +230,12 @@ export const frameSetTransport: FrameSetTransport = {
               : "presign_failed",
         };
       }
-      return { ok: true, set: { setId, stagingPrefix, urls } };
+      return { ok: true, set: { setId, keyPrefix, urls } };
     } catch {
       return { ok: false, failure: "presign_failed" };
     }
   },
   put: (url, body, options) =>
-    putWithProgress(url, body, R360_FRAME_CONTENT_TYPE, options),
+    putWithProgress(url, body, R360_FRAME_CONTENT_TYPE, options, true),
   abandon,
 };

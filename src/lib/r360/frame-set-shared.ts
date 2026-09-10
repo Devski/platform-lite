@@ -62,7 +62,12 @@ export function frameSetPrefix(
   userId: string,
   setId: string,
 ): string {
-  return `${prefix}u/${userId}/r360/${setId}/`;
+  return `${frameSetOwnerPrefix(prefix, userId)}${setId}/`;
+}
+
+/** Every frame set of one owner, in this environment: the sweep's range. */
+export function frameSetOwnerPrefix(prefix: string, userId: string): string {
+  return `${prefix}u/${userId}/r360/`;
 }
 
 /** Every frame's public address at one width, `urls[ordinal - 1]` (#104). */
@@ -147,7 +152,7 @@ export const presignFrameSetSchema = z.object({ frameCount: frameCountSchema });
 /** What the batch presign answers: 2N URLs, by width, in ordinal order. */
 export interface FrameSetPresign {
   setId: string;
-  stagingPrefix: string;
+  keyPrefix: string;
   /** `urls[width][ordinal - 1]` */
   urls: Record<R360Width, string[]>;
 }

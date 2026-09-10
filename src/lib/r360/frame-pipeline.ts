@@ -68,7 +68,7 @@ export interface FrameSetTransport {
     body: Blob,
     options: { onProgress?: (fraction: number) => void; signal?: AbortSignal },
   ): Promise<"ok" | "failed" | "aborted">;
-  abandon(stagingPrefix: string): Promise<unknown>;
+  abandon(keyPrefix: string): Promise<unknown>;
 }
 
 export interface FrameSetProgress {
@@ -83,7 +83,7 @@ export interface FrameSetProgress {
 }
 
 export type FrameSetOutcome =
-  | { ok: true; setId: string; stagingPrefix: string; frameCount: number }
+  | { ok: true; setId: string; keyPrefix: string; frameCount: number }
   | { ok: false; failure: FrameSetFailure };
 
 /** PUTs in the air at once while the producer works ahead of them. */
@@ -246,7 +246,7 @@ export async function produceFrameSet(
     // What has not left yet never will: the prefix is about to go.
     waiting.length = 0;
     await Promise.allSettled(inFlight);
-    void transport.abandon(set.stagingPrefix);
+    void transport.abandon(set.keyPrefix);
     return { ok: false, failure: why };
   };
 
@@ -312,7 +312,7 @@ export async function produceFrameSet(
   return {
     ok: true,
     setId: set.setId,
-    stagingPrefix: set.stagingPrefix,
+    keyPrefix: set.keyPrefix,
     frameCount: frames.length,
   };
 }

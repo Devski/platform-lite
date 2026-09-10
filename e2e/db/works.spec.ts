@@ -187,7 +187,7 @@ test("a new work: the photo goes through the upload chain as a work, then the fo
     };
     return json(200, {
       setId: SET_ID,
-      stagingPrefix: `staging/someone/${SET_ID}/`,
+      keyPrefix: `staging/someone/${SET_ID}/`,
       urls: {
         1600: frameUrls(1600, frameCount),
         800: frameUrls(800, frameCount),
@@ -439,7 +439,7 @@ test("the page's Zapisz waits for the frames, then saves the open form (#85)", a
     "**/api/uploads/presign-r360-set",
     json(200, {
       setId: SET_ID,
-      stagingPrefix: `staging/someone/${SET_ID}/`,
+      keyPrefix: `staging/someone/${SET_ID}/`,
       urls: { 1600: frameUrls(1600, 2), 800: frameUrls(800, 2) },
     }),
   );
