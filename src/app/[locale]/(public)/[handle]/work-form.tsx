@@ -311,12 +311,35 @@ export function WorkForm({
     localFramesRef.current = next;
     setLocalFrames(next);
   }
-  // Which ordinals it holds, as an immutable snapshot: the store is
-  // mutated in place, so a fresh set is what tells React it changed —
-  // the same idiom the visitor's loader uses (use-frame-loader.ts).
+  /**
+   * Which ordinals have been MADE — the ring's arc, and a count that only
+   * grows. Not the same question as which the store still holds: the store
+   * has a budget and evicts the far side of the orbit (#117), so at 800 px
+   * it keeps about 93 frames. Fed by the store's residency, the arc could
+   * never pass 78% of a 120-frame orbit and 26% of a 360-frame one — it
+   * filled, stalled, and then chased its own tail as frames were evicted
+   * behind it. Reported by Dawid on 10.09.2026: "przy 120 klatkach koło
+   * nigdy się nie zapełnia. przy 60 wyglądało okej" — 60 frames is 86 MB
+   * and fits, which is exactly where the line falls.
+   *
+   * The viewer still paints only what is resident (`nearestLoaded` asks
+   * the store); this says what exists.
+   */
   const [localLoaded, setLocalLoaded] = useState<ReadonlySet<number>>(
     () => new Set(),
   );
+  /** One more frame made; the set never loses one. */
+  const rememberLoaded = (ordinal: number) =>
+    setLocalLoaded((current) =>
+      current.has(ordinal) ? current : new Set(current).add(ordinal),
+    );
+  /**
+   * Bumped when an encoding lands for a frame the store had already
+   * dropped. The recovery effect below used to key on the produced set
+   * changing, which it cannot any more — that set only grows, and a frame
+   * being made twice adds nothing to it.
+   */
+  const [recovered, setRecovered] = useState(0);
   // Every frame's encoding, kept beside the store: a long orbit spends its
   // budget and the store drops the far side, so a frame the owner turns
   // back to is decoded again from this rather than lost with no way back
@@ -710,7 +733,7 @@ export function WorkForm({
       return;
     }
     into.put(ordinal, picture);
-    setLocalLoaded(into.ordinals);
+    rememberLoaded(ordinal);
   }
 
   /**
@@ -750,7 +773,7 @@ export function WorkForm({
       bytes: pictureBytes(bitmap.width, bitmap.height),
       release: () => bitmap.close(),
     });
-    setLocalLoaded(into.ordinals);
+    rememberLoaded(ordinal);
   }
 
   // The frame in view was decoded once and then evicted to stay inside
@@ -761,7 +784,11 @@ export function WorkForm({
     if (!store || store.has(previewOrbit.frame)) return;
     const encoded = localEncodings.current.get(previewOrbit.frame);
     if (encoded) void keepFrame(store, previewOrbit.frame, encoded);
-  }, [previewOrbit.frame, localLoaded]);
+    // keepFrame is redeclared every render and reads nothing but refs, so
+    // listing it would re-run this on every render and recover nothing.
+    // What this effect is FOR is the three values below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewOrbit.frame, localLoaded, recovered]);
 
   /**
    * Shows the zip in the form, its frames still to come, and produces and
@@ -816,7 +843,7 @@ export function WorkForm({
         // encode is the long part. A store that has already dropped it
         // means the effect below ran with nothing to recover it from:
         // say so now that there is something.
-        if (store && !store.has(ordinal)) setLocalLoaded(store.ordinals);
+        if (store && !store.has(ordinal)) setRecovered((n) => n + 1);
       },
       onProgress: (p) => {
         const bucket = p.framesDone * 1000 + p.framesLanded;
