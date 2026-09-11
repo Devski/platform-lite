@@ -8,8 +8,8 @@ import type { Orbit } from "./use-orbit";
 // #107 (A13; Dawid's pick of 11.09.2026, A and B together): the cue
 // points as a row of buttons under the picture. A press travels the orbit
 // there the way a click on the ring does; the button of the cue the orbit
-// stands on is marked; pointing at one, or focusing it, lights its marker
-// on the ring and shows its label there. The row works with no ring at
+// stands on is marked; pointing at one, or focusing it from the keyboard,
+// lights its marker on the ring and shows its label there. The row works with no ring at
 // all — on phones, and on the profile page once the redesign keeps the
 // ring for the enlarged view, it is the only way to the cues — and it is
 // the keyboard's and the screen reader's way to them everywhere.
@@ -31,6 +31,18 @@ const TONES = {
     focus: "focus-visible:shadow-[var(--ring-focus-inverse)]",
   },
 } as const;
+
+/**
+ * Whether an element's focus shows — the keyboard's, not a press's. An
+ * engine that does not know :focus-visible counts every focus.
+ */
+function focusVisible(element: Element): boolean {
+  try {
+    return element.matches(":focus-visible");
+  } catch {
+    return true;
+  }
+}
 
 export function OrbitCueButtons({
   cues,
@@ -85,9 +97,21 @@ export function OrbitCueButtons({
               onPointerLeave={(event) => {
                 if (event.pointerType === "mouse") onPreview(null);
               }}
-              onFocus={() => onPreview(cue.frame)}
-              onBlur={() => onPreview(null)}
-              className={`inline-flex min-h-8 items-center gap-(--sp-3) rounded-full border px-(--sp-4) type-label transition-colors focus-visible:outline-none ${look.focus} ${state}`}
+              // Only the keyboard's focus points at a cue. A button pressed
+              // keeps the focus after the press, on a phone through any
+              // drag after it, and would keep its label on the ring
+              // wherever the orbit went next.
+              onFocus={(event) => {
+                if (focusVisible(event.currentTarget)) onPreview(cue.frame);
+              }}
+              onBlur={() => {
+                if (preview === cue.frame) onPreview(null);
+              }}
+              // No colour transition: the mark follows the orbit frame by
+              // frame, a readout like the counter, and a fade between the
+              // two tones passes through ones that cannot be read (axe
+              // caught one mid-way in the lightbox).
+              className={`inline-flex min-h-8 items-center gap-(--sp-3) rounded-full border px-(--sp-4) type-label focus-visible:outline-none ${look.focus} ${state}`}
             >
               {/* The ring's marker, in small: this button is that diamond. */}
               <span

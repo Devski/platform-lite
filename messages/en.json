@@ -594,7 +594,7 @@
         "cuesHint": "Turn the preview to a frame and add a point there. Visitors reach it with one click — on the ring, or with a button under the picture. At most {max} points.",
         "cueAdd": "Add a point at frame {frame}",
         "cueFrame": "Frame {frame}",
-        "cueLabel": "Name of the point at frame {frame}",
+        "cueLabel": "Frame {frame}, name of the point",
         "cuePlaceholder": "e.g. Main entrance",
         "cueRemove": "Remove",
         "cueRemoveLabel": "Remove the point at frame {frame}",

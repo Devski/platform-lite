@@ -594,7 +594,7 @@
         "cuesHint": "Obróć podgląd do wybranej klatki i dodaj w niej punkt. Goście przejdą do niego jednym kliknięciem — na pierścieniu albo przyciskiem pod zdjęciem. Najwyżej {max} punktów.",
         "cueAdd": "Dodaj punkt w klatce {frame}",
         "cueFrame": "Klatka {frame}",
-        "cueLabel": "Nazwa punktu w klatce {frame}",
+        "cueLabel": "Klatka {frame}, nazwa punktu",
         "cuePlaceholder": "np. Wejście główne",
         "cueRemove": "Usuń",
         "cueRemoveLabel": "Usuń punkt w klatce {frame}",

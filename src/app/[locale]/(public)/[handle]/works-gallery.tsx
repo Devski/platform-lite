@@ -203,6 +203,10 @@ export function WorksGallery({
           ) : (
             <li key={work.id} className="flex">
               <WorkCard
+                // #107: the card holds the hand on its orbit, which starts
+                // on the start frame once — a set the work did not have
+                // (an orbit added to a photos-only work) gets a new card.
+                key={work.orbit?.setId ?? "no-orbit"}
                 work={work}
                 owner={owner}
                 onOpen={(index, returnTo) =>
@@ -474,6 +478,14 @@ function LightboxOverlay({
   useEffect(() => {
     closeRef.current?.focus();
   }, []);
+  // A step takes away what it steps from — an orbit's cue buttons with it
+  // (#107 review) — and a focus that went with them comes back to Close,
+  // not to the page behind the dialog.
+  useEffect(() => {
+    if (!rootRef.current?.contains(document.activeElement)) {
+      closeRef.current?.focus();
+    }
+  }, [index]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -536,7 +548,10 @@ function LightboxOverlay({
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-n-950 px-(--sp-5) py-(--sp-8)"
+      // Scrolls when what it holds is taller than the screen — an orbit
+      // with a dozen cue buttons on a short one (#107 review). Safe
+      // centring keeps the top reachable when it does.
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center-safe overflow-y-auto bg-n-950 px-(--sp-5) py-(--sp-8)"
     >
       <button
         ref={closeRef}
@@ -654,8 +669,11 @@ function PublicOrbit({
       loaded={loaded}
       flattening={orbit.params.flattening}
       className={
+        // Over the card's other marks: the translate makes the ring a layer
+        // of its own, and a cue's label in it would sit under the enlarge
+        // button otherwise (#107 review).
         ring === "overlay"
-          ? "absolute bottom-1 left-1/2 w-[38%] max-w-40 -translate-x-1/2"
+          ? "absolute bottom-1 left-1/2 z-10 w-[38%] max-w-40 -translate-x-1/2"
           : "mt-(--sp-3) w-40"
       }
       // In the lightbox the caption counts the pictures right under it.
@@ -815,13 +833,14 @@ function OrbitFull({ name, orbit }: { name: string; orbit: GalleryOrbit }) {
   );
   const hand = useOrbit(orbit.params);
   const cueHand = useCueHand(orbit.params);
-  // The ring under the picture takes its band out of the height, or the
-  // dialog would overflow with nowhere to scroll (#106 review) — and the
-  // cue buttons under the ring take two rows' more (#107).
+  // The ring under the picture takes its band out of the height (#106
+  // review), and the cue buttons under the ring two rows more (#107). Never
+  // below 10rem, though: on a phone held sideways the sum leaves nothing,
+  // and the dialog scrolls instead of losing the picture.
   const height =
     cueHand.cues.length > 0
-      ? "max-h-[calc(100vh-140px-17rem)]"
-      : "max-h-[calc(100vh-140px-12rem)]";
+      ? "max-h-[max(10rem,calc(100vh-140px-17rem))]"
+      : "max-h-[max(10rem,calc(100vh-140px-12rem))]";
   return (
     <div className="flex flex-col items-center">
       <PublicOrbit

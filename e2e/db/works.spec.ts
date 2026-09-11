@@ -951,7 +951,7 @@ test("cue points (#107): added at the frame in view and named in place; an unnam
     .getByTestId("orbit-viewer");
   await expect(viewer).toHaveAttribute("data-frame", "3");
   await form.getByRole("button", { name: "Dodaj punkt w klatce 3" }).click();
-  const front = form.getByLabel("Nazwa punktu w klatce 3");
+  const front = form.getByLabel("Klatka 3, nazwa punktu");
   await expect(front).toBeFocused();
   await front.fill("Front");
   // One a frame: the frame in view has its point now.
@@ -983,7 +983,7 @@ test("cue points (#107): added at the frame in view and named in place; an unnam
     .getByRole("list", { name: "Punkty w podglądzie" })
     .getByRole("button");
   await expect(buttons).toHaveText(["Front", "Klatka 4"]);
-  await form.getByLabel("Nazwa punktu w klatce 4").fill("  Taras ");
+  await form.getByLabel("Klatka 4, nazwa punktu").fill("  Taras ");
   await expect(buttons).toHaveText(["Front", "Taras"]);
   await expectNoAxeViolations(page, test.info(), "work-form-r360-cues");
 

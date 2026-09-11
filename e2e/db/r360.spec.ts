@@ -222,15 +222,37 @@ test("cue points (#107): the buttons under the picture turn the orbit to their f
   await ring.scrollIntoViewIfNeeded();
   const box = await ring.boundingBox();
   if (!box) throw new Error("no ring box");
+  const rightEnd = {
+    x: box.x + (box.width * (100 + 92)) / 200,
+    y: box.y + box.height / 2,
+  };
   await visitor.mouse.move(box.x + box.width / 2, box.y - 40);
   await expect(label).toHaveText("Wejście główne");
-  await visitor.mouse.move(
-    box.x + (box.width * (100 + 92)) / 200,
-    box.y + box.height / 2,
-  );
+  await visitor.mouse.move(rightEnd.x, rightEnd.y);
   await expect(label).toHaveText("Taras");
   await visitor.mouse.move(box.x + box.width / 2, box.y - 40);
   await expect(label).toHaveText("Wejście główne");
+
+  // A drag along the ring that starts on a marker leaves that marker
+  // behind: it ends on frame 2, where there is no cue and so no label.
+  await visitor.mouse.move(rightEnd.x, rightEnd.y);
+  await expect(label).toHaveText("Taras");
+  await visitor.mouse.down();
+  await visitor.mouse.move(box.x + (box.width * (100 - 92)) / 200, rightEnd.y, {
+    steps: 6,
+  });
+  await visitor.mouse.up();
+  await expect(viewer).toHaveAttribute("data-frame", "2");
+  await expect(label).toHaveCount(0);
+
+  // The keyboard's way: a button focused from the keyboard names its cue
+  // on the ring, and Enter goes there.
+  await entrance.focus();
+  await visitor.keyboard.press("Shift+Tab");
+  await expect(terrace).toBeFocused();
+  await expect(label).toHaveText("Taras");
+  await visitor.keyboard.press("Enter");
+  await expect(viewer).toHaveAttribute("data-frame", "4");
 
   await expectNoAxeViolations(visitor, test.info(), "public-r360-cues");
 });
@@ -261,11 +283,22 @@ test("on touch there is no hover: the first tap on a marker shows its label, the
   await tapTop();
   await expect(label).toHaveText("Wejście główne");
   await expect(viewer).toHaveAttribute("data-frame", "3");
+  // The orbit turned away and back: the tap that showed the label is
+  // spent, and does not come back with the frame.
+  await viewer.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(viewer).toHaveAttribute("data-frame", "4");
+  await page.keyboard.press("ArrowLeft");
+  await expect(viewer).toHaveAttribute("data-frame", "3");
+  await expect(label).toHaveCount(0);
+  await tapTop();
+  await expect(label).toHaveText("Wejście główne");
   await tapTop();
   await expect(viewer).toHaveAttribute("data-frame", "1");
 
-  // A button tapped first keeps the focus, and with it its own label on
-  // the ring; the marker tapped after it is still the one named.
+  // A button tapped keeps the focus, but no claim on the ring's label:
+  // the marker tapped after it is the one named, and once the orbit is
+  // there the ring names where it is.
   await card.getByRole("button", { name: "Taras" }).tap();
   await expect(viewer).toHaveAttribute("data-frame", "4");
   await tapTop();
@@ -273,6 +306,7 @@ test("on touch there is no hover: the first tap on a marker shows its label, the
   await expect(viewer).toHaveAttribute("data-frame", "4");
   await tapTop();
   await expect(viewer).toHaveAttribute("data-frame", "1");
+  await expect(label).toHaveText("Wejście główne");
   await touch.close();
 });
 

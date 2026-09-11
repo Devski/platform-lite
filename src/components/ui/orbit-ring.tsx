@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   cueLabelSide,
   cueNear,
@@ -91,6 +91,27 @@ const TONES = {
   },
 } as const;
 
+/**
+ * #107: moves a cue's label sideways back inside the bounds it would cross
+ * — the nearest `data-orbit-bounds` (the card's picture clips what leaves
+ * it), else the page.
+ */
+function keepInside(element: HTMLElement) {
+  element.style.translate = "";
+  const bounds = element
+    .closest("[data-orbit-bounds]")
+    ?.getBoundingClientRect() ?? {
+    left: 0,
+    right: document.documentElement.clientWidth,
+  };
+  const shift = shiftIntoBounds(
+    element.getBoundingClientRect(),
+    bounds,
+    LABEL_MARGIN_PX,
+  );
+  if (shift) element.style.translate = `${shift}px 0`;
+}
+
 export function OrbitRing({
   orbit,
   params,
@@ -143,7 +164,11 @@ export function OrbitRing({
   const [tapped, setTapped] = useState<{ cue: number; at: number } | null>(
     null,
   );
+  // The claim ends when the orbit moves off that frame: coming back to it
+  // later is not a tap.
+  if (tapped && tapped.at !== orbit.frame) setTapped(null);
   const label = useRef<HTMLSpanElement>(null);
+  const labelBox = useRef<HTMLDivElement>(null);
 
   /** The frame under a pointer, by its angle around the ring's centre. */
   const frameUnder = (clientX: number, clientY: number, box: DOMRect) => {
@@ -218,6 +243,9 @@ export function OrbitRing({
     ) {
       return;
     }
+    // A drag leaves the marker it began on: the cues it passes, and the
+    // one it may end on, are named as the orbit reaches them.
+    if (!down.dragged) leave();
     down.dragged = true;
     orbit.setFrame(frameUnder(event.clientX, event.clientY, down.box));
   };
@@ -277,24 +305,22 @@ export function OrbitRing({
 
   // #107: the label may be wider than the room beside the ring — the card's
   // ring is a third of a narrow picture — so once it is laid out it is
-  // moved back inside the picture, or the page, it would otherwise leave.
+  // moved back inside the picture, or the page, it would otherwise leave:
+  // again whenever its marker moves (a new start frame, a new flattening)
+  // and whenever the ring's size on screen does (a window resized, a phone
+  // turned — the card's ring is a share of its picture).
   useLayoutEffect(() => {
-    const element = label.current;
-    if (!element) return;
-    element.style.translate = "";
-    const bounds = element
-      .closest("[data-orbit-bounds]")
-      ?.getBoundingClientRect() ?? {
-      left: 0,
-      right: document.documentElement.clientWidth,
-    };
-    const shift = shiftIntoBounds(
-      element.getBoundingClientRect(),
-      bounds,
-      LABEL_MARGIN_PX,
-    );
-    if (shift) element.style.translate = `${shift}px 0`;
-  }, [labelled?.frame, labelled?.label, labelSide, radiusX, radiusY]);
+    if (label.current) keepInside(label.current);
+  }, [labelled?.frame, labelled?.label, labelled?.at.x, labelled?.at.y]);
+  useEffect(() => {
+    const element = labelBox.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (label.current) keepInside(label.current);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <div
@@ -304,7 +330,7 @@ export function OrbitRing({
       data-testid="orbit-ring"
       data-frame={orbit.frame}
     >
-      <div className="relative w-full">
+      <div ref={labelBox} className="relative w-full">
         {/* The view box has its origin at the ring's centre: every point on
             the ring is drawn as ringPoint gives it. The svg itself takes no
             pointer — the band and the dot do. */}
