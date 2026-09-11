@@ -38,6 +38,7 @@ import {
 import {
   defaultR360Params,
   frameUrls,
+  isDefaultR360Params,
   R360_PREVIEW_WIDTH,
   type R360Params,
 } from "@/lib/r360/frame-set-shared";
@@ -286,14 +287,18 @@ export function WorkForm({
   // tiles: settle() decides after awaits (#85 review).
   const r360Ref = useRef(r360);
   // #107 follow-up: the parameters of the orbit last taken out of the form
-  // — removed, stopped, or refused — for the zip picked after it.
+  // — removed, stopped, or refused — for the zip picked after it. Defaults
+  // nobody touched are not kept: a zip of the wrong count, picked by
+  // mistake and taken out again, must not wipe what the one before had.
   const lastParams = useRef<R360Params | null>(null);
   function commitR360(
     next: R360 | null | ((current: R360 | null) => R360 | null),
   ) {
     const previous = r360Ref.current;
     r360Ref.current = typeof next === "function" ? next(previous) : next;
-    if (previous && !r360Ref.current) lastParams.current = previous.params;
+    if (previous && !r360Ref.current && !isDefaultR360Params(previous.params)) {
+      lastParams.current = previous.params;
+    }
     setR360(r360Ref.current);
   }
   // The frame run in flight, to stop it on remove or unmount, and the run
@@ -301,6 +306,9 @@ export function WorkForm({
   // nothing (there is no file id to tell runs apart any more).
   const framesAbort = useRef<AbortController | null>(null);
   const run = useRef(0);
+  // The zips picked so far: a pick whose read ends after a later pick's
+  // began is not the form's any more.
+  const picks = useRef(0);
 
   // #117: the preview's frames as DECODED PICTURES, not addresses. A frame
   // the pipeline has just encoded is turned into a bitmap here and painted
@@ -913,12 +921,16 @@ export function WorkForm({
   async function pickArchive(file: File, input: HTMLInputElement) {
     input.value = "";
     setError(null);
-    const read = await readArchive(fileSource(file));
-    if (!read) return;
     // The picker is on screen while a zip is still being read — a long
     // wait for one picked from a cloud drive (#147) — so a second pick can
-    // land before the first run has shown anything. The newer pick wins,
-    // and the run it replaces stops rather than finishing unseen (#148).
+    // land before the first run has shown anything. The newer pick wins:
+    // the one picked last, not the one whose read happens to end last — a
+    // slow first read would otherwise stop the second pick's run and take
+    // the form (#107 follow-up review).
+    const pick = ++picks.current;
+    const read = await readArchive(fileSource(file));
+    if (!read || pick !== picks.current) return;
+    // And the run it replaces stops rather than finishing unseen (#148).
     framesAbort.current?.abort();
     const controller = new AbortController();
     framesAbort.current = controller;

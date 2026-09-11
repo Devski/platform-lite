@@ -4,6 +4,7 @@ import {
   R360_CUE_LABEL_MAX,
   R360_CUES_MAX,
   defaultR360Params,
+  isDefaultR360Params,
   r360ParamsSchema,
 } from "./frame-set-shared";
 import type { OrbitParams } from "./orbit";
@@ -75,6 +76,29 @@ describe("cues in the parameters", () => {
     ]) {
       expect(withCues(4, cues).success, JSON.stringify(cues)).toBe(false);
     }
+  });
+});
+
+describe("isDefaultR360Params", () => {
+  it("is true for the defaults of any count, and false once anything of the owner's is in them", () => {
+    expect(isDefaultR360Params(defaultR360Params(4))).toBe(true);
+    expect(isDefaultR360Params(defaultR360Params(120))).toBe(true);
+    for (const change of [
+      { direction: -1 as const },
+      { framesPerWidth: 1 },
+      { startFrame: 3 },
+      { flattening: 0.3 },
+      { cues: [{ frame: 2, label: "Taras" }] },
+    ]) {
+      expect(
+        isDefaultR360Params({ ...defaultR360Params(4), ...change }),
+        JSON.stringify(change),
+      ).toBe(false);
+    }
+    // An empty list of cues is no cue at all.
+    expect(isDefaultR360Params({ ...defaultR360Params(4), cues: [] })).toBe(
+      true,
+    );
   });
 });
 

@@ -169,6 +169,21 @@ export function defaultR360Params(frameCount: number): R360Params {
   };
 }
 
+/**
+ * Whether the parameters are the defaults for their count, untouched and
+ * without cue points — nothing of the owner's in them to keep (#107).
+ */
+export function isDefaultR360Params(params: R360Params): boolean {
+  const defaults = defaultR360Params(params.frameCount);
+  return (
+    params.direction === defaults.direction &&
+    params.framesPerWidth === defaults.framesPerWidth &&
+    params.startFrame === defaults.startFrame &&
+    params.flattening === defaults.flattening &&
+    !params.cues?.length
+  );
+}
+
 export const presignFrameSetSchema = z.object({ frameCount: frameCountSchema });
 
 /** What the batch presign answers: 2N URLs, by width, in ordinal order. */

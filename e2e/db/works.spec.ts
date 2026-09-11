@@ -1066,5 +1066,19 @@ test("a new zip of the same frame count keeps the parameters and the cue points;
   );
   await expect(startFrame).toHaveText("1");
   await expect(page.getByLabel(/nazwa punktu/)).toHaveCount(0);
+
+  // That one was the wrong zip, taken out untouched: it does not wipe what
+  // the form remembers, and the right one after it gets it back.
+  await page.getByRole("button", { name: "Usuń", exact: true }).click();
+  await page.getByTestId("work-r360").setInputFiles({
+    name: "right.zip",
+    mimeType: "application/zip",
+    buffer: await orbitZip(4),
+  });
+  await expect(page.getByTestId("work-r360-frames")).toHaveText(
+    "· Klatki gotowe: 4",
+  );
+  await expect(startFrame).toHaveText("3");
+  await expect(cueName).toHaveValue("Taras");
   await page.getByRole("button", { name: "Anuluj" }).click();
 });
