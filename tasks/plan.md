@@ -226,6 +226,8 @@ trial, all on this milestone. In the order agreed with Dawid on 10.09.2026:
    that works without the ring. After the preview, his two corrections: a label shows only
    while it is pointed at, and a phone's public page shows no ring at all, only the
    buttons. The redesign will keep the ring for the enlarged view on the profile page too.
+   Then, at his word, a new zip of the same frame count keeps the parameters and the cue
+   points (#155).
 8. ~~#127's timer~~ — **done 11.09.2026** (#157): a minute after the server starts and every
    12 hours, for every owner, only where `APP_ENV` is `dev` or `production`. The report of
    the objects no record names, the design's last point on #126, is

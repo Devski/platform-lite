@@ -994,3 +994,91 @@ test("cue points (#107): added at the frame in view and named in place; an unnam
     { frame: 4, label: "Taras" },
   ]);
 });
+
+// #107 follow-up (Dawid, 11.09.2026): a zip replacing one of the same
+// frame count is, as a rule, the same camera path rendered again — the
+// owner's parameters and cue points stay. Another count starts from the
+// defaults: frames past it would name nothing.
+test("a new zip of the same frame count keeps the parameters and the cue points; another count starts from the defaults", async () => {
+  await page.getByRole("button", { name: "Anuluj" }).click();
+  await page.getByRole("button", { name: "Zapisz", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Edytuj profil" }),
+  ).toBeVisible();
+  const [seeded] = await seedWorks(identity.handle, [
+    {
+      name: "Orbita do podmiany",
+      r360: {
+        frameCount: 4,
+        startFrame: 3,
+        cues: [{ frame: 2, label: "Taras" }],
+      },
+    },
+  ]);
+  await page.reload();
+  await page.getByRole("button", { name: "Edytuj profil" }).click();
+  await page.getByRole("button", { name: `Edytuj: ${seeded.name}` }).click();
+  const startFrame = page.getByTestId("work-r360-start-frame");
+  const cueName = page.getByLabel("Klatka 2, nazwa punktu");
+  await expect(startFrame).toHaveText("3");
+  await expect(cueName).toHaveValue("Taras");
+
+  await page.route("**/api/uploads/presign-r360-set", (route) => {
+    const { frameCount } = route.request().postDataJSON() as {
+      frameCount: number;
+    };
+    return json(200, {
+      setId: SET_ID,
+      keyPrefix: `staging/someone/${SET_ID}/`,
+      urls: {
+        1600: frameUrls(1600, frameCount),
+        800: frameUrls(800, frameCount),
+      },
+    })(route);
+  });
+  await page.route(`**${FRAME_URL}/**`, (route) =>
+    route.fulfill({ status: 200, body: "" }),
+  );
+  await page.route("**/api/uploads/abandon", json(200, {}));
+
+  // The same count: the start frame and the cue stay.
+  await page.getByRole("button", { name: "Usuń", exact: true }).click();
+  await page.getByTestId("work-r360").setInputFiles({
+    name: "again.zip",
+    mimeType: "application/zip",
+    buffer: await orbitZip(4),
+  });
+  await expect(page.getByTestId("work-r360-frames")).toHaveText(
+    "· Klatki gotowe: 4",
+  );
+  await expect(startFrame).toHaveText("3");
+  await expect(cueName).toHaveValue("Taras");
+
+  // Another count: the defaults, and no cues.
+  await page.getByRole("button", { name: "Usuń", exact: true }).click();
+  await page.getByTestId("work-r360").setInputFiles({
+    name: "other.zip",
+    mimeType: "application/zip",
+    buffer: await orbitZip(3),
+  });
+  await expect(page.getByTestId("work-r360-frames")).toHaveText(
+    "· Klatki gotowe: 3",
+  );
+  await expect(startFrame).toHaveText("1");
+  await expect(page.getByLabel(/nazwa punktu/)).toHaveCount(0);
+
+  // That one was the wrong zip, taken out untouched: it does not wipe what
+  // the form remembers, and the right one after it gets it back.
+  await page.getByRole("button", { name: "Usuń", exact: true }).click();
+  await page.getByTestId("work-r360").setInputFiles({
+    name: "right.zip",
+    mimeType: "application/zip",
+    buffer: await orbitZip(4),
+  });
+  await expect(page.getByTestId("work-r360-frames")).toHaveText(
+    "· Klatki gotowe: 4",
+  );
+  await expect(startFrame).toHaveText("3");
+  await expect(cueName).toHaveValue("Taras");
+  await page.getByRole("button", { name: "Anuluj" }).click();
+});
