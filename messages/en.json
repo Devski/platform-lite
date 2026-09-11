@@ -560,7 +560,6 @@
         "useThisFrame": "Use this frame",
         "paramFlattening": "Ring flattening",
         "flatteningCircle": "Circle",
-        "flatteningHint": "Takes effect once the ring dial arrives.",
         "refused": {
           "not_a_zip": "This is not a zip archive.",
           "encrypted": "The archive is encrypted. Export it without a password.",

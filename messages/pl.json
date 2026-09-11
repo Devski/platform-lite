@@ -560,7 +560,6 @@
         "useThisFrame": "Użyj tej klatki",
         "paramFlattening": "Spłaszczenie pierścienia",
         "flatteningCircle": "Okrąg",
-        "flatteningHint": "Zadziała, gdy pojawi się pierścień.",
         "refused": {
           "not_a_zip": "To nie jest archiwum zip.",
           "encrypted": "Archiwum jest zaszyfrowane. Wyeksportuj je bez hasła.",

@@ -88,7 +88,6 @@ export function R360ParamControls({
         onChange={(flattening) => onChange({ flattening })}
         disabled={disabled}
         testId="work-r360-flattening"
-        hint={t("flatteningHint")}
       >
         <Button
           variant="quiet"
@@ -147,8 +146,9 @@ function ParamLabel({
 /**
  * A parameter set on a slider, its value shown above it. The name alone
  * is the slider's label, the value its description — a label wrapping the
- * whole block would read the value, a button and the hint as the name
- * (#103 review). What comes as children sits beside the hint, outside.
+ * whole block would read the value and the button as the name (#103
+ * review). What comes as children sits below the slider, outside the
+ * label.
  */
 function RangeParam({
   name,
@@ -160,7 +160,6 @@ function RangeParam({
   onChange,
   disabled,
   testId,
-  hint,
   children,
 }: {
   name: string;
@@ -172,12 +171,10 @@ function RangeParam({
   onChange: (value: number) => void;
   disabled: boolean;
   testId: string;
-  hint?: string;
   children?: React.ReactNode;
 }) {
   const inputId = useId();
   const shownId = useId();
-  const hintId = useId();
   return (
     <div className="flex flex-col gap-(--sp-2)">
       <ParamLabel
@@ -196,13 +193,12 @@ function RangeParam({
         onChange={(event) => onChange(Number(event.target.value))}
         disabled={disabled}
         data-testid={testId}
-        aria-describedby={hint ? `${shownId} ${hintId}` : shownId}
+        aria-describedby={shownId}
         className="accent-(--action-solid)"
       />
-      {(hint || children) && (
+      {children && (
         <span className="flex items-center gap-(--sp-3) type-sm text-(--text-muted)">
           {children}
-          {hint && <span id={hintId}>{hint}</span>}
         </span>
       )}
     </div>

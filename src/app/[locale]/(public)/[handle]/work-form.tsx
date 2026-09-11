@@ -889,6 +889,11 @@ export function WorkForm({
     setError(null);
     const read = await readArchive(fileSource(file));
     if (!read) return;
+    // The picker is on screen while a zip is still being read — a long
+    // wait for one picked from a cloud drive (#147) — so a second pick can
+    // land before the first run has shown anything. The newer pick wins,
+    // and the run it replaces stops rather than finishing unseen (#148).
+    framesAbort.current?.abort();
     const controller = new AbortController();
     framesAbort.current = controller;
     const set = await runFrames(
@@ -897,11 +902,16 @@ export function WorkForm({
       { name: file.name, sizeBytes: file.size },
       controller.signal,
     );
-    framesAbort.current = null;
-    if (closed.current) {
+    // #148: a run that is no longer the form's — the form closed, the owner
+    // stopped it, or picked another zip since — returns in its own time,
+    // and by then the form belongs to someone else. Whatever it made is
+    // abandoned, and the form is left alone: clearing it here would take
+    // the next pick's orbit off the screen while its run carried on.
+    if (closed.current || framesAbort.current !== controller) {
       if (set.ok) void abandon(set.keyPrefix);
       return;
     }
+    framesAbort.current = null;
     if (!set.ok) {
       // Nothing landed that the work could name: the form goes back to
       // offering the picker, with the reason on screen.
@@ -929,7 +939,9 @@ export function WorkForm({
 
   function removeArchive() {
     // Stops the frames in flight; the abort path abandons what was staged.
+    // The run stops being the form's here, not when it returns (#148).
     framesAbort.current?.abort();
+    framesAbort.current = null;
     run.current += 1;
     abandonUnsavedSet(r360Ref.current);
     commitR360(null);
