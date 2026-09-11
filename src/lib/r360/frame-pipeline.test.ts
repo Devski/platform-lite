@@ -4,6 +4,7 @@ import {
   type FrameEncoder,
   type FrameSetProgress,
   type FrameSetTransport,
+  type FrameSize,
 } from "./frame-pipeline";
 import {
   R360_FRAME_MAX_BYTES,
@@ -89,6 +90,84 @@ function fakeEncoder(
         async encode() {
           options.onEncode?.(Number(label));
           return { 1600: make(1600), 800: make(800) };
+        },
+      };
+    },
+  };
+}
+
+/**
+ * #137: an encoder that makes several frames at once, the way the worker
+ * pool does — with a log of when each frame started, finished decoding
+ * and finished encoding, and the most frames it ever had in the making. A
+ * frame is in the making from its decode's start until its encodings
+ * exist: that is how long a worker is busy with it.
+ */
+function laneEncoder(options: {
+  lanes: (size: FrameSize) => number;
+  /** Each frame's source size; unknown (null) when not given. */
+  sourcePixels?: (ordinal: number) => number | null;
+  /** How long each frame's decode takes, in milliseconds. */
+  decodeMs?: (ordinal: number) => number;
+  failDecodeOf?: number;
+}): FrameEncoder & {
+  log: string[];
+  peak: () => number;
+  /** How many frames were in the making as each one started, itself in. */
+  busyAtStart: Map<number, number>;
+  lanesAskedFor: FrameSize[];
+  released: number[];
+  closed: number[];
+} {
+  const log: string[] = [];
+  const busyAtStart = new Map<number, number>();
+  const lanesAskedFor: FrameSize[] = [];
+  const released: number[] = [];
+  const closed: number[] = [];
+  let active = 0;
+  let peak = 0;
+  return {
+    log,
+    peak: () => peak,
+    busyAtStart,
+    lanesAskedFor,
+    released,
+    closed,
+    lanes(size) {
+      lanesAskedFor.push(size);
+      return options.lanes(size);
+    },
+    async decode(bytes) {
+      const ordinal = Number(new TextDecoder().decode(bytes).split(" ")[1]);
+      active += 1;
+      peak = Math.max(peak, active);
+      busyAtStart.set(ordinal, active);
+      log.push(`start ${ordinal}`);
+      await new Promise((r) => setTimeout(r, options.decodeMs?.(ordinal) ?? 1));
+      if (ordinal === options.failDecodeOf) {
+        active -= 1;
+        throw new Error("decode failed");
+      }
+      log.push(`decoded ${ordinal}`);
+      const webp = (width: R360Width) =>
+        new Blob([`RIFF..WEBP ${ordinal}@${width}`.padEnd(24, ".")], {
+          type: "image/webp",
+        });
+      return {
+        picture: {
+          source: {} as CanvasImageSource,
+          width: 800,
+          height: 450,
+          bytes: 0,
+          release: () => released.push(ordinal),
+        },
+        sourcePixels: options.sourcePixels?.(ordinal) ?? null,
+        close: () => closed.push(ordinal),
+        async encode() {
+          await new Promise((r) => setTimeout(r, 1));
+          active -= 1;
+          log.push(`encoded ${ordinal}`);
+          return { 1600: webp(1600), 800: webp(800) };
         },
       };
     },
@@ -409,5 +488,264 @@ describe("produceFrameSet", () => {
     letThemLand();
     expect((await run).ok).toBe(true);
     expect(encoder.encoded).toHaveLength(12);
+  });
+
+  // #137: the frames used to be made one at a time on a machine with
+  // cores standing idle. An encoder that can make several says so, for
+  // frames the size of the first.
+  describe("with lanes", () => {
+    it("makes the first frame alone, then as many at once as the encoder says — never more", async () => {
+      const { archive, frames } = await orbit(8);
+      const encoder = laneEncoder({
+        lanes: () => 3,
+        sourcePixels: () => 3840 * 2160,
+      });
+      const outcome = await produceFrameSet({
+        archive,
+        frames,
+        encoder,
+        transport: fakeTransport(),
+      });
+      expect(outcome.ok).toBe(true);
+      // Nothing else started before the first frame was decoded: it gets
+      // the machine to itself, and the preview gets it first.
+      expect(encoder.log.slice(0, 2)).toEqual(["start 1", "decoded 1"]);
+      expect(encoder.peak()).toBe(3);
+      // Asked with each frame's size: its pixels, and its file as the
+      // archive holds it.
+      expect(encoder.lanesAskedFor[0]).toEqual({
+        sourcePixels: 3840 * 2160,
+        fileBytes: frames[0].uncompressedSize,
+      });
+      expect(encoder.lanesAskedFor).toHaveLength(8);
+      expect(encoder.closed.toSorted((a, b) => a - b)).toEqual([
+        1, 2, 3, 4, 5, 6, 7, 8,
+      ]);
+    });
+
+    it("hands every picture and every frame on in orbit order, whichever finished first", async () => {
+      const { archive, frames } = await orbit(6);
+      // The second frame is the slow one: the third and the fourth are
+      // decoded before it.
+      const encoder = laneEncoder({
+        lanes: () => 4,
+        decodeMs: (ordinal) => (ordinal === 2 ? 25 : 1),
+      });
+      const order: string[] = [];
+      const transport = fakeTransport();
+      const outcome = await produceFrameSet({
+        archive,
+        frames,
+        encoder,
+        transport,
+        onPicture: (ordinal) => order.push(`picture ${ordinal}`),
+        onFrame: (ordinal) => order.push(`frame ${ordinal}`),
+      });
+      expect(outcome.ok).toBe(true);
+      expect(encoder.log.indexOf("decoded 3")).toBeLessThan(
+        encoder.log.indexOf("decoded 2"),
+      );
+      expect(order).toEqual(
+        [1, 2, 3, 4, 5, 6].flatMap((n) => [`picture ${n}`, `frame ${n}`]),
+      );
+      // And each encoding went to its own frame's URL.
+      const at = (url: string) =>
+        transport.puts.find((p) => p.url === url)?.body;
+      expect(at("put://1600/2")).toContain("2@1600");
+      expect(at("put://800/3")).toContain("3@800");
+    });
+
+    it("frees the frames it made ahead when a frame fails", async () => {
+      const { archive, frames } = await orbit(6);
+      // The third frame fails slowly, after the fourth and fifth are made.
+      const encoder = laneEncoder({
+        lanes: () => 3,
+        failDecodeOf: 3,
+        decodeMs: (ordinal) => (ordinal === 3 ? 25 : 1),
+      });
+      const transport = fakeTransport();
+      const outcome = await produceFrameSet({
+        archive,
+        frames,
+        encoder,
+        transport,
+        onPicture: (_, picture) => picture.release?.(),
+      });
+      expect(outcome).toEqual({ ok: false, failure: "encode_failed" });
+      expect(transport.abandoned).toEqual(["devski/staging/u/s/"]);
+      await until(() => encoder.log.includes("decoded 5"));
+      await until(() => encoder.closed.includes(5));
+      // Frames 4 and 5 were decoded ahead and never handed on: the loop
+      // freed them. 1 and 2 went to the watcher, who freed them.
+      expect(encoder.released.toSorted((a, b) => a - b)).toEqual([1, 2, 4, 5]);
+      expect(encoder.closed.toSorted((a, b) => a - b)).toEqual([1, 2, 4, 5]);
+      // Nothing past the lanes was started.
+      expect(encoder.log).not.toContain("start 6");
+    });
+
+    it("frees the frames it made ahead when it is aborted", async () => {
+      const { archive, frames } = await orbit(8);
+      const controller = new AbortController();
+      const encoder = laneEncoder({ lanes: () => 3 });
+      const outcome = await produceFrameSet({
+        archive,
+        frames,
+        encoder,
+        transport: fakeTransport(),
+        signal: controller.signal,
+        onPicture: (ordinal, picture) => {
+          picture.release?.();
+          if (ordinal === 2) controller.abort();
+        },
+      });
+      expect(outcome).toEqual({ ok: false, failure: "aborted" });
+      const decoded = () =>
+        encoder.log.filter((line) => line.startsWith("decoded")).length;
+      await until(() => encoder.released.length === decoded());
+      // Every decode made was freed, handed on or not, and let go of.
+      expect(encoder.released.toSorted((a, b) => a - b)).toEqual(
+        encoder.closed.toSorted((a, b) => a - b),
+      );
+      expect(decoded()).toBeGreaterThan(2);
+    });
+
+    it("makes one at a time on a lanes answer it cannot use", async () => {
+      for (const answer of [0, -2, Number.NaN, Infinity]) {
+        const { archive, frames } = await orbit(4);
+        const encoder = laneEncoder({ lanes: () => answer });
+        const outcome = await produceFrameSet({
+          archive,
+          frames,
+          encoder,
+          transport: fakeTransport(),
+        });
+        expect(outcome.ok).toBe(true);
+        expect(encoder.peak()).toBe(1);
+      }
+    });
+
+    it("takes a fractional answer as the whole lanes in it", async () => {
+      const { archive, frames } = await orbit(6);
+      const encoder = laneEncoder({ lanes: () => 2.9 });
+      await produceFrameSet({
+        archive,
+        frames,
+        encoder,
+        transport: fakeTransport(),
+      });
+      expect(encoder.peak()).toBe(2);
+    });
+
+    // A zip of holiday photos need not be one size (#68): a 48-megapixel
+    // one late in the orbit must not be decoded four at a time because the
+    // first photo was small.
+    it("narrows the lanes for a larger frame later on, and never widens them again", async () => {
+      const { archive, frames } = await orbit(9);
+      const photo = 8000 * 6000;
+      const encoder = laneEncoder({
+        sourcePixels: (ordinal) => (ordinal === 3 ? photo : 1920 * 1080),
+        lanes: ({ sourcePixels }) => (sourcePixels === photo ? 1 : 4),
+      });
+      const outcome = await produceFrameSet({
+        archive,
+        frames,
+        encoder,
+        transport: fakeTransport(),
+      });
+      expect(outcome.ok).toBe(true);
+      expect(encoder.peak()).toBe(4);
+      // Frames 4 to 6 were already under way when the third was taken;
+      // every frame started after that was made alone, small as it was.
+      expect(
+        [7, 8, 9].map((ordinal) => encoder.busyAtStart.get(ordinal)),
+      ).toEqual([1, 1, 1]);
+    });
+
+    it("starts no frame while it waits for room on the uplink, however many lanes (#122)", async () => {
+      const { archive, frames } = await orbit(12);
+      let letThemLand: () => void = () => {};
+      const held = new Promise<void>((resolve) => (letThemLand = resolve));
+      const encoder = laneEncoder({ lanes: () => 3 });
+      const transport: FrameSetTransport = {
+        async presign(frameCount) {
+          return { ok: true, set: presignOf(frameCount) };
+        },
+        async put() {
+          await held;
+          return "ok";
+        },
+        async abandon() {},
+      };
+      const run = produceFrameSet({
+        archive,
+        frames,
+        encoder,
+        transport,
+        concurrency: 2,
+        queuedFrames: 3,
+      });
+      const count = (what: string) =>
+        encoder.log.filter((line) => line.startsWith(what)).length;
+      await until(() => count("encoded") >= 4);
+      await new Promise((r) => setTimeout(r, 20));
+      // Two PUTs in the air and six parts queued: four frames' worth,
+      // encoded — and the two made ahead of them while there was room.
+      expect(count("encoded")).toBe(4);
+      expect(count("start")).toBe(6);
+      letThemLand();
+      expect((await run).ok).toBe(true);
+    });
+
+    it("gives the set up, and frees the frames made ahead, when a callback throws", async () => {
+      const { archive, frames } = await orbit(6);
+      const encoder = laneEncoder({ lanes: () => 3 });
+      const transport = fakeTransport();
+      const outcome = await produceFrameSet({
+        archive,
+        frames,
+        encoder,
+        transport,
+        onPicture: (_, picture) => picture.release?.(),
+        onFrame: (ordinal) => {
+          if (ordinal === 2) throw new Error("the form blew up");
+        },
+      });
+      // Not a rejected run: the set still has to stop counting.
+      expect(outcome).toEqual({ ok: false, failure: "encode_failed" });
+      expect(transport.abandoned).toEqual(["devski/staging/u/s/"]);
+      const decoded = () =>
+        encoder.log.filter((line) => line.startsWith("decoded")).length;
+      await until(() => encoder.released.length === decoded());
+      expect(decoded()).toBeGreaterThan(2);
+      expect(encoder.released.toSorted((a, b) => a - b)).toEqual(
+        encoder.closed.toSorted((a, b) => a - b),
+      );
+    });
+  });
+
+  it("reserves nothing for a run aborted before it began", async () => {
+    const { archive, frames } = await orbit(3);
+    const controller = new AbortController();
+    controller.abort();
+    let presigns = 0;
+    const encoder = fakeEncoder();
+    const transport = fakeTransport({
+      presign: async () => {
+        presigns += 1;
+        return { ok: true, set: presignOf(3) };
+      },
+    });
+    expect(
+      await produceFrameSet({
+        archive,
+        frames,
+        encoder,
+        transport,
+        signal: controller.signal,
+      }),
+    ).toEqual({ ok: false, failure: "aborted" });
+    expect(presigns).toBe(0);
+    expect(encoder.encoded).toEqual([]);
+    expect(transport.abandoned).toEqual([]);
   });
 });

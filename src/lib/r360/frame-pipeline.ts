@@ -8,19 +8,26 @@ import {
   type R360Width,
 } from "./frame-set-shared";
 
-// #102 (step 3 of #68, A13): the browser is the worker. One frame at a
-// time, in order: read out of the archive, decode, hand the picture to
-// whoever is watching, encode at the two widths, upload to staging (G4),
-// release. The set's URLs come from one batch presign before the first
-// frame is touched — a quota refusal costs no decoding. Pure
-// orchestration: the encoder and the transport are handed in, so the loop
-// runs under a test as it does in a browser.
+// #102 (step 3 of #68, A13): the browser is the worker. Each frame, in
+// order: read out of the archive, decode, hand the picture to whoever is
+// watching, encode at the two widths, upload to staging (G4), release. The
+// set's URLs come from one batch presign before the first frame is touched
+// — a quota refusal costs no decoding. Pure orchestration: the encoder and
+// the transport are handed in, so the loop runs under a test as it does in
+// a browser.
 //
 // #121 and #122, from the first real archive (872 MB, 60 frames of an 8K
 // render): the frame is shown at DECODE time rather than after both WebPs
 // exist, and the producer no longer waits on the uplink. Decoding is the
 // processor's work, the PUTs are the network's; they meet at a bounded
 // queue instead of in lockstep.
+//
+// #137: and the processor has more than one core. An encoder that can make
+// several frames at once says how many (`lanes`) for frames of a given
+// size. The first frame is made alone, so it reaches the preview as early
+// as the machine allows; its size then sets the lanes, and every frame
+// after it can only narrow them. However many are in the making, every
+// frame is still handed on in orbit order.
 
 /**
  * One frame decoded, before anything is encoded (#121). `picture` is that
@@ -30,15 +37,40 @@ import {
 export interface DecodedFrame {
   /** Handed on by the pipeline, which never frees it — the taker does. */
   picture: FramePicture;
+  /**
+   * The frame's own size in pixels, before any reduction — what one more
+   * frame in the making costs in memory (#137). Null when the file's
+   * header did not say.
+   */
+  sourcePixels?: number | null;
   /** The uploadable WebPs, one per width. */
   encode(): Promise<Record<R360Width, Blob>>;
   /** Frees what the decode holds. The picture is not touched. */
   close(): void;
 }
 
+/** What a frame costs to make, as far as the pipeline can tell (#137). */
+export interface FrameSize {
+  /** The decoded frame's pixels; null when its header did not say. */
+  sourcePixels: number | null;
+  /** The frame's file, as it came out of the archive. */
+  fileBytes: number;
+}
+
 /** Turns one frame's bytes into a picture and a WebP per width. */
 export interface FrameEncoder {
+  /**
+   * The bytes become the encoder's: one that works on another thread hands
+   * them over rather than copying them, and the caller's view is empty
+   * afterwards.
+   */
   decode(bytes: Uint8Array<ArrayBuffer>, name: string): Promise<DecodedFrame>;
+  /**
+   * How many frames of this size it can make at once (#137). Without it,
+   * one: an encoder that runs on the page's own thread gains nothing by
+   * being handed a second frame before the first is done.
+   */
+  lanes?(size: FrameSize): number;
 }
 
 export type FrameSetFailure =
@@ -143,6 +175,9 @@ export async function produceFrameSet(
   const concurrency = atLeastOne(options.concurrency, UPLOAD_CONCURRENCY);
   const queueCap =
     atLeastOne(options.queuedFrames, QUEUED_FRAMES) * R360_WIDTHS.length;
+  // Removed before it began — while the encoder was still being opened,
+  // say (#137): nothing is reserved, so there is nothing to abandon.
+  if (signal?.aborted) return { ok: false, failure: "aborted" };
   const presigned = await transport.presign(frames.length);
   if (!presigned.ok) return presigned;
   const { set } = presigned;
@@ -165,7 +200,6 @@ export async function produceFrameSet(
       report();
     }
   };
-  report();
 
   /** One encoding of one frame, waiting its turn on the uplink. */
   interface Part {
@@ -242,77 +276,153 @@ export async function produceFrameSet(
     while (!failure && inFlight.size > 0) await Promise.race(inFlight);
     await Promise.allSettled(inFlight);
   };
+  // #137: the frames in the making — each read and decoded as soon as it
+  // is started, and taken in orbit order by the loop below. A frame holds
+  // its lane until it is encoded, so at most `lanes` frames are started and
+  // not yet encoded. `ahead` holds only those not yet taken: a taken frame
+  // leaves it, or a long run would keep every frame's encodings alive to
+  // its end.
+  type Made =
+    | { ok: true; decoded: DecodedFrame }
+    | { ok: false; failure: FrameSetFailure };
+  const ahead: Promise<Made>[] = [];
+  let started = 0;
+  let lanes = 1;
+  const make = async (frame: ZipEntry): Promise<Made> => {
+    let bytes: Uint8Array<ArrayBuffer>;
+    try {
+      bytes = await archive.readEntry(frame);
+    } catch {
+      return { ok: false, failure: "read_failed" };
+    }
+    try {
+      return { ok: true, decoded: await encoder.decode(bytes, frame.name) };
+    } catch {
+      return { ok: false, failure: "encode_failed" };
+    }
+  };
+  /**
+   * Starts what the lanes have room for, with this many frames encoded.
+   * Called only where the loop could go on anyway — never while it waits
+   * for room on the uplink, which keeps #122's cap the producer's only
+   * stop.
+   */
+  const startMaking = (encoded: number) => {
+    while (started < frames.length && started < encoded + lanes) {
+      ahead.push(make(frames[started]));
+      started += 1;
+    }
+  };
+
   const giveUp = async (why: FrameSetFailure): Promise<FrameSetOutcome> => {
     // What has not left yet never will: the prefix is about to go.
     waiting.length = 0;
+    // Frames made ahead of the loop were never handed out: nobody else
+    // will ever free them (#117: a decoded bitmap each).
+    for (const frame of ahead.splice(0)) {
+      void frame.then((made) => {
+        if (!made.ok) return;
+        made.decoded.picture.release?.();
+        made.decoded.close();
+      });
+    }
     await Promise.allSettled(inFlight);
     void transport.abandon(set.keyPrefix);
     return { ok: false, failure: why };
   };
 
-  for (const [index, frame] of frames.entries()) {
-    if (signal?.aborted) return giveUp("aborted");
-    if (failure) return giveUp(failure);
-    const ordinal = index + 1;
-    let bytes: Uint8Array<ArrayBuffer>;
-    try {
-      bytes = await archive.readEntry(frame);
-    } catch {
-      return giveUp("read_failed");
-    }
-    let decoded: DecodedFrame;
-    try {
-      decoded = await encoder.decode(bytes, frame.name);
-    } catch {
-      return giveUp("encode_failed");
-    }
-    // An abort that landed while this frame was decoding: the frame is
-    // not handed out — whatever the caller kept of it would have nobody
-    // left to free it (#117: a decoded bitmap).
-    if (signal?.aborted) {
-      decoded.picture.release?.();
-      decoded.close();
-      return giveUp("aborted");
-    }
-    let encoded: Record<R360Width, Blob>;
-    // Whatever happens between here and the encodings — including a
-    // callback of the caller's that throws — the decode is let go of.
-    try {
-      // #121: the earliest the frame can be seen. Both encodings are
-      // still to come, and on an 8K render they are the long part.
-      if (options.onPicture) options.onPicture(ordinal, decoded.picture);
-      else decoded.picture.release?.();
-      encoded = await decoded.encode();
-    } catch {
-      return giveUp("encode_failed");
-    } finally {
-      decoded.close();
-    }
-    for (const width of R360_WIDTHS) {
-      const blob = encoded[width];
-      if (blob.type !== R360_FRAME_CONTENT_TYPE) {
-        return giveUp("webp_unsupported");
-      }
-      if (blob.size === 0 || blob.size > R360_FRAME_MAX_BYTES[width]) {
-        return giveUp("frame_too_large");
-      }
-    }
-    if (signal?.aborted) return giveUp("aborted");
-    progress.framesDone = ordinal;
-    options.onFrame?.(ordinal, encoded);
-    for (const width of R360_WIDTHS) {
-      enqueue({ url: set.urls[width][index], blob: encoded[width], ordinal });
-    }
+  /** The run itself: every frame in orbit order, then the uplink drained. */
+  const produce = async (): Promise<FrameSetOutcome> => {
     report();
-    await waitForRoom();
-  }
-  await drain();
-  if (failure) return giveUp(failure);
-  if (signal?.aborted) return giveUp("aborted");
-  return {
-    ok: true,
-    setId: set.setId,
-    keyPrefix: set.keyPrefix,
-    frameCount: frames.length,
+    for (const [index, frame] of frames.entries()) {
+      if (signal?.aborted) return giveUp("aborted");
+      if (failure) return giveUp(failure);
+      const ordinal = index + 1;
+      startMaking(index);
+      // Started by now, whatever the lanes (`index` < `index + lanes`); a
+      // frame that somehow was not is one the run cannot have.
+      const made: Made = (await ahead.shift()) ?? {
+        ok: false,
+        failure: "read_failed",
+      };
+      // An abort that landed while this frame was decoding: the frame is
+      // not handed out — whatever the caller kept of it would have nobody
+      // left to free it (#117: a decoded bitmap). Asked before the frame's
+      // own outcome, so a decode the abort itself cut short (#137: the
+      // workers stop with it) reads as the abort it was.
+      if (signal?.aborted) {
+        if (made.ok) {
+          made.decoded.picture.release?.();
+          made.decoded.close();
+        }
+        return giveUp("aborted");
+      }
+      if (!made.ok) return giveUp(made.failure);
+      const decoded = made.decoded;
+      // The frames' size says how many are made at once. The first frame's
+      // sets the lanes — the rest start now, while it is still encoding —
+      // and every frame after it can only narrow them: a zip of holiday
+      // photos need not be one size (#68).
+      const fits = Math.floor(
+        atLeastOne(
+          encoder.lanes?.({
+            sourcePixels: decoded.sourcePixels ?? null,
+            fileBytes: frame.uncompressedSize,
+          }),
+          1,
+        ),
+      );
+      lanes = index === 0 ? fits : Math.min(lanes, fits);
+      if (index === 0) startMaking(0);
+      let encoded: Record<R360Width, Blob>;
+      // Whatever happens between here and the encodings — including a
+      // callback of the caller's that throws — the decode is let go of.
+      try {
+        // #121: the earliest the frame can be seen. Both encodings are
+        // still to come, and on an 8K render they are the long part.
+        if (options.onPicture) options.onPicture(ordinal, decoded.picture);
+        else decoded.picture.release?.();
+        encoded = await decoded.encode();
+      } catch {
+        return giveUp("encode_failed");
+      } finally {
+        decoded.close();
+      }
+      for (const width of R360_WIDTHS) {
+        const blob = encoded[width];
+        if (blob.type !== R360_FRAME_CONTENT_TYPE) {
+          return giveUp("webp_unsupported");
+        }
+        if (blob.size === 0 || blob.size > R360_FRAME_MAX_BYTES[width]) {
+          return giveUp("frame_too_large");
+        }
+      }
+      if (signal?.aborted) return giveUp("aborted");
+      progress.framesDone = ordinal;
+      options.onFrame?.(ordinal, encoded);
+      for (const width of R360_WIDTHS) {
+        enqueue({ url: set.urls[width][index], blob: encoded[width], ordinal });
+      }
+      report();
+      await waitForRoom();
+    }
+    await drain();
+    if (failure) return giveUp(failure);
+    if (signal?.aborted) return giveUp("aborted");
+    return {
+      ok: true,
+      setId: set.setId,
+      keyPrefix: set.keyPrefix,
+      frameCount: frames.length,
+    };
   };
+
+  try {
+    return await produce();
+  } catch {
+    // A callback of the caller's, or a transport, that threw instead of
+    // answering: not a rejected run. The set is abandoned and the frames
+    // made ahead are freed, as for any failure the loop saw itself.
+    return giveUp("encode_failed");
+  }
 }

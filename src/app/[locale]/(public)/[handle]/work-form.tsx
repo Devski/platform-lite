@@ -22,10 +22,7 @@ import { useFrameLoader } from "@/components/ui/use-frame-loader";
 import { useOrbit } from "@/components/ui/use-orbit";
 import { postJson } from "@/lib/api-client";
 import { IMAGE_CONTENT_TYPES } from "@/lib/image-upload-shared";
-import {
-  browserFrameEncoder,
-  canEncodeWebp,
-} from "@/lib/r360/browser-frame-encoder";
+import { openFrameEncoder } from "@/lib/r360/frame-encoder";
 import { orderFrames } from "@/lib/r360/frame-names";
 import {
   produceFrameSet,
@@ -796,7 +793,8 @@ export function WorkForm({
    * (#103) and the counters move per frame encoded or landed, not per
    * progress event of hundreds of PUTs — as long as this run is still the
    * one in the form. A browser whose canvas encodes no WebP takes no
-   * reservation.
+   * reservation. The frames are made on workers where the browser has them
+   * (#137); the run owns them and stops them when it ends.
    */
   async function runFrames(
     zip: ZipArchive,
@@ -818,51 +816,60 @@ export function WorkForm({
     commitLocalFrames(new FramePictures(frames.length));
     setLocalLoaded(new Set());
     previewOrbit.setFrame(1);
-    if (!(await canEncodeWebp())) {
-      return { ok: false, failure: "webp_unsupported" };
-    }
+    const encoder = await openFrameEncoder();
+    if (!encoder) return { ok: false, failure: "webp_unsupported" };
+    // Stopped the moment the owner removes the orbit, not a frame later:
+    // the loop only sees the abort between two awaits, and a phone making
+    // the next pick's frames must not still hold this run's pixels.
+    signal.addEventListener("abort", () => encoder.dispose(), { once: true });
     let moved = -1;
-    return produceFrameSet({
-      archive: zip,
-      frames,
-      encoder: browserFrameEncoder(),
-      transport: frameSetTransport,
-      signal,
-      onPicture: (ordinal, picture) => {
-        // A picture for a run that is no longer the form's goes to
-        // showFrame as a picture with no store: it frees it.
-        showFrame(live() ? localFramesRef.current : null, ordinal, picture);
-      },
-      // Not painted — the picture above already was. Kept so a frame the
-      // store evicts can be decoded again without going to the archive.
-      onFrame: (ordinal, encoded) => {
-        if (!live()) return;
-        const store = localFramesRef.current;
-        localEncodings.current.set(ordinal, encoded[R360_PREVIEW_WIDTH]);
-        // #121 showed this frame before this encoding existed, and the
-        // encode is the long part. A store that has already dropped it
-        // means the effect below ran with nothing to recover it from:
-        // say so now that there is something.
-        if (store && !store.has(ordinal)) setRecovered((n) => n + 1);
-      },
-      onProgress: (p) => {
-        const bucket = p.framesDone * 1000 + p.framesLanded;
-        if (bucket === moved || !live()) return;
-        moved = bucket;
-        commitR360((current) =>
-          current
-            ? {
-                ...current,
-                frames: {
-                  done: p.framesDone,
-                  total: p.framesTotal,
-                  landed: p.framesLanded,
-                },
-              }
-            : current,
-        );
-      },
-    });
+    try {
+      return await produceFrameSet({
+        archive: zip,
+        frames,
+        encoder,
+        transport: frameSetTransport,
+        signal,
+        onPicture: (ordinal, picture) => {
+          // A picture for a run that is no longer the form's goes to
+          // showFrame as a picture with no store: it frees it.
+          showFrame(live() ? localFramesRef.current : null, ordinal, picture);
+        },
+        // Not painted — the picture above already was. Kept so a frame the
+        // store evicts can be decoded again without going to the archive.
+        onFrame: (ordinal, encoded) => {
+          if (!live()) return;
+          const store = localFramesRef.current;
+          localEncodings.current.set(ordinal, encoded[R360_PREVIEW_WIDTH]);
+          // #121 showed this frame before this encoding existed, and the
+          // encode is the long part. A store that has already dropped it
+          // means the effect below ran with nothing to recover it from:
+          // say so now that there is something.
+          if (store && !store.has(ordinal)) setRecovered((n) => n + 1);
+        },
+        onProgress: (p) => {
+          const bucket = p.framesDone * 1000 + p.framesLanded;
+          if (bucket === moved || !live()) return;
+          moved = bucket;
+          commitR360((current) =>
+            current
+              ? {
+                  ...current,
+                  frames: {
+                    done: p.framesDone,
+                    total: p.framesTotal,
+                    landed: p.framesLanded,
+                  },
+                }
+              : current,
+          );
+        },
+      });
+    } finally {
+      // Whatever ended the run: a frame still in the making then is one
+      // nobody will take, and a worker left running holds its pixels.
+      encoder.dispose();
+    }
   }
 
   /** #102: the set produced, as the work will name it. */

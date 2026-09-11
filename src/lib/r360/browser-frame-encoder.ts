@@ -4,7 +4,7 @@ import {
   R360_PREVIEW_WIDTH,
   R360_WIDTHS,
   type R360Width,
-} from "./frame-set-shared";
+} from "./frame-widths";
 import type { DecodedFrame, FrameEncoder } from "./frame-pipeline";
 
 // #102 (A13): the one piece of the pipeline that needs a browser — the
@@ -12,9 +12,11 @@ import type { DecodedFrame, FrameEncoder } from "./frame-pipeline";
 // decoded once, at the largest width kept (an 8K render decoded whole is
 // a hundred megabytes of pixels — the decoder is asked for 1600 wide, #102
 // review), drawn at every width (aspect kept, never enlarged) and encoded;
-// the decode is closed before the next frame is read, so one frame's
-// pixels are in memory at a time. Untested under Node on purpose: there is
-// no canvas there; the pipeline around it is.
+// the decode is closed as soon as both are, so an encoder holds one frame's
+// pixels at a time. Since #137 it usually runs in a worker, several of them
+// side by side (frame-worker.ts), and says how large its frame was so the
+// pool knows how many fit in memory at once. Untested under Node on
+// purpose: there is no canvas there; the pipeline around it is.
 //
 // #121: the decode also yields a PICTURE, at the preview's width, handed
 // back before either WebP is encoded. It costs one more draw — a resize
@@ -55,6 +57,9 @@ export function browserFrameEncoder(quality = WEBP_QUALITY): FrameEncoder {
             bytes: pictureBytes(shown.width, shown.height),
             release: () => shown.close(),
           },
+          // The decode kept the aspect, so the source's height follows
+          // from its width and the decoded shape.
+          sourcePixels: native ? native * heightFor(bitmap, native) : null,
           close,
           async encode() {
             const out: Partial<Record<R360Width, Blob>> = {};
@@ -141,18 +146,34 @@ function heightFor(bitmap: ImageBitmap, width: number): number {
   return Math.max(1, Math.round((bitmap.height * width) / bitmap.width));
 }
 
+/**
+ * #137: every canvas here is kept in the processor's memory, not the
+ * graphics card's. A picture drawn on a worker's GPU canvas belongs to that
+ * worker's GPU context, and the pool stops its workers when a run ends:
+ * measured on 11.09.2026 (Intel Iris Xe, Direct3D 11), a preview picture
+ * handed over from a worker read back as transparent black the moment its
+ * worker was terminated, and the same picture from a canvas asked for
+ * `willReadFrequently` survived it. It costs nothing measurable — within
+ * 2% over eight 4K frames, on one lane and on four, the WebP byte for byte
+ * the same — since the WebP encoder reads the pixels back from the card
+ * anyway.
+ */
+const CANVAS_OPTIONS: CanvasRenderingContext2DSettings = {
+  willReadFrequently: true,
+};
+
 /** The bitmap drawn to fill a canvas of this size; both canvas kinds. */
 function painted(bitmap: ImageBitmap, width: number, height: number): Canvas {
   if (typeof OffscreenCanvas !== "undefined") {
     const canvas = new OffscreenCanvas(width, height);
-    paint(canvas.getContext("2d"), bitmap, width, height);
+    paint(canvas.getContext("2d", CANVAS_OPTIONS), bitmap, width, height);
     return canvas;
   }
   // A browser without OffscreenCanvas: the same through a detached element.
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
-  paint(canvas.getContext("2d"), bitmap, width, height);
+  paint(canvas.getContext("2d", CANVAS_OPTIONS), bitmap, width, height);
   return canvas;
 }
 

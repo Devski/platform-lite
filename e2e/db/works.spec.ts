@@ -4,6 +4,7 @@ import {
   type Page,
   type Request,
   type Route,
+  type Worker,
 } from "@playwright/test";
 import {
   completeOnboarding,
@@ -180,6 +181,16 @@ test("a new work: the photo goes through the upload chain as a work, then the fo
   });
   const setPresigns: Request[] = [];
   const framePuts: Request[] = [];
+  // #137: the frames are made on workers. The pool first asks one worker
+  // whether it starts and encodes WebP, and a pool that gets no yes is let
+  // go at once for the page's own thread — so a worker STARTING proves
+  // nothing. One still running when the first frame goes out does: the
+  // pool lets its workers go only when the run is over.
+  let firstFramePutAt = Infinity;
+  const workersClosedAt: number[] = [];
+  const onWorker = (worker: Worker) =>
+    worker.on("close", () => workersClosedAt.push(Date.now()));
+  page.on("worker", onWorker);
   await page.route("**/api/uploads/presign-r360-set", (route) => {
     setPresigns.push(route.request());
     const { frameCount } = route.request().postDataJSON() as {
@@ -196,6 +207,7 @@ test("a new work: the photo goes through the upload chain as a work, then the fo
   });
   await page.route(`**${FRAME_URL}/**`, (route) => {
     framePuts.push(route.request());
+    firstFramePutAt = Math.min(firstFramePutAt, Date.now());
     return route.fulfill({ status: 200, body: "" });
   });
   await page.getByTestId("work-r360").setInputFiles({
@@ -228,6 +240,9 @@ test("a new work: the photo goes through the upload chain as a work, then the fo
   await expect(page.getByTestId("work-r360-frames")).toHaveText(
     "· Klatki gotowe: 3",
   );
+  await expect.poll(() => workersClosedAt.length).toBeGreaterThan(0);
+  expect(Math.max(...workersClosedAt)).toBeGreaterThan(firstFramePutAt);
+  page.off("worker", onWorker);
   // #103: the preview from the frames themselves, "3 frames", a drag by
   // half the width at k = 2 turns one frame, "use this frame" sets the
   // start frame, and the form with the preview open passes axe.

@@ -142,12 +142,16 @@ size a page needs is produced at upload (G5); a bucket per user is ruled out by 
 Opened 09.09.2026 from the design conversation with Dawid; no due date yet. One frame at a
 time from a work's orbit zip: dragged on the picture (relative, discrete, wrapping),
 dialled on an elliptical ring that doubles as the visitor's progress bar, and produced in
-the owner's browser — since #120 the zip never leaves that browser at all, the one core
-never decodes a frame, no queue and no worker. The decisions, the five parameters and the ordered step
+the owner's browser — since #120 the zip never leaves that browser at all, and the
+server's one core never decodes a frame: no queue and no worker on the server. The decisions, the five parameters and the ordered step
 list live on [#68](https://github.com/Devski/platform-lite/issues/68); the frame contract
 shared with the export instructions on #64. One step, one PR; the order and the
 dependencies are as on #68. All six steps landed on `main` in one pull request (#112,
-09.09.2026); the trial on dev, laptop and phone, closes #68.
+09.09.2026). **#68 closed 11.09.2026** after Dawid's trial on dev on a phone, following
+his trials of every preview on a laptop: everything the visitor does passed; making a set
+on the phone works and takes minutes — carried to
+[#147](https://github.com/Devski/platform-lite/issues/147), the owner's upload redesigned
+for mobile, outside the milestone.
 
 - ~~[#101](https://github.com/Devski/platform-lite/issues/101) Zip reader in the browser:
   the table of contents, single frames by byte range, frame names parsed and validated —
@@ -190,20 +194,28 @@ trial, all on this milestone. In the order agreed with Dawid on 10.09.2026:
    answered #122's own question: on a good connection the uplink was never the limit, and
    the frames are made on one thread while the machine has more than one. Filed as
    [#137](https://github.com/Devski/platform-lite/issues/137).
-2. [#126](https://github.com/Devski/platform-lite/issues/126) what a save costs and
+2. ~~[#126](https://github.com/Devski/platform-lite/issues/126) what a save costs~~ and
    [#127](https://github.com/Devski/platform-lite/issues/127) the bytes nobody claimed —
    **one change**, decided 10.09.2026 after a 120-frame save took 481 requests to OVH.
    The frames go straight to their final keys, the save samples headers instead of reading
-   all of them, and a collector every 12 hours removes what a record says was never
-   finished. Deletion driven by the record, not by its absence; objects with no record at
-   all are reported, never deleted; and it never runs in a preview, which shares dev's
-   database (#113).
-3. [#123](https://github.com/Devski/platform-lite/issues/123) load a visitor's frames
-   untouched.
-4. The ring: [#124](https://github.com/Devski/platform-lite/issues/124) which way the dot
+   all of them, and a collector removes what a record says was never finished. Deletion
+   driven by the record, not by its absence; objects with no record at all are reported,
+   never deleted; and it never runs in a preview, which shares dev's database (#113).
+   **Done 10.09.2026** (#139) with the collector run lazily, on the owner's next set;
+   **what remains of #127 is the collector's 12-hour timer**, which Dawid put last.
+   [#140](https://github.com/Devski/platform-lite/issues/140), a work that records where
+   its frames are so it shows and deletes on any preview, followed on 11.09.2026 (#146).
+3. ~~[#123](https://github.com/Devski/platform-lite/issues/123) load a visitor's frames
+   untouched~~ — **done 10.09.2026** (#141).
+4. ~~The ring: [#124](https://github.com/Devski/platform-lite/issues/124) which way the dot
    runs and [#125](https://github.com/Devski/platform-lite/issues/125) the arc going
-   strange — in that order and after #123, which changes what the arc looks like.
-5. [#107](https://github.com/Devski/platform-lite/issues/107) the cue points.
+   strange~~ — **done 10.09.2026** (#142, and #143 for the reload that loaded nothing and
+   the arc that never filled on a 120-frame orbit).
+5. [#137](https://github.com/Devski/platform-lite/issues/137) frames made on more than one
+   thread — Dawid's pick on 11.09.2026, after the phone trial, as the first step towards
+   #147.
+6. [#107](https://github.com/Devski/platform-lite/issues/107) the cue points.
+7. #127's timer.
 
 ### Open decisions (§12)
 
