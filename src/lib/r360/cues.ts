@@ -26,6 +26,24 @@ export function cuesInOrder<T extends R360Cue>(
   );
 }
 
+/**
+ * The frame of the cue whose label the ring shows, or null: a marker just
+ * tapped, while the orbit has not moved since — the last thing a finger
+ * did, so a button tapped before it, which keeps the focus, does not keep
+ * its claim; else the cue pointed at, on the ring or on its button; else
+ * the one the orbit stands on.
+ */
+export function labelledCue(
+  cues: readonly R360Cue[],
+  frame: number,
+  pointedAt: number | null,
+  tapped: { cue: number; at: number } | null,
+): number | null {
+  if (tapped?.at === frame) return tapped.cue;
+  if (pointedAt !== null) return pointedAt;
+  return cues.some((cue) => cue.frame === frame) ? frame : null;
+}
+
 export type CueLabelSide = "above" | "left" | "right";
 
 /** How far the outward way has to lean sideways for a label to go beside. */

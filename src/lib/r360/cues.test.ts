@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { cueLabelSide, cueNear, cuesInOrder, shiftIntoBounds } from "./cues";
+import {
+  cueLabelSide,
+  cueNear,
+  cuesInOrder,
+  labelledCue,
+  shiftIntoBounds,
+} from "./cues";
 import {
   R360_CUE_LABEL_MAX,
   R360_CUES_MAX,
@@ -94,6 +100,27 @@ describe("cuesInOrder", () => {
 
   it("has nothing to list for a work without cues", () => {
     expect(cuesInOrder(undefined, params(4))).toEqual([]);
+  });
+});
+
+describe("labelledCue", () => {
+  const cues = [
+    { frame: 1, label: "Wejście" },
+    { frame: 4, label: "Taras" },
+  ];
+
+  it("names the cue the orbit stands on, and none between cues", () => {
+    expect(labelledCue(cues, 4, null, null)).toBe(4);
+    expect(labelledCue(cues, 3, null, null)).toBeNull();
+  });
+
+  it("names the cue pointed at over the one the orbit stands on", () => {
+    expect(labelledCue(cues, 4, 1, null)).toBe(1);
+  });
+
+  it("names a marker just tapped over a button that kept the focus, until the orbit moves", () => {
+    expect(labelledCue(cues, 4, 4, { cue: 1, at: 4 })).toBe(1);
+    expect(labelledCue(cues, 3, 4, { cue: 1, at: 4 })).toBe(4);
   });
 });
 

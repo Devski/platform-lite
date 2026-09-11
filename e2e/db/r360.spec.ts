@@ -246,20 +246,32 @@ test("on touch there is no hover: the first tap on a marker shows its label, the
   const viewer = card.getByTestId("orbit-viewer");
   await expect(viewer).toHaveAttribute("data-frame", "3");
   const ring = card.getByTestId("orbit-ring").locator("svg");
-  await ring.scrollIntoViewIfNeeded();
-  const box = await ring.boundingBox();
-  if (!box) throw new Error("no ring box");
-  // Frame 1's marker, at the top of the ring.
-  const top = {
-    x: box.x + box.width / 2,
-    y: box.y + (box.height * (100 - 92)) / 200,
+  // Frame 1's marker, at the top of the ring — measured each time, since a
+  // tap on a button below scrolls the page to it.
+  const tapTop = async () => {
+    await ring.scrollIntoViewIfNeeded();
+    const box = await ring.boundingBox();
+    if (!box) throw new Error("no ring box");
+    await page.touchscreen.tap(
+      box.x + box.width / 2,
+      box.y + (box.height * (100 - 92)) / 200,
+    );
   };
-  await page.touchscreen.tap(top.x, top.y);
-  await expect(card.getByTestId("orbit-ring-cue-label")).toHaveText(
-    "Wejście główne",
-  );
+  const label = card.getByTestId("orbit-ring-cue-label");
+  await tapTop();
+  await expect(label).toHaveText("Wejście główne");
   await expect(viewer).toHaveAttribute("data-frame", "3");
-  await page.touchscreen.tap(top.x, top.y);
+  await tapTop();
+  await expect(viewer).toHaveAttribute("data-frame", "1");
+
+  // A button tapped first keeps the focus, and with it its own label on
+  // the ring; the marker tapped after it is still the one named.
+  await card.getByRole("button", { name: "Taras" }).tap();
+  await expect(viewer).toHaveAttribute("data-frame", "4");
+  await tapTop();
+  await expect(label).toHaveText("Wejście główne");
+  await expect(viewer).toHaveAttribute("data-frame", "4");
+  await tapTop();
   await expect(viewer).toHaveAttribute("data-frame", "1");
   await touch.close();
 });

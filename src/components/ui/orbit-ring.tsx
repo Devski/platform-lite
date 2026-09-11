@@ -5,6 +5,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   cueLabelSide,
   cueNear,
+  labelledCue,
   shiftIntoBounds,
   type CueLabelSide,
 } from "@/lib/r360/cues";
@@ -179,6 +180,8 @@ export function OrbitRing({
     );
     if (cue === hovered.current) return;
     hovered.current = cue;
+    // A mouse moving over the markers is the last thing done now.
+    setTapped(null);
     onCuePreview(cue);
   };
   const leave = () => {
@@ -227,23 +230,20 @@ export function OrbitRing({
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
     if (down.dragged || event.type !== "pointerup") return;
-    // A click, completed on the up. On a marker: its cue — on touch only
-    // at the second tap, the first having shown its label.
+    // A click, completed on the up: travel to the cue whose marker it is
+    // on, else to the frame at that angle. Touch has no hover, so a tap on
+    // a marker whose label is not showing shows it, and the next one goes.
     const cue = cueUnder(event.clientX, event.clientY, down.box);
-    if (cue !== null) {
-      const shown =
-        tapped !== null && tapped.cue === cue && tapped.at === orbit.frame;
-      if (event.pointerType !== "mouse" && !shown && cue !== orbit.frame) {
-        setTapped({ cue, at: orbit.frame });
-        return;
-      }
-      setTapped(null);
-      orbit.travelAlong(travelPath(orbit.frame, cue, params));
+    if (
+      cue !== null &&
+      event.pointerType !== "mouse" &&
+      cue !== labelledCue(cues, orbit.frame, cuePreview, tapped)
+    ) {
+      setTapped({ cue, at: orbit.frame });
       return;
     }
-    // Anywhere else on the band: travel to the frame at that angle.
     setTapped(null);
-    const to = frameUnder(event.clientX, event.clientY, down.box);
+    const to = cue ?? frameUnder(event.clientX, event.clientY, down.box);
     orbit.travelAlong(travelPath(orbit.frame, to, params));
   };
 
@@ -263,20 +263,19 @@ export function OrbitRing({
     [loaded, params, radiusX, radiusY],
   );
 
-  // #107: whose label shows — the cue pointed at, else the one tapped
-  // while the orbit has not moved since, else the one the orbit is on.
-  const tappedCue = tapped && tapped.at === orbit.frame ? tapped.cue : null;
-  const labelFrame =
-    cuePreview ??
-    tappedCue ??
-    (cues.some((cue) => cue.frame === orbit.frame) ? orbit.frame : null);
-  const labelled = cues.find((cue) => cue.frame === labelFrame);
-  const labelAt = labelled
-    ? ringPoint(angleOfFrame(labelled.frame, params), radiusX, radiusY)
+  // #107: each marker where its frame is on the ring, and the one whose
+  // label shows (labelledCue says whose).
+  const marks = cues.map((cue) => ({
+    ...cue,
+    at: ringPoint(angleOfFrame(cue.frame, params), radiusX, radiusY),
+  }));
+  const labelFrame = labelledCue(cues, orbit.frame, cuePreview, tapped);
+  const labelled = marks.find((mark) => mark.frame === labelFrame);
+  const labelSide = labelled
+    ? cueLabelSide(labelled.at, radiusX, radiusY)
     : null;
-  const labelSide = labelAt ? cueLabelSide(labelAt, radiusX, radiusY) : null;
 
-  // The label may be wider than the room beside the ring — the card's
+  // #107: the label may be wider than the room beside the ring — the card's
   // ring is a third of a narrow picture — so once it is laid out it is
   // moved back inside the picture, or the page, it would otherwise leave.
   useLayoutEffect(() => {
@@ -371,24 +370,19 @@ export function OrbitRing({
             strokeLinejoin="round"
             data-testid="orbit-ring-loaded"
           />
-          {cues.map((cue) => {
-            const at = ringPoint(
-              angleOfFrame(cue.frame, params),
-              radiusX,
-              radiusY,
-            );
-            const lit = cue.frame === labelFrame;
+          {marks.map((mark) => {
+            const lit = mark.frame === labelFrame;
             return (
               <path
-                key={cue.frame}
+                key={mark.frame}
                 d={CUE_MARK}
-                transform={`translate(${at.x} ${at.y})${lit ? ` scale(${CUE_LIT_SCALE})` : ""}`}
+                transform={`translate(${mark.at.x} ${mark.at.y})${lit ? ` scale(${CUE_LIT_SCALE})` : ""}`}
                 fill="var(--action-solid)"
                 stroke={look.dotRim}
                 strokeWidth={1.5}
                 strokeLinejoin="round"
                 data-testid="orbit-ring-cue"
-                data-cue-frame={cue.frame}
+                data-cue-frame={mark.frame}
                 data-lit={lit || undefined}
               />
             );
@@ -403,14 +397,14 @@ export function OrbitRing({
             pointerEvents="all"
           />
         </svg>
-        {labelled && labelAt && labelSide && (
+        {labelled && labelSide && (
           <span
             ref={label}
             // The owner's words as written: not the eyebrow's capitals.
             className="pointer-events-none absolute z-10 w-max max-w-44 rounded-xs bg-n-950 px-1.5 py-0.5 text-center text-(length:--fs-xs) leading-tight font-medium text-balance text-white"
             style={{
-              left: `${((labelAt.x + WIDTH / 2) / WIDTH) * 100}%`,
-              top: `${((labelAt.y + height / 2) / height) * 100}%`,
+              left: `${((labelled.at.x + WIDTH / 2) / WIDTH) * 100}%`,
+              top: `${((labelled.at.y + height / 2) / height) * 100}%`,
               transform: LABEL_PLACE[labelSide],
             }}
             data-testid="orbit-ring-cue-label"
