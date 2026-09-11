@@ -285,10 +285,15 @@ export function WorkForm({
   // The orbit as it is right now, readable between renders, like the
   // tiles: settle() decides after awaits (#85 review).
   const r360Ref = useRef(r360);
+  // #107 follow-up: the parameters of the orbit last taken out of the form
+  // — removed, stopped, or refused — for the zip picked after it.
+  const lastParams = useRef<R360Params | null>(null);
   function commitR360(
     next: R360 | null | ((current: R360 | null) => R360 | null),
   ) {
-    r360Ref.current = typeof next === "function" ? next(r360Ref.current) : next;
+    const previous = r360Ref.current;
+    r360Ref.current = typeof next === "function" ? next(previous) : next;
+    if (previous && !r360Ref.current) lastParams.current = previous.params;
     setR360(r360Ref.current);
   }
   // The frame run in flight, to stop it on remove or unmount, and the run
@@ -817,13 +822,21 @@ export function WorkForm({
   ): Promise<FrameSetOutcome> {
     const mine = ++run.current;
     const live = () => !closed.current && run.current === mine;
+    // A zip replacing one of the same frame count is, as a rule, the same
+    // camera path rendered again: the owner's parameters and cue points stay
+    // (Dawid, 11.09.2026). Another count starts from the defaults — a cue or
+    // a start frame past it would name nothing.
+    const kept =
+      lastParams.current?.frameCount === frames.length
+        ? lastParams.current
+        : null;
     commitR360({
       ...entry,
       working: true,
       // The parameters are offered from here: the count is known, and the
       // owner can set the start frame and the rest while the frames are
       // still being made.
-      params: defaultR360Params(frames.length),
+      params: kept ?? defaultR360Params(frames.length),
       frames: { done: 0, total: frames.length, landed: 0 },
     });
     commitLocalFrames(new FramePictures(frames.length));
