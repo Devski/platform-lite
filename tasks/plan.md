@@ -211,11 +211,15 @@ trial, all on this milestone. In the order agreed with Dawid on 10.09.2026:
    runs and [#125](https://github.com/Devski/platform-lite/issues/125) the arc going
    strange~~ — **done 10.09.2026** (#142, and #143 for the reload that loaded nothing and
    the arc that never filled on a 120-frame orbit).
-5. [#137](https://github.com/Devski/platform-lite/issues/137) frames made on more than one
-   thread — Dawid's pick on 11.09.2026, after the phone trial, as the first step towards
-   #147.
-6. [#107](https://github.com/Devski/platform-lite/issues/107) the cue points.
-7. #127's timer.
+5. ~~[#137](https://github.com/Devski/platform-lite/issues/137) frames made on more than one
+   thread~~ — **done 11.09.2026** (#149). Dawid's pick after the phone trial, as the first
+   step towards #147; tried on the same phone the same night: as fast as the laptop had
+   been before it.
+6. [#148](https://github.com/Devski/platform-lite/issues/148) a run stopped and replaced by
+   a new pick cleared the new one from the form — found in #149's review, taken before the
+   cue points by Dawid's decision.
+7. [#107](https://github.com/Devski/platform-lite/issues/107) the cue points.
+8. #127's timer.
 
 ### Open decisions (§12)
 

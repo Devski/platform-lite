@@ -518,6 +518,80 @@ test("the page's Zapisz waits for the frames, then saves the open form (#85)", a
   ).toBeVisible();
 });
 
+// #148: a run the owner stopped still returns in its own time — here its
+// presign is held open until the test lets it through. By then the owner
+// has picked another zip, and that run is the form's: the one it replaced
+// must leave it alone.
+test("an orbit stopped and picked again is not cleared by the run it replaced (#148)", async () => {
+  const FIRST_SET = "6".repeat(32);
+  let releaseFirst: () => void = () => undefined;
+  const firstHeld = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
+  let presigns = 0;
+  await page.route("**/api/uploads/presign-r360-set", async (route) => {
+    presigns += 1;
+    const first = presigns === 1;
+    const { frameCount } = route.request().postDataJSON() as {
+      frameCount: number;
+    };
+    const setId = first ? FIRST_SET : SET_ID;
+    if (first) await firstHeld;
+    await json(200, {
+      setId,
+      keyPrefix: `staging/someone/${setId}/`,
+      urls: {
+        1600: frameUrls(1600, frameCount),
+        800: frameUrls(800, frameCount),
+      },
+    })(route);
+  });
+  await page.route(`**${FRAME_URL}/**`, (route) =>
+    route.fulfill({ status: 200, body: "" }),
+  );
+  const abandoned: string[] = [];
+  await page.route("**/api/uploads/abandon", (route) => {
+    abandoned.push(
+      (route.request().postDataJSON() as { stagingKey: string }).stagingKey,
+    );
+    return json(200, {})(route);
+  });
+
+  await page.getByTestId("work-r360").setInputFiles({
+    name: "first.zip",
+    mimeType: "application/zip",
+    buffer: await orbitZip(2),
+  });
+  await expect.poll(() => presigns).toBe(1);
+  await page.getByRole("button", { name: "Przerwij wysyłanie" }).click();
+  await page.getByTestId("work-r360").setInputFiles({
+    name: "second.zip",
+    mimeType: "application/zip",
+    buffer: await orbitZip(3),
+  });
+  await expect(page.getByText("Gotowy", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("work-r360-frames")).toHaveText(
+    "· Klatki gotowe: 3",
+  );
+
+  // Now the first run returns: stopped, and replaced.
+  releaseFirst();
+  await expect.poll(() => abandoned).toContain(`staging/someone/${FIRST_SET}/`);
+  // Its set is abandoned; the second one stays in the form, whole.
+  await page.waitForTimeout(300);
+  await expect(page.getByText("second.zip")).toBeVisible();
+  await expect(page.getByTestId("work-r360-frames")).toHaveText(
+    "· Klatki gotowe: 3",
+  );
+  await expect(page.getByTestId("orbit-canvas")).toBeVisible();
+  // Abandoned once — by the pipeline, which saw the stop — and the second
+  // set, which the form still names, not at all.
+  expect(
+    abandoned.filter((key) => key === `staging/someone/${FIRST_SET}/`),
+  ).toHaveLength(1);
+  expect(abandoned).not.toContain(`staging/someone/${SET_ID}/`);
+});
+
 test("Zapisz keeps editing when the open form cannot be saved, and closes an untouched one (#85)", async () => {
   let created = false;
   await page.route(
