@@ -682,6 +682,50 @@ describe("a frame set on a work", () => {
     ).toHaveLength(0);
   });
 
+  it("keeps the cue points an edit gives a kept set, trimmed, shows them with the orbit, and refuses one past the count (#107)", async () => {
+    const d = makeDeps();
+    const photo = await uploadPhoto(d);
+    const set = await stageSet(d, 4);
+    const input = {
+      name: "Z punktami",
+      imageFileIds: [photo.original.fileId],
+      r360SetId: set.setId,
+    };
+    const { id } = await createWork(d.deps, {
+      ...input,
+      r360Params: defaultR360Params(4),
+    });
+    // Saved before there were cue points: it has none, and says nothing.
+    expect((await listWorks(d.deps))[0].orbit?.params.cues).toBeUndefined();
+
+    await updateWork(d.deps, id, {
+      ...input,
+      r360Params: {
+        ...defaultR360Params(4),
+        cues: [
+          { frame: 4, label: " Taras " },
+          { frame: 1, label: "Wejście" },
+        ],
+      },
+    });
+    const saved = [
+      { frame: 4, label: "Taras" },
+      { frame: 1, label: "Wejście" },
+    ];
+    expect((await listWorks(d.deps))[0].orbit?.params.cues).toEqual(saved);
+
+    await expect(
+      updateWork(d.deps, id, {
+        ...input,
+        r360Params: {
+          ...defaultR360Params(4),
+          cues: [{ frame: 5, label: "Za daleko" }],
+        },
+      }),
+    ).rejects.toThrow();
+    expect((await listWorks(d.deps))[0].orbit?.params.cues).toEqual(saved);
+  });
+
   it("the parameters are pinned: within the count, a direction of ±1, a flattening in 0.15..1", () => {
     expect(defaultR360Params(120)).toEqual({
       frameCount: 120,

@@ -110,9 +110,31 @@ const frameCountSchema = z
   .min(R360_MIN_FRAMES)
   .max(R360_MAX_FRAMES);
 
+/** #107: the most cue points a work carries, and a cue's longest label. */
+export const R360_CUES_MAX = 12;
+export const R360_CUE_LABEL_MAX = 40;
+
+/** A work's name's rule (work-schemas.ts): no control or format characters. */
+const NO_CONTROL_OR_FORMAT = /^[^\p{Cc}\p{Cf}\p{Zl}\p{Zp}]*$/u;
+
+/** #107: a labelled frame the visitor reaches from the ring or a button. */
+const cueSchema = z.object({
+  frame: z.number().int().min(1).max(R360_MAX_FRAMES),
+  label: z
+    .string()
+    .normalize("NFC")
+    .trim()
+    .min(1)
+    .max(R360_CUE_LABEL_MAX)
+    .regex(NO_CONTROL_OR_FORMAT),
+});
+export type R360Cue = z.infer<typeof cueSchema>;
+
 /**
- * The five viewer parameters (#68), as stored in works.r360_params. The
- * frame count is detected, not chosen; the other four are the owner's.
+ * The viewer parameters (#68), as stored in works.r360_params. The frame
+ * count is detected, not chosen; the other four are the owner's, and so
+ * are the cue points (#107) — optional, so a work saved before them reads
+ * as a work with none.
  */
 export const r360ParamsSchema = z
   .object({
@@ -121,10 +143,18 @@ export const r360ParamsSchema = z
     framesPerWidth: z.number().int().min(1).max(R360_MAX_FRAMES),
     startFrame: z.number().int().min(1).max(R360_MAX_FRAMES),
     flattening: z.number().min(0.15).max(1),
+    cues: z.array(cueSchema).max(R360_CUES_MAX).optional(),
   })
   .refine(
     (p) => p.framesPerWidth <= p.frameCount && p.startFrame <= p.frameCount,
     { message: "within the frame count" },
+  )
+  .refine(
+    (p) =>
+      !p.cues ||
+      (p.cues.every((cue) => cue.frame <= p.frameCount) &&
+        new Set(p.cues.map((cue) => cue.frame)).size === p.cues.length),
+    { message: "one cue a frame, within the frame count", path: ["cues"] },
   );
 export type R360Params = z.infer<typeof r360ParamsSchema>;
 

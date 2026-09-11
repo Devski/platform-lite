@@ -926,3 +926,71 @@ test("an archive with a gap is refused on the page and sends nothing; a saved se
   await expect(page.getByTestId("work-r360-frames-per-width")).toHaveValue("2");
   await page.getByRole("button", { name: "Anuluj" }).click();
 });
+
+// #107: the cue points in the owner's form, on a work of its own. The
+// PATCH is answered here, as above; what the library stores is proven in
+// src/lib/r360/frame-set.test.ts.
+test("cue points (#107): added at the frame in view and named in place; an unnamed one stops the save; the PATCH carries them", async () => {
+  // The new-work form beforeEach opened is not this test's: close it and
+  // leave editing, so the reload below is not held by the #83 guard.
+  await page.getByRole("button", { name: "Anuluj" }).click();
+  await page.getByRole("button", { name: "Zapisz", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Edytuj profil" }),
+  ).toBeVisible();
+  const [seeded] = await seedWorks(identity.handle, [
+    { name: "Orbita z punktami", r360: { frameCount: 4, startFrame: 3 } },
+  ]);
+  await page.reload();
+  await page.getByRole("button", { name: "Edytuj profil" }).click();
+  await page.getByRole("button", { name: `Edytuj: ${seeded.name}` }).click();
+
+  const form = page.getByTestId("work-r360-cues");
+  const viewer = page
+    .getByTestId("work-r360-preview")
+    .getByTestId("orbit-viewer");
+  await expect(viewer).toHaveAttribute("data-frame", "3");
+  await form.getByRole("button", { name: "Dodaj punkt w klatce 3" }).click();
+  const front = form.getByLabel("Nazwa punktu w klatce 3");
+  await expect(front).toBeFocused();
+  await front.fill("Front");
+  // One a frame: the frame in view has its point now.
+  await expect(
+    form.getByRole("button", { name: "Dodaj punkt w klatce 3" }),
+  ).toBeDisabled();
+  await expect(form.getByText("Ta klatka ma już punkt.")).toBeVisible();
+
+  // The next frame, and a point there left unnamed: the save says so and
+  // sends nothing.
+  await viewer.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(viewer).toHaveAttribute("data-frame", "4");
+  await form.getByRole("button", { name: "Dodaj punkt w klatce 4" }).click();
+  const patched: Request[] = [];
+  await page.route(`**/api/works/${seeded.id}`, (route) => {
+    patched.push(route.request());
+    return json(200, { ok: true })(route);
+  });
+  await page.getByRole("button", { name: "Zapisz zmiany" }).click();
+  await expect(
+    page.getByText("Nazwij każdy punkt na pierścieniu albo go usuń."),
+  ).toBeVisible();
+  expect(patched).toHaveLength(0);
+
+  // The preview has them as a visitor will, the unnamed one as its frame.
+  const buttons = page
+    .getByTestId("work-r360-preview")
+    .getByRole("list", { name: "Punkty w podglądzie" })
+    .getByRole("button");
+  await expect(buttons).toHaveText(["Front", "Klatka 4"]);
+  await form.getByLabel("Nazwa punktu w klatce 4").fill("  Taras ");
+  await expect(buttons).toHaveText(["Front", "Taras"]);
+  await expectNoAxeViolations(page, test.info(), "work-form-r360-cues");
+
+  await page.getByRole("button", { name: "Zapisz zmiany" }).click();
+  await expect.poll(() => patched.length).toBe(1);
+  expect(patched[0].postDataJSON().r360Params.cues).toEqual([
+    { frame: 3, label: "Front" },
+    { frame: 4, label: "Taras" },
+  ]);
+});

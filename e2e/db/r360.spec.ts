@@ -13,7 +13,9 @@ import { seedWorks } from "./seed-works";
 // seeded straight into the database (its frames have no objects behind
 // them — the pictures 404, which is exactly the state before any frame
 // loads); the public page shows the start frame server-side as the
-// poster, and the orbit turns by drag and by keyboard from there.
+// poster, and the orbit turns by drag and by keyboard from there. Its two
+// cue points (#107) sit where the ring tests below click anyway: frame 4
+// at the ring's right end, frame 1 at its top.
 
 if (process.env.CI && !process.env.DATABASE_URL_TEST?.trim()) {
   throw new Error(
@@ -39,7 +41,17 @@ test.beforeAll(async ({ browser }) => {
   await completeOnboarding(owner, identity);
   await owner.context().close();
   await seedWorks(identity.handle, [
-    { name: "Dom na skarpie", r360: { frameCount: 4, startFrame: 3 } },
+    {
+      name: "Dom na skarpie",
+      r360: {
+        frameCount: 4,
+        startFrame: 3,
+        cues: [
+          { frame: 1, label: "Wejście główne" },
+          { frame: 4, label: "Taras" },
+        ],
+      },
+    },
   ]);
   // A visitor: a context of its own, no session.
   visitor = await (await browser.newContext({ locale: "pl-PL" })).newPage();
@@ -169,6 +181,89 @@ test("a click on the ring travels the shorter arc to the frame at that angle (#1
   await expect(viewer).toHaveAttribute("data-frame", "2");
 });
 
+test("cue points (#107): the buttons under the picture turn the orbit to their frames and mark the one it is on; a marker's label shows while pointed at; axe passes", async () => {
+  await visitor.goto(`/${identity.handle}`);
+  const card = visitor
+    .getByRole("article")
+    .filter({ hasText: "Dom na skarpie" });
+  const viewer = card.getByTestId("orbit-viewer");
+  await expect(viewer).toHaveAttribute("data-frame", "3");
+  const cues = card.getByRole("list", {
+    name: "Punkty widoku 360°: Dom na skarpie",
+  });
+  // In the order a turn from the start frame (3) meets them: 4, then 1.
+  await expect(cues.getByRole("button")).toHaveText([
+    "Taras",
+    "Wejście główne",
+  ]);
+  const entrance = cues.getByRole("button", { name: "Wejście główne" });
+  const terrace = cues.getByRole("button", { name: "Taras" });
+  const label = card.getByTestId("orbit-ring-cue-label");
+  // Off every cue, no label at all.
+  await expect(label).toHaveCount(0);
+
+  await entrance.click();
+  await expect(viewer).toHaveAttribute("data-frame", "1");
+  await expect(entrance).toHaveAttribute("aria-current", "true");
+  await expect(terrace).not.toHaveAttribute("aria-current");
+  // Standing on a cue, its label shows on the ring.
+  await expect(label).toHaveText("Wejście główne");
+
+  // Pointing at the other button lights its marker and shows its label.
+  await terrace.hover();
+  await expect(label).toHaveText("Taras");
+  await expect(
+    card.locator('[data-testid="orbit-ring-cue"][data-cue-frame="4"]'),
+  ).toHaveAttribute("data-lit", "true");
+
+  // On the ring: the mouse on a marker shows that one's label — frame 4
+  // at the right end — and off it the one the orbit stands on comes back.
+  const ring = card.getByTestId("orbit-ring").locator("svg");
+  await ring.scrollIntoViewIfNeeded();
+  const box = await ring.boundingBox();
+  if (!box) throw new Error("no ring box");
+  await visitor.mouse.move(box.x + box.width / 2, box.y - 40);
+  await expect(label).toHaveText("Wejście główne");
+  await visitor.mouse.move(
+    box.x + (box.width * (100 + 92)) / 200,
+    box.y + box.height / 2,
+  );
+  await expect(label).toHaveText("Taras");
+  await visitor.mouse.move(box.x + box.width / 2, box.y - 40);
+  await expect(label).toHaveText("Wejście główne");
+
+  await expectNoAxeViolations(visitor, test.info(), "public-r360-cues");
+});
+
+test("on touch there is no hover: the first tap on a marker shows its label, the second goes there (#107)", async () => {
+  const touch = await visitor.context().browser()!.newContext({
+    locale: "pl-PL",
+    hasTouch: true,
+  });
+  const page = await touch.newPage();
+  await page.goto(`/${identity.handle}`);
+  const card = page.getByRole("article").filter({ hasText: "Dom na skarpie" });
+  const viewer = card.getByTestId("orbit-viewer");
+  await expect(viewer).toHaveAttribute("data-frame", "3");
+  const ring = card.getByTestId("orbit-ring").locator("svg");
+  await ring.scrollIntoViewIfNeeded();
+  const box = await ring.boundingBox();
+  if (!box) throw new Error("no ring box");
+  // Frame 1's marker, at the top of the ring.
+  const top = {
+    x: box.x + box.width / 2,
+    y: box.y + (box.height * (100 - 92)) / 200,
+  };
+  await page.touchscreen.tap(top.x, top.y);
+  await expect(card.getByTestId("orbit-ring-cue-label")).toHaveText(
+    "Wejście główne",
+  );
+  await expect(viewer).toHaveAttribute("data-frame", "3");
+  await page.touchscreen.tap(top.x, top.y);
+  await expect(viewer).toHaveAttribute("data-frame", "1");
+  await touch.close();
+});
+
 test("the enlarge button opens the orbit in the lightbox, where it turns too; Escape closes it", async () => {
   await visitor.goto(`/${identity.handle}`);
   await visitor
@@ -182,6 +277,12 @@ test("the enlarge button opens the orbit in the lightbox, where it turns too; Es
   await enlarged.focus();
   await visitor.keyboard.press("ArrowRight");
   await expect(enlarged).toHaveAttribute("data-frame", "4");
+  // #107: the cue buttons come along, under the ring.
+  await dialog
+    .getByRole("list", { name: "Punkty widoku 360°: Dom na skarpie" })
+    .getByRole("button", { name: "Wejście główne" })
+    .click();
+  await expect(enlarged).toHaveAttribute("data-frame", "1");
   await expectNoAxeViolations(visitor, test.info(), "public-r360-lightbox");
   await visitor.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);

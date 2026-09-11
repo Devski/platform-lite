@@ -1,16 +1,23 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useId } from "react";
+import { useId, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import type { R360Params } from "@/lib/r360/frame-set-shared";
+import { Input } from "@/components/ui/input";
+import { cuesInOrder } from "@/lib/r360/cues";
+import {
+  R360_CUE_LABEL_MAX,
+  R360_CUES_MAX,
+  type R360Cue,
+  type R360Params,
+} from "@/lib/r360/frame-set-shared";
 
 // #103: the owner's four parameters of an R360 set, under the preview in
 // the work form (the fifth, the frame count, is the set's, shown read-only
 // beside the preview). The direction is a two-way toggle, frames per
 // picture width a slider from 1 to N, the start frame is set from the
 // frame in view, the ring flattening a slider from 0.15 to 1 with a
-// "circle" button — its effect waits for the ring dial (#106).
+// "circle" button. #107 adds the cue points below them.
 
 export function R360ParamControls({
   params,
@@ -97,7 +104,118 @@ export function R360ParamControls({
           {t("flatteningCircle")}
         </Button>
       </RangeParam>
+      <CueControls
+        params={params}
+        frameInView={frameInView}
+        disabled={disabled}
+        onChange={onChange}
+      />
     </div>
+  );
+}
+
+/**
+ * #107: the cue points — frames the owner names, which a visitor reaches
+ * from a marker on the ring or a button under the picture. One is added at
+ * the frame in view and named in place, its field taking the focus; each
+ * goes with its own button. One a frame, twelve at most.
+ */
+function CueControls({
+  params,
+  frameInView,
+  disabled,
+  onChange,
+}: {
+  params: R360Params;
+  frameInView: number;
+  disabled: boolean;
+  onChange: (change: Partial<R360Params>) => void;
+}) {
+  const t = useTranslations("Works.form.r360");
+  const cues = params.cues ?? [];
+  // The frame of the cue just added: its field takes the focus once, when
+  // it is there to take it.
+  const added = useRef<number | null>(null);
+  const taken = cues.some((cue) => cue.frame === frameInView);
+  const full = cues.length >= R360_CUES_MAX;
+  // None left is no list at all — as a work saved without cues has it, so
+  // adding one and removing it again leaves the form untouched.
+  const commit = (next: R360Cue[]) =>
+    onChange({ cues: next.length > 0 ? next : undefined });
+
+  return (
+    <fieldset
+      className="flex flex-col gap-(--sp-3) sm:col-span-2"
+      data-testid="work-r360-cues"
+    >
+      <legend className="type-label text-(--text-body)">
+        {t("paramCues")}
+      </legend>
+      <p className="type-sm text-(--text-muted)">
+        {t("cuesHint", { max: R360_CUES_MAX })}
+      </p>
+      {cues.length > 0 && (
+        <ul className="flex flex-col gap-(--sp-2)">
+          {cuesInOrder(cues, params).map((cue) => (
+            <li key={cue.frame} className="flex items-center gap-(--sp-3)">
+              <span className="w-20 shrink-0 type-sm tabular-nums text-(--text-muted)">
+                {t("cueFrame", { frame: cue.frame })}
+              </span>
+              <Input
+                ref={(element) => {
+                  if (element && added.current === cue.frame) {
+                    added.current = null;
+                    element.focus();
+                  }
+                }}
+                value={cue.label}
+                maxLength={R360_CUE_LABEL_MAX}
+                placeholder={t("cuePlaceholder")}
+                aria-label={t("cueLabel", { frame: cue.frame })}
+                disabled={disabled}
+                onChange={(event) =>
+                  commit(
+                    cues.map((other) =>
+                      other.frame === cue.frame
+                        ? { ...other, label: event.target.value }
+                        : other,
+                    ),
+                  )
+                }
+                className="min-w-0 flex-1"
+              />
+              <Button
+                variant="quiet"
+                onClick={() =>
+                  commit(cues.filter((other) => other.frame !== cue.frame))
+                }
+                disabled={disabled}
+                aria-label={t("cueRemoveLabel", { frame: cue.frame })}
+              >
+                {t("cueRemove")}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex flex-wrap items-center gap-(--sp-3)">
+        <Button
+          variant="quiet"
+          onClick={() => {
+            added.current = frameInView;
+            commit([...cues, { frame: frameInView, label: "" }]);
+          }}
+          disabled={disabled || taken || full}
+        >
+          {t("cueAdd", { frame: frameInView })}
+        </Button>
+        {(full || taken) && (
+          <span className="type-sm text-(--text-muted)">
+            {full ? t("cuesFull", { max: R360_CUES_MAX }) : t("cueTaken")}
+          </span>
+        )}
+      </div>
+    </fieldset>
   );
 }
 

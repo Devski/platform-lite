@@ -220,7 +220,11 @@ trial, all on this milestone. In the order agreed with Dawid on 10.09.2026:
    by a new pick cleared the new one from the form~~ — **done 11.09.2026** (#150). Found in
    #149's review, taken before the cue points by Dawid's decision; trying it, he met the set
    presign's limit of three a minute, raised to ten at his decision.
-7. [#107](https://github.com/Devski/platform-lite/issues/107) the cue points.
+7. ~~[#107](https://github.com/Devski/platform-lite/issues/107) the cue points~~ — **done
+   11.09.2026**. The layout was Dawid's pick from a sketch of three, A and B together:
+   markers on the ring with the label beside them, and a row of buttons under the picture
+   that works without the ring — the redesign will show phones only the buttons and keep
+   the ring for the enlarged view.
 8. #127's timer.
 
 ### Open decisions (§12)
@@ -246,6 +250,13 @@ recorded so it is not rediscovered later.
 - ~~[#36](https://github.com/Devski/platform-lite/issues/36) The public profile showed the user's e-mail address as their name~~ — **done 05.09.2026**: registration stopped inventing a name from the address; onboarding asks for one in two steps and derives the address from it. A migration cleared what the old flow wrote, keeping handles — they may already have been shared. Found two faults of my own on the way, both recorded on the issue and generalised as #39.
 - [#39](https://github.com/Devski/platform-lite/issues/39) Make the UI airtight against what the backend and the database will accept (`enhancement`) — opened 05.09.2026: a rule can live in the form, the API schema and a database constraint, and nothing keeps the three in agreement. Two instances on one screen in #36: a submit the form could not know would fail, and a `CHECK` nothing above the database could see — both surfacing as "try again".
 - [#44](https://github.com/Devski/platform-lite/issues/44) Where personal data lives: which of it is sensitive, and does it belong in its own store (`compliance`) — opened 06.09.2026, four questions to answer in writing before production. The name is public by design; the sensitive thing is its LINK to the private address. Also carries four gaps found while surveying: disk encryption unverified, no dev backups, session tokens in plaintext, recipient address possibly reaching a log line.
+- Three from Dawid on 11.09.2026, deliberately outside the R360 milestone:
+  [#151](https://github.com/Devski/platform-lite/issues/151) an orbit from a RAR archive
+  (a decoder, a folder of frames, or a message that says how to save a zip);
+  [#152](https://github.com/Devski/platform-lite/issues/152) orbits on one page loading one
+  after another, because the page's frame queue is first come, first served and an orbit
+  in view queues its whole set; [#153](https://github.com/Devski/platform-lite/issues/153)
+  motion that eases on a ring click and coasts after a drag, with the owner's switch.
 
 ## Requirements coverage
 

@@ -475,6 +475,8 @@ export interface R360ParamsRow {
   framesPerWidth: number;
   startFrame: number;
   flattening: number;
+  /** #107: labelled frames; absent on a work saved before them. */
+  cues?: { frame: number; label: string }[];
 }
 
 // #30: a staged upload is bytes that already exist in the bucket but have no

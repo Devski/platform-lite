@@ -16,12 +16,18 @@ export interface SeededWork {
 /**
  * A name, a name with a second channel on its photo (#99), or a name with
  * an R360 set of N frames and no photo (#103) — the set id is a
- * placeholder and the frames have no objects behind them.
+ * placeholder and the frames have no objects behind them — and, since
+ * #107, the set's cue points.
  */
+export interface SeedOrbit {
+  frameCount: number;
+  startFrame?: number;
+  cues?: { frame: number; label: string }[];
+}
 export type SeedWork =
   | string
   | { name: string; secondChannel: true }
-  | { name: string; r360: { frameCount: number; startFrame?: number } };
+  | { name: string; r360: SeedOrbit };
 
 /** The test database, and only a loopback one: rows the app itself never writes. */
 async function connectForSeed(): Promise<Client> {
@@ -82,13 +88,11 @@ export async function seedWorks(
       );
       return workId;
     };
-    const r360Work = async (
-      name: string,
-      r360: { frameCount: number; startFrame?: number },
-    ) => {
+    const r360Work = async (name: string, r360: SeedOrbit) => {
       const params = {
         ...defaultR360Params(r360.frameCount),
         startFrame: r360.startFrame ?? 1,
+        ...(r360.cues ? { cues: r360.cues } : {}),
       };
       return insertId(
         `insert into works (user_id, name, r360_set_id, r360_params)
