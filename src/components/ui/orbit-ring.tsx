@@ -5,7 +5,6 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   cueLabelSide,
   cueNear,
-  labelledCue,
   shiftIntoBounds,
   type CueLabelSide,
 } from "@/lib/r360/cues";
@@ -39,12 +38,13 @@ import type { Orbit } from "./use-orbit";
 // from assistive technology rather than announced twice.
 //
 // #107: the cue points are diamonds on the ring — not the dot's circle —
-// and a cue's label shows beside its marker: while the mouse is on it,
-// while its button under the picture is pointed at or focused, and while
-// the orbit stands on its frame. Touch has no hover, so there the first
-// tap on a marker shows the label and a second one goes there. The
-// buttons (orbit-cues.tsx) are the keyboard's and the screen reader's way
-// to the cues; the markers are the pointer's extra on top of them.
+// and a cue's label shows beside its marker only while it is pointed at:
+// the mouse on the marker or on its button under the picture, or that
+// button focused from the keyboard. Nothing leaves a label standing — not
+// the orbit on the cue's frame, not a tap (Dawid, 11.09.2026); a click or
+// a tap on a marker goes to its cue. The buttons (orbit-cues.tsx) are the
+// keyboard's and the screen reader's way to the cues, and on a phone's
+// public page the only one: the ring is not shown there at all.
 
 const WIDTH = 200;
 /** Room past the arc for the dot (radius 6 plus its 2-wide stroke). */
@@ -159,14 +159,6 @@ export function OrbitRing({
   } | null>(null);
   // #107: the marker the mouse is on, so leaving it clears only its own.
   const hovered = useRef<number | null>(null);
-  // A touch's first tap on a marker: its label shows while the orbit stays
-  // on the frame it was tapped at, and a second tap there goes to the cue.
-  const [tapped, setTapped] = useState<{ cue: number; at: number } | null>(
-    null,
-  );
-  // The claim ends when the orbit moves off that frame: coming back to it
-  // later is not a tap.
-  if (tapped && tapped.at !== orbit.frame) setTapped(null);
   const label = useRef<HTMLSpanElement>(null);
   const labelBox = useRef<HTMLDivElement>(null);
 
@@ -205,8 +197,6 @@ export function OrbitRing({
     );
     if (cue === hovered.current) return;
     hovered.current = cue;
-    // A mouse moving over the markers is the last thing done now.
-    setTapped(null);
     onCuePreview(cue);
   };
   const leave = () => {
@@ -258,20 +248,11 @@ export function OrbitRing({
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
     if (down.dragged || event.type !== "pointerup") return;
-    // A click, completed on the up: travel to the cue whose marker it is
-    // on, else to the frame at that angle. Touch has no hover, so a tap on
-    // a marker whose label is not showing shows it, and the next one goes.
-    const cue = cueUnder(event.clientX, event.clientY, down.box);
-    if (
-      cue !== null &&
-      event.pointerType !== "mouse" &&
-      cue !== labelledCue(cues, orbit.frame, cuePreview, tapped)
-    ) {
-      setTapped({ cue, at: orbit.frame });
-      return;
-    }
-    setTapped(null);
-    const to = cue ?? frameUnder(event.clientX, event.clientY, down.box);
+    // A click or a tap, completed on the up: travel to the cue whose marker
+    // it is on, else to the frame at that angle.
+    const to =
+      cueUnder(event.clientX, event.clientY, down.box) ??
+      frameUnder(event.clientX, event.clientY, down.box);
     orbit.travelAlong(travelPath(orbit.frame, to, params));
   };
 
@@ -291,14 +272,13 @@ export function OrbitRing({
     [loaded, params, radiusX, radiusY],
   );
 
-  // #107: each marker where its frame is on the ring, and the one whose
-  // label shows (labelledCue says whose).
+  // #107: each marker where its frame is on the ring, and the one pointed
+  // at, whose label shows.
   const marks = cues.map((cue) => ({
     ...cue,
     at: ringPoint(angleOfFrame(cue.frame, params), radiusX, radiusY),
   }));
-  const labelFrame = labelledCue(cues, orbit.frame, cuePreview, tapped);
-  const labelled = marks.find((mark) => mark.frame === labelFrame);
+  const labelled = marks.find((mark) => mark.frame === cuePreview);
   const labelSide = labelled
     ? cueLabelSide(labelled.at, radiusX, radiusY)
     : null;
@@ -397,7 +377,7 @@ export function OrbitRing({
             data-testid="orbit-ring-loaded"
           />
           {marks.map((mark) => {
-            const lit = mark.frame === labelFrame;
+            const lit = mark.frame === cuePreview;
             return (
               <path
                 key={mark.frame}

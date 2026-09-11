@@ -223,8 +223,9 @@ trial, all on this milestone. In the order agreed with Dawid on 10.09.2026:
 7. ~~[#107](https://github.com/Devski/platform-lite/issues/107) the cue points~~ — **done
    11.09.2026** (#154). The layout was Dawid's pick from a sketch of three, A and B together:
    markers on the ring with the label beside them, and a row of buttons under the picture
-   that works without the ring — the redesign will show phones only the buttons and keep
-   the ring for the enlarged view.
+   that works without the ring. After the preview, his two corrections: a label shows only
+   while it is pointed at, and a phone's public page shows no ring at all, only the
+   buttons. The redesign will keep the ring for the enlarged view on the profile page too.
 8. #127's timer.
 
 ### Open decisions (§12)

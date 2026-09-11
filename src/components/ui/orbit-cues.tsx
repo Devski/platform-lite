@@ -9,10 +9,11 @@ import type { Orbit } from "./use-orbit";
 // points as a row of buttons under the picture. A press travels the orbit
 // there the way a click on the ring does; the button of the cue the orbit
 // stands on is marked; pointing at one, or focusing it from the keyboard,
-// lights its marker on the ring and shows its label there. The row works with no ring at
-// all — on phones, and on the profile page once the redesign keeps the
-// ring for the enlarged view, it is the only way to the cues — and it is
-// the keyboard's and the screen reader's way to them everywhere.
+// lights its marker on the ring and shows its label there. The row works
+// with no ring at all — a phone's public page shows none (Dawid,
+// 11.09.2026), and once the redesign keeps the ring for the enlarged view
+// the profile page will not either — and it is the keyboard's and the
+// screen reader's way to the cues everywhere.
 
 // A button's three states, each a whole set of colours: two utilities for
 // one property in a class list are settled by the stylesheet's order, not

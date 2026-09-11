@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { devices, expect, test, type Page } from "@playwright/test";
 import { expectNoAxeViolations } from "../axe";
 import {
   completeOnboarding,
@@ -181,7 +181,7 @@ test("a click on the ring travels the shorter arc to the frame at that angle (#1
   await expect(viewer).toHaveAttribute("data-frame", "2");
 });
 
-test("cue points (#107): the buttons under the picture turn the orbit to their frames and mark the one it is on; a marker's label shows while pointed at; axe passes", async () => {
+test("cue points (#107): the buttons under the picture turn the orbit to their frames and mark the one it is on; a marker's label shows only while pointed at; axe passes", async () => {
   await visitor.goto(`/${identity.handle}`);
   const card = visitor
     .getByRole("article")
@@ -206,8 +206,11 @@ test("cue points (#107): the buttons under the picture turn the orbit to their f
   await expect(viewer).toHaveAttribute("data-frame", "1");
   await expect(entrance).toHaveAttribute("aria-current", "true");
   await expect(terrace).not.toHaveAttribute("aria-current");
-  // Standing on a cue, its label shows on the ring.
+  // The mouse is still on the button: its label shows. Off it, standing on
+  // the cue leaves none — labels are for pointing (Dawid, 11.09.2026).
   await expect(label).toHaveText("Wejście główne");
+  await visitor.mouse.move(5, 5);
+  await expect(label).toHaveCount(0);
 
   // Pointing at the other button lights its marker and shows its label.
   await terrace.hover();
@@ -217,7 +220,7 @@ test("cue points (#107): the buttons under the picture turn the orbit to their f
   ).toHaveAttribute("data-lit", "true");
 
   // On the ring: the mouse on a marker shows that one's label — frame 4
-  // at the right end — and off it the one the orbit stands on comes back.
+  // at the right end — and off it there is none again.
   const ring = card.getByTestId("orbit-ring").locator("svg");
   await ring.scrollIntoViewIfNeeded();
   const box = await ring.boundingBox();
@@ -227,11 +230,11 @@ test("cue points (#107): the buttons under the picture turn the orbit to their f
     y: box.y + box.height / 2,
   };
   await visitor.mouse.move(box.x + box.width / 2, box.y - 40);
-  await expect(label).toHaveText("Wejście główne");
+  await expect(label).toHaveCount(0);
   await visitor.mouse.move(rightEnd.x, rightEnd.y);
   await expect(label).toHaveText("Taras");
   await visitor.mouse.move(box.x + box.width / 2, box.y - 40);
-  await expect(label).toHaveText("Wejście główne");
+  await expect(label).toHaveCount(0);
 
   // A drag along the ring that starts on a marker leaves that marker
   // behind: it ends on frame 2, where there is no cue and so no label.
@@ -257,7 +260,7 @@ test("cue points (#107): the buttons under the picture turn the orbit to their f
   await expectNoAxeViolations(visitor, test.info(), "public-r360-cues");
 });
 
-test("on touch there is no hover: the first tap on a marker shows its label, the second goes there (#107)", async () => {
+test("on touch there is no hover: a tap on a marker goes straight there, and no label is left on the ring (#107)", async () => {
   const touch = await visitor.context().browser()!.newContext({
     locale: "pl-PL",
     hasTouch: true,
@@ -281,33 +284,44 @@ test("on touch there is no hover: the first tap on a marker shows its label, the
   };
   const label = card.getByTestId("orbit-ring-cue-label");
   await tapTop();
-  await expect(label).toHaveText("Wejście główne");
-  await expect(viewer).toHaveAttribute("data-frame", "3");
-  // The orbit turned away and back: the tap that showed the label is
-  // spent, and does not come back with the frame.
-  await viewer.focus();
-  await page.keyboard.press("ArrowRight");
-  await expect(viewer).toHaveAttribute("data-frame", "4");
-  await page.keyboard.press("ArrowLeft");
-  await expect(viewer).toHaveAttribute("data-frame", "3");
-  await expect(label).toHaveCount(0);
-  await tapTop();
-  await expect(label).toHaveText("Wejście główne");
-  await tapTop();
   await expect(viewer).toHaveAttribute("data-frame", "1");
-
-  // A button tapped keeps the focus, but no claim on the ring's label:
-  // the marker tapped after it is the one named, and once the orbit is
-  // there the ring names where it is.
+  await expect(label).toHaveCount(0);
+  // A button tapped goes there too, and keeps the focus without keeping a
+  // label on the ring.
   await card.getByRole("button", { name: "Taras" }).tap();
   await expect(viewer).toHaveAttribute("data-frame", "4");
-  await tapTop();
-  await expect(label).toHaveText("Wejście główne");
-  await expect(viewer).toHaveAttribute("data-frame", "4");
-  await tapTop();
-  await expect(viewer).toHaveAttribute("data-frame", "1");
-  await expect(label).toHaveText("Wejście główne");
+  await expect(label).toHaveCount(0);
   await touch.close();
+});
+
+test("on a phone the public page shows no ring, only the cue buttons — on the card and in the lightbox (#107)", async () => {
+  const phone = await visitor
+    .context()
+    .browser()!
+    .newContext({
+      ...devices["iPhone 13"],
+      locale: "pl-PL",
+    });
+  const page = await phone.newPage();
+  await page.goto(`/${identity.handle}`);
+  const card = page.getByRole("article").filter({ hasText: "Dom na skarpie" });
+  const viewer = card.getByTestId("orbit-viewer");
+  await expect(viewer).toHaveAttribute("data-frame", "3");
+  await expect(card.getByTestId("orbit-ring")).toBeHidden();
+  await card.getByRole("button", { name: "Wejście główne" }).tap();
+  await expect(viewer).toHaveAttribute("data-frame", "1");
+
+  await card
+    .getByRole("button", { name: "Powiększ widok 360°: Dom na skarpie" })
+    .tap();
+  const dialog = page.getByRole("dialog");
+  const enlarged = dialog.getByTestId("orbit-viewer");
+  await expect(enlarged).toBeVisible();
+  await expect(dialog.getByTestId("orbit-ring")).toBeHidden();
+  await dialog.getByRole("button", { name: "Taras" }).tap();
+  await expect(enlarged).toHaveAttribute("data-frame", "4");
+  await expectNoAxeViolations(page, test.info(), "public-r360-phone");
+  await phone.close();
 });
 
 test("the enlarge button opens the orbit in the lightbox, where it turns too; Escape closes it", async () => {

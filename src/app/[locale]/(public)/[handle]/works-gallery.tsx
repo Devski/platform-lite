@@ -671,10 +671,11 @@ function PublicOrbit({
       className={
         // Over the card's other marks: the translate makes the ring a layer
         // of its own, and a cue's label in it would sit under the enlarge
-        // button otherwise (#107 review).
+        // button otherwise (#107 review). A phone shows no ring at all, on
+        // the card or in the lightbox — only the cue buttons (#107).
         ring === "overlay"
-          ? "absolute bottom-1 left-1/2 z-10 w-[38%] max-w-40 -translate-x-1/2"
-          : "mt-(--sp-3) w-40"
+          ? "absolute bottom-1 left-1/2 z-10 w-[38%] max-w-40 -translate-x-1/2 phone:hidden"
+          : "mt-(--sp-3) w-40 phone:hidden"
       }
       // In the lightbox the caption counts the pictures right under it.
       counter={ring === "overlay"}
@@ -834,13 +835,14 @@ function OrbitFull({ name, orbit }: { name: string; orbit: GalleryOrbit }) {
   const hand = useOrbit(orbit.params);
   const cueHand = useCueHand(orbit.params);
   // The ring under the picture takes its band out of the height (#106
-  // review), and the cue buttons under the ring two rows more (#107). Never
-  // below 10rem, though: on a phone held sideways the sum leaves nothing,
-  // and the dialog scrolls instead of losing the picture.
+  // review), and the cue buttons under the ring two rows more (#107); a
+  // phone shows no ring, so there only the buttons do. Never below 10rem,
+  // though: on a phone held sideways the sum leaves nothing, and the dialog
+  // scrolls instead of losing the picture.
   const height =
     cueHand.cues.length > 0
-      ? "max-h-[max(10rem,calc(100vh-140px-17rem))]"
-      : "max-h-[max(10rem,calc(100vh-140px-12rem))]";
+      ? "max-h-[max(10rem,calc(100vh-140px-17rem))] phone:max-h-[max(10rem,calc(100vh-140px-5rem))]"
+      : "max-h-[max(10rem,calc(100vh-140px-12rem))] phone:max-h-[max(10rem,calc(100vh-140px))]";
   return (
     <div className="flex flex-col items-center">
       <PublicOrbit

@@ -5,11 +5,11 @@ import { angleOfFrame, ringPoint } from "./ring";
 // #107 (A13; the layout Dawid chose on 11.09.2026 from a sketch of three —
 // the label beside its marker, and a list under the picture, together):
 // the cue points' arithmetic. A cue is a labelled frame. The visitor
-// reaches it from its marker on the ring — the label shows beside it on
-// hover, on touch at the first tap — or from a row of buttons under the
-// picture. The buttons stand on their own: on phones, and on the profile
-// page once the redesign shows the ring only in the enlarged view, they
-// are all there is. Pure; the ring and the buttons are hands on it.
+// reaches it from its marker on the ring — its label beside it while it is
+// pointed at — or from a row of buttons under the picture. The buttons
+// stand on their own: a phone's public page shows no ring, and once the
+// redesign keeps the ring for the enlarged view, the profile page will not
+// either. Pure; the ring and the buttons are hands on it.
 
 /**
  * The cues in the order a turn from the start frame meets them: the order
@@ -24,24 +24,6 @@ export function cuesInOrder<T extends R360Cue>(
   return [...(cues ?? [])].sort(
     (a, b) => fromStart(a.frame) - fromStart(b.frame),
   );
-}
-
-/**
- * The frame of the cue whose label the ring shows, or null: a marker just
- * tapped, while the orbit has not moved since — the last thing a finger
- * did, so a button tapped before it, which keeps the focus, does not keep
- * its claim; else the cue pointed at, on the ring or on its button; else
- * the one the orbit stands on.
- */
-export function labelledCue(
-  cues: readonly R360Cue[],
-  frame: number,
-  pointedAt: number | null,
-  tapped: { cue: number; at: number } | null,
-): number | null {
-  if (tapped?.at === frame) return tapped.cue;
-  if (pointedAt !== null) return pointedAt;
-  return cues.some((cue) => cue.frame === frame) ? frame : null;
 }
 
 export type CueLabelSide = "above" | "left" | "right";
