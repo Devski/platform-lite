@@ -232,8 +232,8 @@ trial, all on this milestone. In the order agreed with Dawid on 10.09.2026:
    12 hours, for every owner, only where `APP_ENV` is `dev` or `production`. It proved itself
    on the deploy: three abandoned sets collected on dev, one of them from Dawid's own phone
    trial. ~~[#156](https://github.com/Devski/platform-lite/issues/156), the design's last
-   point on #126 — what no record names at all~~ — **done 12.09.2026**, at his word, in the
-   same run: counted, named in the log, never deleted.
+   point on #126 — what no record names at all~~ — **done 12.09.2026** (#158), at his word, in
+   the same run: counted, named in the log, never deleted.
 
 ### Open decisions (§12)
 
