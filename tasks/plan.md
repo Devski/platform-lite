@@ -151,7 +151,8 @@ dependencies are as on #68. All six steps landed on `main` in one pull request (
 his trials of every preview on a laptop: everything the visitor does passed; making a set
 on the phone works and takes minutes — carried to
 [#147](https://github.com/Devski/platform-lite/issues/147), the owner's upload redesigned
-for mobile, outside the milestone.
+for mobile, outside the milestone. ~~#147~~ **closed 11.09.2026** by Dawid once #149 made
+it fast on both devices.
 
 - ~~[#101](https://github.com/Devski/platform-lite/issues/101) Zip reader in the browser:
   the table of contents, single frames by byte range, frame names parsed and validated —
@@ -215,9 +216,10 @@ trial, all on this milestone. In the order agreed with Dawid on 10.09.2026:
    thread~~ — **done 11.09.2026** (#149). Dawid's pick after the phone trial, as the first
    step towards #147; tried on the same phone the same night: as fast as the laptop had
    been before it.
-6. [#148](https://github.com/Devski/platform-lite/issues/148) a run stopped and replaced by
-   a new pick cleared the new one from the form — found in #149's review, taken before the
-   cue points by Dawid's decision.
+6. ~~[#148](https://github.com/Devski/platform-lite/issues/148) a run stopped and replaced
+   by a new pick cleared the new one from the form~~ — **done 11.09.2026** (#150). Found in
+   #149's review, taken before the cue points by Dawid's decision; trying it, he met the set
+   presign's limit of three a minute, raised to ten at his decision.
 7. [#107](https://github.com/Devski/platform-lite/issues/107) the cue points.
 8. #127's timer.
 
