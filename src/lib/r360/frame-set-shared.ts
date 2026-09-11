@@ -1,25 +1,17 @@
 import { z } from "zod";
 import { R360_MAX_FRAMES, R360_MIN_FRAMES } from "./frame-names";
+import { R360_WIDTHS, type R360Width } from "./frame-widths";
 
 // #102 (step 3 of #68, A13): what the browser and the server agree on
 // about a frame set — the widths, the ceilings, the keys, the viewer's
 // parameters. Client-safe: no storage, no database.
 
-/** The two widths kept of every frame (A13); the first is the largest. */
-export const R360_WIDTHS = [1600, 800] as const;
-export type R360Width = (typeof R360_WIDTHS)[number];
-
-/**
- * The width the owner's own preview shows: the smallest kept. Named here
- * because two sides have to agree on it — the encoder makes the picture
- * at this width (#121) and the form keeps the encoding at this width to
- * decode again after an eviction (#117). Were they to disagree, one
- * ordinal would hold pictures of two sizes and the viewer's canvas would
- * clear itself whenever a frame flipped between them.
- */
-export const R360_PREVIEW_WIDTH = R360_WIDTHS[R360_WIDTHS.length - 1];
-
-export const R360_FRAME_CONTENT_TYPE = "image/webp";
+export {
+  R360_FRAME_CONTENT_TYPE,
+  R360_PREVIEW_WIDTH,
+  R360_WIDTHS,
+  type R360Width,
+} from "./frame-widths";
 
 /**
  * Ceilings per frame, per width. A rendered frame at 1600 px encodes to a
