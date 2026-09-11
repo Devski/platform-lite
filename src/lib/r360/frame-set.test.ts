@@ -10,6 +10,7 @@ import { uploadTestPhoto } from "@/lib/test-uploads";
 import { createWork, deleteWork, listWorks, updateWork } from "@/lib/works";
 import sharp from "sharp";
 import {
+  collectAllUnfinishedFrameSets,
   collectUnfinishedFrameSets,
   FrameSetError,
   frameSetReservationSeconds,
@@ -63,13 +64,17 @@ function makeDeps() {
   };
 }
 
-/** A reservation pushed into the past, as a walked-away browser leaves it. */
+/**
+ * A reservation pushed into the past, as a walked-away browser leaves it:
+ * ended more than the collector's margin ago, and made longer ago than any
+ * frame URL lives (#127 review).
+ */
 const expireReservation = (keyPrefix: string) =>
   testDb.db
     .update(pendingUploads)
     .set({
-      createdAt: sql`now() - interval '2 minutes'`,
-      expiresAt: sql`now() - interval '1 minute'`,
+      createdAt: sql`now() - interval '3 hours'`,
+      expiresAt: sql`now() - interval '20 minutes'`,
     })
     .where(eq(pendingUploads.stagingKey, keyPrefix));
 
@@ -179,13 +184,7 @@ describe("presignFrameSet", () => {
   it("collects an expired set on the next presign, as one prefix (#30, #126)", async () => {
     const d = makeDeps();
     const stale = await stageSet(d, 2);
-    await testDb.db
-      .update(pendingUploads)
-      .set({
-        createdAt: sql`now() - interval '2 minutes'`,
-        expiresAt: sql`now() - interval '1 minute'`,
-      })
-      .where(eq(pendingUploads.stagingKey, stale.keyPrefix));
+    await expireReservation(stale.keyPrefix);
     expect(await d.deps.storage.listObjects(stale.keyPrefix)).toHaveLength(4);
     await presignFrameSet(d.deps, { frameCount: 2 });
     expect(await d.deps.storage.listObjects(stale.keyPrefix)).toHaveLength(0);
@@ -518,6 +517,97 @@ describe("a frame set on a work", () => {
     expect(await collectUnfinishedFrameSets(d.deps)).toEqual([]);
     expect(await d.deps.storage.listObjects(live.keyPrefix)).toHaveLength(4);
     expect(await reservationsOf(live.keyPrefix)).toHaveLength(1);
+  });
+
+  // #127 review: a save checks the reservation, then commits. One that
+  // straddled the reservation's end must not find its frames gone when it
+  // commits — so the collector waits a margin past the end.
+  it("keeps a set whose reservation ended only minutes ago (#127 review)", async () => {
+    const d = makeDeps();
+    const set = await stageSet(d, 2);
+    await testDb.db
+      .update(pendingUploads)
+      .set({
+        createdAt: sql`now() - interval '3 hours'`,
+        expiresAt: sql`now() - interval '1 minute'`,
+      })
+      .where(eq(pendingUploads.stagingKey, set.keyPrefix));
+    expect(await collectUnfinishedFrameSets(d.deps)).toEqual([]);
+    expect(await d.deps.storage.listObjects(set.keyPrefix)).toHaveLength(4);
+    expect(await reservationsOf(set.keyPrefix)).toHaveLength(1);
+  });
+
+  // #127 review: an abandon ends the reservation at once, but the URLs
+  // minted for the set still work for hours. The row stays until none can,
+  // so a PUT that lands late lands under a record the collector sees.
+  it("keeps an abandoned set's row while its URLs can still be used, then takes what landed late with it (#127 review)", async () => {
+    const d = makeDeps();
+    const set = await stageSet(d, 2);
+    await abandonStagedUpload(d.deps, { stagingKey: set.keyPrefix });
+    expect(await d.deps.storage.listObjects(set.keyPrefix)).toHaveLength(0);
+    const age = (created: string) =>
+      testDb.db
+        .update(pendingUploads)
+        .set({
+          createdAt: sql.raw(`now() - interval '${created}'`),
+          expiresAt: sql`now() - interval '30 minutes'`,
+        })
+        .where(eq(pendingUploads.stagingKey, set.keyPrefix));
+    await age("1 hour");
+    // A PUT still in the air when the owner stopped, landing late.
+    await d.deps.storage.putObject(
+      frameKey(set.keyPrefix, 800, 1),
+      await webp(32, 1),
+      "image/webp",
+    );
+    expect(await collectUnfinishedFrameSets(d.deps)).toEqual([]);
+    expect(await reservationsOf(set.keyPrefix)).toHaveLength(1);
+    // Past the longest a frame URL lives: the straggler and the row go.
+    await age("3 hours");
+    expect(await collectUnfinishedFrameSets(d.deps)).toEqual([set.keyPrefix]);
+    expect(await d.deps.storage.listObjects(set.keyPrefix)).toHaveLength(0);
+    expect(await reservationsOf(set.keyPrefix)).toHaveLength(0);
+  });
+
+  // #127: the collector on its schedule reaches the owner who never comes
+  // back — the lazy one above runs only on that owner's next presign.
+  it("on its schedule, collects every owner's unfinished sets in this environment, and nothing live or another environment's (#127)", async () => {
+    const d = makeDeps();
+    const other = await insertTestAccount(testDb.db, {
+      email: "r360-other@example.com",
+    });
+    await updateDisplayName(
+      { db: testDb.db, userId: other },
+      "Druga pracownia",
+    );
+    const mine = await stageSet(d, 2);
+    const theirs = await stageSet(
+      { ...d, deps: { ...d.deps, userId: other } },
+      2,
+    );
+    const live = await stageSet(d, 2);
+    // Dev and every preview share the database and the bucket, apart by
+    // prefix: a preview's set is not this environment's to collect.
+    const elsewhere = await stageSet(
+      { ...d, deps: { ...d.deps, prefix: "pr-7/" } },
+      2,
+    );
+    for (const set of [mine, theirs, elsewhere]) {
+      await expireReservation(set.keyPrefix);
+    }
+
+    const { db, storage, prefix } = d.deps;
+    expect(
+      (await collectAllUnfinishedFrameSets({ db, storage, prefix })).sort(),
+    ).toEqual([mine.keyPrefix, theirs.keyPrefix].sort());
+    for (const set of [mine, theirs]) {
+      expect(await storage.listObjects(set.keyPrefix)).toHaveLength(0);
+      expect(await reservationsOf(set.keyPrefix)).toHaveLength(0);
+    }
+    expect(await storage.listObjects(live.keyPrefix)).toHaveLength(4);
+    expect(await reservationsOf(live.keyPrefix)).toHaveLength(1);
+    expect(await storage.listObjects(elsewhere.keyPrefix)).toHaveLength(4);
+    expect(await reservationsOf(elsewhere.keyPrefix)).toHaveLength(1);
   });
 
   // The guard the whole of #126 rests on. `settleFrameSet` is best effort,
