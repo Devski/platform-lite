@@ -1,7 +1,14 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  cueLabelSide,
+  cueNear,
+  shiftIntoBounds,
+  type CueLabelSide,
+} from "@/lib/r360/cues";
+import type { R360Cue } from "@/lib/r360/frame-set-shared";
 import type { OrbitParams } from "@/lib/r360/orbit";
 import {
   angleOfFrame,
@@ -29,6 +36,15 @@ import type { Orbit } from "./use-orbit";
 // scroll (#106 review). The viewer beside it is the control a screen
 // reader and the keyboard use — the ring is the same value drawn, hidden
 // from assistive technology rather than announced twice.
+//
+// #107: the cue points are diamonds on the ring — not the dot's circle —
+// and a cue's label shows beside its marker only while it is pointed at:
+// the mouse on the marker or on its button under the picture, or that
+// button focused from the keyboard. Nothing leaves a label standing — not
+// the orbit on the cue's frame, not a tap (Dawid, 11.09.2026); a click or
+// a tap on a marker goes to its cue. The buttons (orbit-cues.tsx) are the
+// keyboard's and the screen reader's way to the cues, and on a phone's
+// public page the only one: the ring is not shown there at all.
 
 const WIDTH = 200;
 /** Room past the arc for the dot (radius 6 plus its 2-wide stroke). */
@@ -42,6 +58,19 @@ const HALO_WIDEN = 3;
 const HIT_BAND = 36;
 /** A tap moves this little between down and up; more is a drag. */
 const TAP_SLOP_PX = 6;
+/** #107: a cue's marker, a diamond round its point, and how much it grows lit. */
+const CUE_MARK = "M0 -5 L5 0 L0 5 L-5 0 Z";
+const CUE_LIT_SCALE = 1.45;
+/** How near a marker, in screen pixels, a pointer is on it. */
+const CUE_REACH_PX = 14;
+/** The label's gap from its marker, and from the edge it must not cross. */
+const LABEL_GAP_PX = 9;
+const LABEL_MARGIN_PX = 4;
+const LABEL_PLACE: Record<CueLabelSide, string> = {
+  above: `translate(-50%, calc(-100% - ${LABEL_GAP_PX}px))`,
+  right: `translate(${LABEL_GAP_PX}px, -50%)`,
+  left: `translate(calc(-100% - ${LABEL_GAP_PX}px), -50%)`,
+};
 
 // The ring's two grounds: over a picture (the gallery overlay) or on the
 // page (the owner's preview) — the strokes and the counter chip differ.
@@ -62,6 +91,27 @@ const TONES = {
   },
 } as const;
 
+/**
+ * #107: moves a cue's label sideways back inside the bounds it would cross
+ * — the nearest `data-orbit-bounds` (the card's picture clips what leaves
+ * it), else the page.
+ */
+function keepInside(element: HTMLElement) {
+  element.style.translate = "";
+  const bounds = element
+    .closest("[data-orbit-bounds]")
+    ?.getBoundingClientRect() ?? {
+    left: 0,
+    right: document.documentElement.clientWidth,
+  };
+  const shift = shiftIntoBounds(
+    element.getBoundingClientRect(),
+    bounds,
+    LABEL_MARGIN_PX,
+  );
+  if (shift) element.style.translate = `${shift}px 0`;
+}
+
 export function OrbitRing({
   orbit,
   params,
@@ -70,6 +120,9 @@ export function OrbitRing({
   className = "",
   tone = "dark",
   counter = true,
+  cues = [],
+  cuePreview = null,
+  onCuePreview,
 }: {
   orbit: Orbit;
   params: OrbitParams;
@@ -82,6 +135,15 @@ export function OrbitRing({
   tone?: "dark" | "light";
   /** The "n / N" under the ring; off where another counter is near. */
   counter?: boolean;
+  /** #107: the work's cue points, a marker each. */
+  cues?: readonly R360Cue[];
+  /**
+   * The cue pointed at, by frame — on the ring or on its button under the
+   * picture: its marker is lit and its label shown. The state is the
+   * parent's, because the buttons share it.
+   */
+  cuePreview?: number | null;
+  onCuePreview?: (frame: number | null) => void;
 }) {
   const t = useTranslations("Works.orbit");
   const look = TONES[tone];
@@ -95,6 +157,10 @@ export function OrbitRing({
     box: DOMRect;
     dragged: boolean;
   } | null>(null);
+  // #107: the marker the mouse is on, so leaving it clears only its own.
+  const hovered = useRef<number | null>(null);
+  const label = useRef<HTMLSpanElement>(null);
+  const labelBox = useRef<HTMLDivElement>(null);
 
   /** The frame under a pointer, by its angle around the ring's centre. */
   const frameUnder = (clientX: number, clientY: number, box: DOMRect) => {
@@ -102,6 +168,41 @@ export function OrbitRing({
     const x = clientX - (box.left + box.width / 2);
     const y = clientY - (box.top + box.height / 2);
     return frameAtAngle(angleOfPoint(x, y, radiusX, radiusY), params);
+  };
+
+  /** The cue whose marker a pointer is on, or null. */
+  const cueUnder = (clientX: number, clientY: number, box: DOMRect) => {
+    if (cues.length === 0 || !box.width) return null;
+    // The view box is scaled evenly into the box: one factor for both axes.
+    const units = WIDTH / box.width;
+    const pointer = {
+      x: (clientX - (box.left + box.width / 2)) * units,
+      y: (clientY - (box.top + box.height / 2)) * units,
+    };
+    return cueNear(
+      cues,
+      pointer,
+      params,
+      { radiusX, radiusY },
+      CUE_REACH_PX * units,
+    );
+  };
+
+  const hover = (event: React.PointerEvent<SVGSVGElement>) => {
+    if (event.pointerType !== "mouse" || !onCuePreview) return;
+    const cue = cueUnder(
+      event.clientX,
+      event.clientY,
+      event.currentTarget.getBoundingClientRect(),
+    );
+    if (cue === hovered.current) return;
+    hovered.current = cue;
+    onCuePreview(cue);
+  };
+  const leave = () => {
+    if (hovered.current === null) return;
+    hovered.current = null;
+    onCuePreview?.(null);
   };
 
   const onPointerDown = (event: React.PointerEvent<SVGSVGElement>) => {
@@ -119,7 +220,10 @@ export function OrbitRing({
   };
   const onPointerMove = (event: React.PointerEvent<SVGSVGElement>) => {
     const down = press.current;
-    if (!down) return;
+    if (!down) {
+      hover(event);
+      return;
+    }
     // A tap moves a little between down and up; only more is a grab that
     // follows the pointer — else a finger's own jitter would turn every
     // click into a jump.
@@ -129,6 +233,9 @@ export function OrbitRing({
     ) {
       return;
     }
+    // A drag leaves the marker it began on: the cues it passes, and the
+    // one it may end on, are named as the orbit reaches them.
+    if (!down.dragged) leave();
     down.dragged = true;
     orbit.setFrame(frameUnder(event.clientX, event.clientY, down.box));
   };
@@ -140,11 +247,13 @@ export function OrbitRing({
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-    // A click, completed on the up: travel to the frame at that angle.
-    if (!down.dragged && event.type === "pointerup") {
-      const to = frameUnder(event.clientX, event.clientY, down.box);
-      orbit.travelAlong(travelPath(orbit.frame, to, params));
-    }
+    if (down.dragged || event.type !== "pointerup") return;
+    // A click or a tap, completed on the up: travel to the cue whose marker
+    // it is on, else to the frame at that angle.
+    const to =
+      cueUnder(event.clientX, event.clientY, down.box) ??
+      frameUnder(event.clientX, event.clientY, down.box);
+    orbit.travelAlong(travelPath(orbit.frame, to, params));
   };
 
   const dot = ringPoint(angleOfFrame(orbit.frame, params), radiusX, radiusY);
@@ -163,6 +272,36 @@ export function OrbitRing({
     [loaded, params, radiusX, radiusY],
   );
 
+  // #107: each marker where its frame is on the ring, and the one pointed
+  // at, whose label shows.
+  const marks = cues.map((cue) => ({
+    ...cue,
+    at: ringPoint(angleOfFrame(cue.frame, params), radiusX, radiusY),
+  }));
+  const labelled = marks.find((mark) => mark.frame === cuePreview);
+  const labelSide = labelled
+    ? cueLabelSide(labelled.at, radiusX, radiusY)
+    : null;
+
+  // #107: the label may be wider than the room beside the ring — the card's
+  // ring is a third of a narrow picture — so once it is laid out it is
+  // moved back inside the picture, or the page, it would otherwise leave:
+  // again whenever its marker moves (a new start frame, a new flattening)
+  // and whenever the ring's size on screen does (a window resized, a phone
+  // turned — the card's ring is a share of its picture).
+  useLayoutEffect(() => {
+    if (label.current) keepInside(label.current);
+  }, [labelled?.frame, labelled?.label, labelled?.at.x, labelled?.at.y]);
+  useEffect(() => {
+    const element = labelBox.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (label.current) keepInside(label.current);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <div
       className={`flex flex-col items-center gap-1 ${className}`}
@@ -171,80 +310,115 @@ export function OrbitRing({
       data-testid="orbit-ring"
       data-frame={orbit.frame}
     >
-      {/* The view box has its origin at the ring's centre: every point on
-          the ring is drawn as ringPoint gives it. The svg itself takes no
-          pointer — the band and the dot do. */}
-      <svg
-        viewBox={`${-WIDTH / 2} ${-height / 2} ${WIDTH} ${height}`}
-        className={`h-auto w-full ${grabbing ? "cursor-grabbing" : "cursor-pointer"}`}
-        style={{ touchAction: "none", pointerEvents: "none" }}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={release}
-        onPointerCancel={release}
-        onLostPointerCapture={release}
-      >
-        <ellipse
-          cx={0}
-          cy={0}
-          rx={radiusX}
-          ry={radiusY}
-          fill="none"
-          stroke="transparent"
-          strokeWidth={HIT_BAND}
-          pointerEvents="stroke"
-          data-testid="orbit-ring-band"
-        />
-        {look.halo && (
-          <>
-            <ellipse
-              cx={0}
-              cy={0}
-              rx={radiusX}
-              ry={radiusY}
-              fill="none"
-              stroke={look.halo}
-              strokeWidth={RING_STROKE + HALO_WIDEN}
-            />
-            <path
-              d={loadedPath}
-              fill="none"
-              stroke={look.halo}
-              strokeWidth={LOADED_STROKE + HALO_WIDEN}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </>
+      <div ref={labelBox} className="relative w-full">
+        {/* The view box has its origin at the ring's centre: every point on
+            the ring is drawn as ringPoint gives it. The svg itself takes no
+            pointer — the band and the dot do. */}
+        <svg
+          viewBox={`${-WIDTH / 2} ${-height / 2} ${WIDTH} ${height}`}
+          className={`block h-auto w-full ${grabbing ? "cursor-grabbing" : "cursor-pointer"}`}
+          style={{ touchAction: "none", pointerEvents: "none" }}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={release}
+          onPointerCancel={release}
+          onLostPointerCapture={release}
+          onPointerLeave={leave}
+        >
+          <ellipse
+            cx={0}
+            cy={0}
+            rx={radiusX}
+            ry={radiusY}
+            fill="none"
+            stroke="transparent"
+            strokeWidth={HIT_BAND}
+            pointerEvents="stroke"
+            data-testid="orbit-ring-band"
+          />
+          {look.halo && (
+            <>
+              <ellipse
+                cx={0}
+                cy={0}
+                rx={radiusX}
+                ry={radiusY}
+                fill="none"
+                stroke={look.halo}
+                strokeWidth={RING_STROKE + HALO_WIDEN}
+              />
+              <path
+                d={loadedPath}
+                fill="none"
+                stroke={look.halo}
+                strokeWidth={LOADED_STROKE + HALO_WIDEN}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </>
+          )}
+          <ellipse
+            cx={0}
+            cy={0}
+            rx={radiusX}
+            ry={radiusY}
+            fill="none"
+            stroke={look.stroke}
+            strokeOpacity={0.3}
+            strokeWidth={RING_STROKE}
+          />
+          <path
+            d={loadedPath}
+            fill="none"
+            stroke={look.stroke}
+            strokeWidth={LOADED_STROKE}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            data-testid="orbit-ring-loaded"
+          />
+          {marks.map((mark) => {
+            const lit = mark.frame === cuePreview;
+            return (
+              <path
+                key={mark.frame}
+                d={CUE_MARK}
+                transform={`translate(${mark.at.x} ${mark.at.y})${lit ? ` scale(${CUE_LIT_SCALE})` : ""}`}
+                fill="var(--action-solid)"
+                stroke={look.dotRim}
+                strokeWidth={1.5}
+                strokeLinejoin="round"
+                data-testid="orbit-ring-cue"
+                data-cue-frame={mark.frame}
+                data-lit={lit || undefined}
+              />
+            );
+          })}
+          <circle
+            cx={dot.x}
+            cy={dot.y}
+            r={6}
+            fill="var(--action-solid)"
+            stroke={look.dotRim}
+            strokeWidth={2}
+            pointerEvents="all"
+          />
+        </svg>
+        {labelled && labelSide && (
+          <span
+            ref={label}
+            // The owner's words as written: not the eyebrow's capitals.
+            className="pointer-events-none absolute z-10 w-max max-w-44 rounded-xs bg-n-950 px-1.5 py-0.5 text-center text-(length:--fs-xs) leading-tight font-medium text-balance text-white"
+            style={{
+              left: `${((labelled.at.x + WIDTH / 2) / WIDTH) * 100}%`,
+              top: `${((labelled.at.y + height / 2) / height) * 100}%`,
+              transform: LABEL_PLACE[labelSide],
+            }}
+            data-testid="orbit-ring-cue-label"
+          >
+            {labelled.label}
+          </span>
         )}
-        <ellipse
-          cx={0}
-          cy={0}
-          rx={radiusX}
-          ry={radiusY}
-          fill="none"
-          stroke={look.stroke}
-          strokeOpacity={0.3}
-          strokeWidth={RING_STROKE}
-        />
-        <path
-          d={loadedPath}
-          fill="none"
-          stroke={look.stroke}
-          strokeWidth={LOADED_STROKE}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          data-testid="orbit-ring-loaded"
-        />
-        <circle
-          cx={dot.x}
-          cy={dot.y}
-          r={6}
-          fill="var(--action-solid)"
-          stroke={look.dotRim}
-          strokeWidth={2}
-          pointerEvents="all"
-        />
-      </svg>
+      </div>
       {counter && (
         <span
           className={`font-mono type-eyebrow tabular-nums ${look.counter}`}

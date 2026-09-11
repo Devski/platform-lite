@@ -533,7 +533,9 @@
         "invalidArchive": "The R360 archive is no longer available. Upload it again.",
         "framesUploading": "Wait for the frames to finish.",
         "invalidSet": "The frames of the archive are no longer available. Add the archive again.",
-        "framesExpired": "The frames ran out of time before the save. Add the archive again."
+        "framesExpired": "The frames ran out of time before the save. Add the archive again.",
+        "cueUnnamed": "Name every point on the ring, or remove it.",
+        "cueInvalid": "A point's name contains characters that are not allowed."
       },
       "r360": {
         "label": "Render 360",
@@ -586,7 +588,18 @@
           "frame_too_large": "A frame is too detailed to encode within the limit. Export smaller frames.",
           "upload_failed": "A frame failed to upload. Try again.",
           "resume": "The archive is no longer available. Add it again."
-        }
+        },
+        "previewCues": "Points in the preview",
+        "paramCues": "Points on the ring",
+        "cuesHint": "Turn the preview to a frame and add a point there. Visitors reach it with one click — on the ring, or with a button under the picture. At most {max} points.",
+        "cueAdd": "Add a point at frame {frame}",
+        "cueFrame": "Frame {frame}",
+        "cueLabel": "Frame {frame}, name of the point",
+        "cuePlaceholder": "e.g. Main entrance",
+        "cueRemove": "Remove",
+        "cueRemoveLabel": "Remove the point at frame {frame}",
+        "cueTaken": "This frame already has a point.",
+        "cuesFull": "That is {max} points — a work holds no more."
       }
     },
     "lightbox": {
@@ -606,7 +619,8 @@
       "cardLabel": "360° view of {name}: drag across the picture to turn it",
       "lightboxLabel": "360° view of {name}, enlarged: drag across the picture to turn it",
       "enlarge": "Enlarge the 360° view: {name}",
-      "counter": "{frame} / {total}"
+      "counter": "{frame} / {total}",
+      "cues": "Points of the 360° view: {name}"
     },
     "reveal": {
       "label": "Channel comparison: {name}, photo {index}",

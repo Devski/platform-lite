@@ -8,6 +8,16 @@
 @import url("https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,300..900;1,300..900&family=Fira+Sans+Condensed:wght@400;500&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
 @import "tailwindcss";
 
+/* #107: a phone — narrower than `sm`, where the gallery is one column, or
+   a touch screen held sideways, too low for anything but the picture. The
+   public orbit shows no ring there, only its cue buttons (Dawid,
+   11.09.2026). */
+@custom-variant phone {
+  @media (width < 40rem), (pointer: coarse) and (height < 32rem) {
+    @slot;
+  }
+}
+
 /* Design tokens — ported from the Architektów 3D design handoff
    (design-system-source/tokens directory). Token *values* are ground truth;
    treat any conflicting description elsewhere as stale. */

@@ -14,16 +14,20 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ChannelReveal } from "@/components/ui/channel-reveal";
 import { Icon } from "@/components/ui/icon";
+import { OrbitCueButtons } from "@/components/ui/orbit-cues";
 import { OrbitRing } from "@/components/ui/orbit-ring";
 import { OrbitViewer } from "@/components/ui/orbit-viewer";
-import { useOrbit } from "@/components/ui/use-orbit";
+import { useOrbit, type Orbit } from "@/components/ui/use-orbit";
 import { useFrameLoader } from "@/components/ui/use-frame-loader";
+import { cuesInOrder } from "@/lib/r360/cues";
 import {
   frameUrl,
   frameUrls,
+  type R360Cue,
   type R360Params,
   type R360Width,
 } from "@/lib/r360/frame-set-shared";
+import type { OrbitParams } from "@/lib/r360/orbit";
 
 // #72 / A12: a profile's works as cards — the main photo dominant (two
 // thirds of the width and both rows, the other one or two beside it), the
@@ -80,6 +84,34 @@ function picturesOf(work: GalleryWork): Picture[] {
 }
 
 const LIGHTBOX = "__lightbox";
+
+/**
+ * #107: the parameters the card's orbit hand gets when the work has no
+ * orbit — the hook is called either way, and turns nothing then.
+ */
+const NO_ORBIT: OrbitParams = {
+  frameCount: 2,
+  direction: 1,
+  framesPerWidth: 1,
+  startFrame: 1,
+};
+
+/** #107: the cues of an orbit, and which one is pointed at — ring and buttons share both. */
+interface CueHand {
+  cues: readonly R360Cue[];
+  preview: number | null;
+  onPreview: (frame: number | null) => void;
+}
+
+/** #107: an orbit's cues in button order, and the shared pointed-at state. */
+function useCueHand(params: R360Params | undefined): CueHand {
+  const [preview, onPreview] = useState<number | null>(null);
+  const cues = useMemo(
+    () => (params ? cuesInOrder(params.cues, params) : []),
+    [params],
+  );
+  return { cues, preview, onPreview };
+}
 
 function isLightboxState(state: unknown): boolean {
   return typeof state === "object" && state !== null && LIGHTBOX in state;
@@ -171,6 +203,10 @@ export function WorksGallery({
           ) : (
             <li key={work.id} className="flex">
               <WorkCard
+                // #107: the card holds the hand on its orbit, which starts
+                // on the start frame once — a set the work did not have
+                // (an orbit added to a photos-only work) gets a new card.
+                key={work.orbit?.setId ?? "no-orbit"}
                 work={work}
                 owner={owner}
                 onOpen={(index, returnTo) =>
@@ -222,6 +258,10 @@ function WorkCard({
   // the lightbox, one arrow away (#104 review).
   const pictures = picturesOf(work).slice(0, 3);
   const count = pictures.length;
+  // #107: the tile and its cue buttons under the strip turn one orbit, so
+  // the hand on it lives here, above both.
+  const hand = useOrbit(work.orbit?.params ?? NO_ORBIT);
+  const cueHand = useCueHand(work.orbit?.params);
 
   return (
     <Card
@@ -259,6 +299,8 @@ function WorkCard({
                 key="orbit"
                 name={work.name}
                 orbit={picture.orbit}
+                hand={hand}
+                cueHand={cueHand}
                 className={tile}
                 onOpen={(returnTo) => onOpen(index, returnTo)}
               />
@@ -305,6 +347,16 @@ function WorkCard({
         })}
       </div>
       <div className="flex flex-1 flex-col gap-(--sp-3) p-(--sp-5) sm:px-(--sp-6) sm:pb-(--sp-6)">
+        {work.orbit && (
+          <OrbitCueButtons
+            cues={cueHand.cues}
+            orbit={hand}
+            params={work.orbit.params}
+            preview={cueHand.preview}
+            onPreview={cueHand.onPreview}
+            label={t("orbit.cues", { name: work.name })}
+          />
+        )}
         <h3 className="type-h3 break-words text-(--text-strong)">
           {work.name}
         </h3>
@@ -426,6 +478,14 @@ function LightboxOverlay({
   useEffect(() => {
     closeRef.current?.focus();
   }, []);
+  // A step takes away what it steps from — an orbit's cue buttons with it
+  // (#107 review) — and a focus that went with them comes back to Close,
+  // not to the page behind the dialog.
+  useEffect(() => {
+    if (!rootRef.current?.contains(document.activeElement)) {
+      closeRef.current?.focus();
+    }
+  }, [index]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -488,7 +548,10 @@ function LightboxOverlay({
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-n-950 px-(--sp-5) py-(--sp-8)"
+      // Scrolls when what it holds is taller than the screen — an orbit
+      // with a dozen cue buttons on a short one (#107 review). Safe
+      // centring keeps the top reachable when it does.
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center-safe overflow-y-auto bg-n-950 px-(--sp-5) py-(--sp-8)"
     >
       <button
         ref={closeRef}
@@ -566,6 +629,8 @@ function LightboxOverlay({
 function PublicOrbit({
   name,
   orbit,
+  hand,
+  cueHand,
   width,
   label,
   className,
@@ -576,6 +641,9 @@ function PublicOrbit({
 }: {
   name: string;
   orbit: GalleryOrbit;
+  /** The hand on the orbit: its owner shares it with the cue buttons. */
+  hand: Orbit;
+  cueHand: CueHand;
   width: R360Width;
   label: string;
   className: string;
@@ -594,7 +662,6 @@ function PublicOrbit({
   const { loaded, pictures } = useFrameLoader(urls, orbit.params.startFrame, {
     enabled,
   });
-  const hand = useOrbit(orbit.params);
   const dial = (
     <OrbitRing
       orbit={hand}
@@ -602,12 +669,19 @@ function PublicOrbit({
       loaded={loaded}
       flattening={orbit.params.flattening}
       className={
+        // Over the card's other marks: the translate makes the ring a layer
+        // of its own, and a cue's label in it would sit under the enlarge
+        // button otherwise (#107 review). A phone shows no ring at all, on
+        // the card or in the lightbox — only the cue buttons (#107).
         ring === "overlay"
-          ? "absolute bottom-1 left-1/2 w-[38%] max-w-40 -translate-x-1/2"
-          : "mt-(--sp-3) w-40"
+          ? "absolute bottom-1 left-1/2 z-10 w-[38%] max-w-40 -translate-x-1/2 phone:hidden"
+          : "mt-(--sp-3) w-40 phone:hidden"
       }
       // In the lightbox the caption counts the pictures right under it.
       counter={ring === "overlay"}
+      cues={cueHand.cues}
+      cuePreview={cueHand.preview}
+      onCuePreview={cueHand.onPreview}
     />
   );
   return (
@@ -697,11 +771,15 @@ function usePageLoaded(): boolean {
 function OrbitTile({
   name,
   orbit,
+  hand,
+  cueHand,
   className,
   onOpen,
 }: {
   name: string;
   orbit: GalleryOrbit;
+  hand: Orbit;
+  cueHand: CueHand;
   className: string;
   onOpen: (returnTo: HTMLElement | null) => void;
 }) {
@@ -712,10 +790,15 @@ function OrbitTile({
     <div
       ref={ref}
       className={`relative min-h-0 overflow-hidden bg-n-200 ${className}`}
+      // #107: a cue's label on the ring stays inside the picture, which
+      // clips whatever leaves it.
+      data-orbit-bounds
     >
       <PublicOrbit
         name={name}
         orbit={orbit}
+        hand={hand}
+        cueHand={cueHand}
         width={800}
         label={t("orbit.cardLabel", { name })}
         className="h-full w-full"
@@ -749,21 +832,44 @@ function OrbitFull({ name, orbit }: { name: string; orbit: GalleryOrbit }) {
   const [width] = useState<R360Width>(() =>
     typeof window !== "undefined" && window.innerWidth > 900 ? 1600 : 800,
   );
+  const hand = useOrbit(orbit.params);
+  const cueHand = useCueHand(orbit.params);
+  // The ring under the picture takes its band out of the height (#106
+  // review), and the cue buttons under the ring two rows more (#107); a
+  // phone shows no ring, so there only the buttons do. Never below 10rem,
+  // though: on a phone held sideways the sum leaves nothing, and the dialog
+  // scrolls instead of losing the picture.
+  const height =
+    cueHand.cues.length > 0
+      ? "max-h-[max(10rem,calc(100vh-140px-17rem))] phone:max-h-[max(10rem,calc(100vh-140px-5rem))]"
+      : "max-h-[max(10rem,calc(100vh-140px-12rem))] phone:max-h-[max(10rem,calc(100vh-140px))]";
   return (
-    <PublicOrbit
-      name={name}
-      orbit={orbit}
-      width={width}
-      label={t("orbit.lightboxLabel", { name })}
-      // The ring under the picture takes its band out of the height, or
-      // the dialog would overflow with nowhere to scroll (#106 review).
-      className="flex max-h-[calc(100vh-140px-12rem)] w-[min(96vw,1600px)] items-center justify-center"
-      imageClassName="max-h-[calc(100vh-140px-12rem)] object-contain"
-      enabled
-      // The card's 800 px start frame is in the cache already: painted at
-      // once, while the larger set is on its way.
-      posterSrc={frameUrl(orbit.frameBase, 800, orbit.params.startFrame)}
-      ring="below"
-    />
+    <div className="flex flex-col items-center">
+      <PublicOrbit
+        name={name}
+        orbit={orbit}
+        hand={hand}
+        cueHand={cueHand}
+        width={width}
+        label={t("orbit.lightboxLabel", { name })}
+        className={`flex ${height} w-[min(96vw,1600px)] items-center justify-center`}
+        imageClassName={`${height} object-contain`}
+        enabled
+        // The card's 800 px start frame is in the cache already: painted at
+        // once, while the larger set is on its way.
+        posterSrc={frameUrl(orbit.frameBase, 800, orbit.params.startFrame)}
+        ring="below"
+      />
+      <OrbitCueButtons
+        cues={cueHand.cues}
+        orbit={hand}
+        params={orbit.params}
+        preview={cueHand.preview}
+        onPreview={cueHand.onPreview}
+        label={t("orbit.cues", { name })}
+        tone="dark"
+        className="mt-(--sp-4) max-w-[min(96vw,48rem)] justify-center"
+      />
+    </div>
   );
 }

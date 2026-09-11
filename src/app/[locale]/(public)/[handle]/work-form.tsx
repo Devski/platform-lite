@@ -15,6 +15,7 @@ import { Button, buttonClassName } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
+import { OrbitCueButtons } from "@/components/ui/orbit-cues";
 import { OrbitRing } from "@/components/ui/orbit-ring";
 import { OrbitViewer } from "@/components/ui/orbit-viewer";
 import { UploadProgress } from "@/components/ui/upload-progress";
@@ -22,6 +23,7 @@ import { useFrameLoader } from "@/components/ui/use-frame-loader";
 import { useOrbit } from "@/components/ui/use-orbit";
 import { postJson } from "@/lib/api-client";
 import { IMAGE_CONTENT_TYPES } from "@/lib/image-upload-shared";
+import { cuesInOrder } from "@/lib/r360/cues";
 import { openFrameEncoder } from "@/lib/r360/frame-encoder";
 import { orderFrames } from "@/lib/r360/frame-names";
 import {
@@ -205,6 +207,8 @@ type FormErrorKey =
   | "invalidArchive"
   | "invalidSet"
   | "framesExpired"
+  | "cueUnnamed"
+  | "cueInvalid"
   | "rateLimited"
   | "generic";
 
@@ -363,6 +367,15 @@ export function WorkForm({
   // or the defaults for the count while the set is still being produced.
   const previewParams = r360?.params ?? defaultR360Params(2);
   const previewOrbit = useOrbit(previewParams);
+  // #107: the cues as a visitor will get them, one still unnamed standing
+  // as its frame; and the one pointed at, shared by the ring and buttons.
+  const previewCues = cuesInOrder(previewParams.cues, previewParams).map(
+    (cue) =>
+      cue.label.trim()
+        ? cue
+        : { ...cue, label: t("r360.cueFrame", { frame: cue.frame }) },
+  );
+  const [cuePreview, setCuePreview] = useState<number | null>(null);
   // What the preview paints from, what the ring's arc fills with, and
   // what stands in until the first frame is there: the frames made here
   // while there are any, the saved set's otherwise. A run of frames made
@@ -1007,6 +1020,11 @@ export function WorkForm({
     // for it (#104).
     const orbit = r360Ref.current;
     if (tiles.length === 0 && !orbit?.set) return fail("photoRequired");
+    // #107: a cue added and never named — the schema would refuse it with
+    // no word of which field; the form says it.
+    if (orbit?.set && orbit.params.cues?.some((cue) => !cue.label.trim())) {
+      return fail("cueUnnamed");
+    }
     const parsed = workInputSchema.safeParse({
       name: trimmedName,
       investor,
@@ -1031,7 +1049,9 @@ export function WorkForm({
           ? "nameInvalid"
           : path === "imageFileIds"
             ? "duplicatePhoto"
-            : "partyInvalid",
+            : path === "r360Params"
+              ? "cueInvalid"
+              : "partyInvalid",
       );
     }
     setSaving(true);
@@ -1506,7 +1526,8 @@ export function WorkForm({
               label={t("r360.previewLabel")}
               className="aspect-[16/9] overflow-hidden rounded-sm border border-(--border-hairline) bg-(--surface-sunken)"
             />
-            {/* #106: the ring dial, flattened as the owner sets it. */}
+            {/* #106: the ring dial, flattened as the owner sets it; #107:
+                its cue points, and their buttons as a visitor gets them. */}
             <OrbitRing
               orbit={previewOrbit}
               params={previewParams}
@@ -1514,6 +1535,18 @@ export function WorkForm({
               flattening={previewParams.flattening}
               tone="light"
               className="mx-auto w-48"
+              cues={previewCues}
+              cuePreview={cuePreview}
+              onCuePreview={setCuePreview}
+            />
+            <OrbitCueButtons
+              cues={previewCues}
+              orbit={previewOrbit}
+              params={previewParams}
+              preview={cuePreview}
+              onPreview={setCuePreview}
+              label={t("r360.previewCues")}
+              className="justify-center"
             />
             <p className="type-sm text-(--text-muted)">
               {t("r360.previewHint")}

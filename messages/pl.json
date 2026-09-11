@@ -533,7 +533,9 @@
         "invalidArchive": "Archiwum R360 nie jest już dostępne. Wgraj je ponownie.",
         "framesUploading": "Poczekaj, aż klatki się przygotują.",
         "invalidSet": "Klatki archiwum nie są już dostępne. Dodaj archiwum ponownie.",
-        "framesExpired": "Klatki straciły ważność przed zapisem. Dodaj archiwum ponownie."
+        "framesExpired": "Klatki straciły ważność przed zapisem. Dodaj archiwum ponownie.",
+        "cueUnnamed": "Nazwij każdy punkt na pierścieniu albo go usuń.",
+        "cueInvalid": "Nazwa punktu zawiera niedozwolone znaki."
       },
       "r360": {
         "label": "Render 360",
@@ -586,7 +588,18 @@
           "frame_too_large": "Klatka jest zbyt szczegółowa, by zmieścić się w limicie. Wyeksportuj mniejsze klatki.",
           "upload_failed": "Nie udało się wysłać klatki. Spróbuj ponownie.",
           "resume": "Archiwum nie jest już dostępne. Dodaj je ponownie."
-        }
+        },
+        "previewCues": "Punkty w podglądzie",
+        "paramCues": "Punkty na pierścieniu",
+        "cuesHint": "Obróć podgląd do wybranej klatki i dodaj w niej punkt. Goście przejdą do niego jednym kliknięciem — na pierścieniu albo przyciskiem pod zdjęciem. Najwyżej {max} punktów.",
+        "cueAdd": "Dodaj punkt w klatce {frame}",
+        "cueFrame": "Klatka {frame}",
+        "cueLabel": "Klatka {frame}, nazwa punktu",
+        "cuePlaceholder": "np. Wejście główne",
+        "cueRemove": "Usuń",
+        "cueRemoveLabel": "Usuń punkt w klatce {frame}",
+        "cueTaken": "Ta klatka ma już punkt.",
+        "cuesFull": "To już {max} punktów — więcej praca nie pomieści."
       }
     },
     "lightbox": {
@@ -606,7 +619,8 @@
       "cardLabel": "Widok 360° realizacji {name}: przeciągnij po obrazie, by go obrócić",
       "lightboxLabel": "Widok 360° realizacji {name} w powiększeniu: przeciągnij po obrazie, by go obrócić",
       "enlarge": "Powiększ widok 360°: {name}",
-      "counter": "{frame} / {total}"
+      "counter": "{frame} / {total}",
+      "cues": "Punkty widoku 360°: {name}"
     },
     "reveal": {
       "label": "Porównanie kanałów: {name}, zdjęcie {index}",
