@@ -10,6 +10,7 @@ import {
 } from "@/lib/image-upload";
 import { quotaAllows, reservePendingUpload } from "@/lib/quota";
 import { type FileStorage } from "@/lib/storage";
+import { R360_MAX_FRAMES } from "./frame-names";
 import {
   frameKey,
   frameSetBytesCeiling,
@@ -85,6 +86,38 @@ export const FRAME_SET_RESERVATION_GRACE_SECONDS = 300;
 
 export function frameSetReservationSeconds(frameCount: number): number {
   return frameSetUrlSeconds(frameCount) + FRAME_SET_RESERVATION_GRACE_SECONDS;
+}
+
+/**
+ * #127 review: how long past its end a reservation waits for the
+ * collector. A save checks the reservation and then commits; one that
+ * straddled the end must not find its frames gone when it commits.
+ * Minutes where the straddle is seconds — and room for a clock that runs
+ * apart from the database's.
+ */
+export const FRAME_SET_COLLECT_AFTER_SECONDS = 15 * 60;
+
+/**
+ * #127 review: the longest any frame URL lives — 360 frames' worth. An
+ * abandon or a refused save ends a reservation at once, but the URLs
+ * minted for it still work: its row stays until none can, so a PUT that
+ * lands late lands under a record the collector sees, rather than as an
+ * object nothing names.
+ */
+const LONGEST_FRAME_URL_SECONDS = frameSetUrlSeconds(R360_MAX_FRAMES);
+
+/** A reservation the collector may take: ended a while ago, its URLs dead. */
+function collectable() {
+  return and(
+    lte(
+      pendingUploads.expiresAt,
+      sql`now() - (${FRAME_SET_COLLECT_AFTER_SECONDS} * interval '1 second')`,
+    ),
+    lte(
+      pendingUploads.createdAt,
+      sql`now() - (${LONGEST_FRAME_URL_SECONDS} * interval '1 second')`,
+    ),
+  );
 }
 
 /**
@@ -291,9 +324,9 @@ export async function collectUnfinishedFrameSets(
     .where(
       and(
         eq(pendingUploads.userId, userId),
-        // The same complement the image sweep uses: the quota counts a row
-        // while `expires_at > now()`, so at equality it already stopped.
-        lte(pendingUploads.expiresAt, sql`now()`),
+        // Ended — the quota stopped counting it then — a margin ago, and
+        // past the life of every URL minted for it (#127 review).
+        collectable(),
         // This environment's keys and this owner's sets only — dev and
         // every preview share a database and a bucket, separated by prefix.
         like(
@@ -315,6 +348,40 @@ export async function collectUnfinishedFrameSets(
       continue;
     }
     await dropReservation(deps, keyPrefix);
+  }
+  return collected;
+}
+
+/**
+ * #127: the collector on its schedule (collector-timer.ts) — every owner
+ * with an unfinished set in this environment, where the lazy run above
+ * reaches only the owner who presigns next, and never the one who does not
+ * come back. Each owner goes through collectUnfinishedFrameSets, its guard
+ * and its prefix; one owner's failure is logged and the rest still run.
+ */
+export async function collectAllUnfinishedFrameSets(
+  deps: Omit<FrameSetDeps, "userId">,
+): Promise<string[]> {
+  const { db, prefix } = deps;
+  const owners = await db
+    .selectDistinct({ userId: pendingUploads.userId })
+    .from(pendingUploads)
+    .where(
+      and(
+        collectable(),
+        // This environment's frame sets only: `<prefix>u/<user>/r360/...`.
+        like(pendingUploads.stagingKey, `${escapeLike(prefix)}u/%/r360/%`),
+      ),
+    );
+  const collected: string[] = [];
+  for (const { userId } of owners) {
+    try {
+      collected.push(
+        ...(await collectUnfinishedFrameSets({ ...deps, userId })),
+      );
+    } catch (error) {
+      console.error(`[r360] collector: owner ${userId} failed`, error);
+    }
   }
   return collected;
 }
