@@ -221,7 +221,7 @@ trial, all on this milestone. In the order agreed with Dawid on 10.09.2026:
    #149's review, taken before the cue points by Dawid's decision; trying it, he met the set
    presign's limit of three a minute, raised to ten at his decision.
 7. ~~[#107](https://github.com/Devski/platform-lite/issues/107) the cue points~~ — **done
-   11.09.2026**. The layout was Dawid's pick from a sketch of three, A and B together:
+   11.09.2026** (#154). The layout was Dawid's pick from a sketch of three, A and B together:
    markers on the ring with the label beside them, and a row of buttons under the picture
    that works without the ring — the redesign will show phones only the buttons and keep
    the ring for the enlarged view.
