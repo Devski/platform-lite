@@ -18,6 +18,7 @@ import {
   headerSample,
   isWebpHeader,
   presignFrameSet,
+  unrecordedFrameSets,
   verifyFrameSet,
 } from "./frame-set";
 import { imageWidthOf } from "./browser-frame-encoder";
@@ -567,6 +568,47 @@ describe("a frame set on a work", () => {
     expect(await collectUnfinishedFrameSets(d.deps)).toEqual([set.keyPrefix]);
     expect(await d.deps.storage.listObjects(set.keyPrefix)).toHaveLength(0);
     expect(await reservationsOf(set.keyPrefix)).toHaveLength(0);
+  });
+
+  // #156 (point 5 of #126's design): what no record names is REPORTED,
+  // never deleted — deletion stays driven by records.
+  it("reports the frame sets no record names, with what they hold, and passes over a work's, a live reservation's and another environment's", async () => {
+    const d = makeDeps();
+    const photo = await uploadPhoto(d);
+    const saved = await stageSet(d, 2);
+    await createWork(d.deps, {
+      name: "Zapisana",
+      imageFileIds: [photo.original.fileId],
+      r360SetId: saved.setId,
+      r360Params: defaultR360Params(2),
+    });
+    const reserved = await stageSet(d, 2);
+    const stray = `${PREFIX}u/${userId}/r360/${"a".repeat(32)}/`;
+    await d.deps.storage.putObject(
+      `${stray}800/001.webp`,
+      Buffer.from("12345"),
+      "image/webp",
+    );
+    await d.deps.storage.putObject(
+      `${stray}800/002.webp`,
+      Buffer.from("123"),
+      "image/webp",
+    );
+    // Another environment's junk is not this one's to report.
+    await d.deps.storage.putObject(
+      `pr-7/u/${userId}/r360/${"b".repeat(32)}/800/001.webp`,
+      Buffer.from("1"),
+      "image/webp",
+    );
+
+    const { db, storage, prefix } = d.deps;
+    expect(await unrecordedFrameSets({ db, storage, prefix })).toEqual([
+      { keyPrefix: stray, objects: 2, bytes: 8 },
+    ]);
+    // Nothing was touched: the report only looks.
+    expect(await storage.listObjects(stray)).toHaveLength(2);
+    expect(await storage.listObjects(saved.keyPrefix)).toHaveLength(4);
+    expect(await storage.listObjects(reserved.keyPrefix)).toHaveLength(4);
   });
 
   // #127: the collector on its schedule reaches the owner who never comes

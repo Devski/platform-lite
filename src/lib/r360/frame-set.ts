@@ -386,6 +386,84 @@ export async function collectAllUnfinishedFrameSets(
   return collected;
 }
 
+/** #156: a frame set in the bucket that no record names, and what it holds. */
+export interface UnrecordedFrameSet {
+  keyPrefix: string;
+  objects: number;
+  bytes: number;
+  /** The count stopped at the cap: there are at least this many. */
+  more?: boolean;
+}
+
+/** At most this many objects are counted for one reported set. */
+const REPORT_OBJECTS_MAX = 1000;
+
+/**
+ * #156 (point 5 of #126's design): the frame sets this environment's
+ * bucket holds that NO record names — no `files` row, no reservation.
+ * Reported, never deleted: deletion stays driven by records, and this
+ * class is what a bug in the recording half would leave behind. Historical
+ * junk lives here too (environments long gone), so it stays a list for a
+ * human until it is proven boring.
+ *
+ * It asks the bucket for prefixes, not keys: the sets of an environment
+ * are one listing per owner, where listing their objects would be 240 keys
+ * a set. Only a set nothing names is then counted, and at most a thousand
+ * of its objects — enough to say how big the surprise is.
+ */
+export async function unrecordedFrameSets(
+  deps: Omit<FrameSetDeps, "userId">,
+): Promise<UnrecordedFrameSet[]> {
+  const { db, storage, prefix } = deps;
+  const sets: string[] = [];
+  for (const owner of await storage.listPrefixes(`${prefix}u/`)) {
+    sets.push(...(await storage.listPrefixes(`${owner}r360/`)));
+  }
+  if (sets.length === 0) return [];
+  const inThisEnvironment = `${escapeLike(prefix)}u/%/r360/%`;
+  // The reservations FIRST, the files rows after (#156 review). A save
+  // writes its files rows inside its transaction and drops the reservation
+  // only once that has committed, so a set whose reservation is already
+  // gone when this asks has its files rows in place by the time the second
+  // question is asked. The other order can see neither and cry wolf over a
+  // work that was saving as it looked.
+  const reserved = new Set(
+    (
+      await db
+        .select({ keyPrefix: pendingUploads.stagingKey })
+        .from(pendingUploads)
+        .where(like(pendingUploads.stagingKey, inThisEnvironment))
+    ).map((row) => row.keyPrefix),
+  );
+  const named = new Set(
+    (
+      await db
+        .selectDistinct({
+          keyPrefix: sql<string>`substring(${files.objectKey} from '^(.*/r360/[0-9a-f]{32}/)')`,
+        })
+        .from(files)
+        .where(like(files.objectKey, inThisEnvironment))
+    ).map((row) => row.keyPrefix),
+  );
+  // A work being DELETED as this looks — its rows go in the transaction,
+  // its objects after it — can still show up once. The next run, twelve
+  // hours later, sees an empty prefix and says nothing.
+  const unrecorded: UnrecordedFrameSet[] = [];
+  for (const keyPrefix of sets) {
+    if (named.has(keyPrefix) || reserved.has(keyPrefix)) continue;
+    const objects = await storage.listObjects(keyPrefix, {
+      maxKeys: REPORT_OBJECTS_MAX,
+    });
+    unrecorded.push({
+      keyPrefix,
+      objects: objects.length,
+      bytes: objects.reduce((sum, object) => sum + object.sizeBytes, 0),
+      ...(objects.length === REPORT_OBJECTS_MAX ? { more: true } : {}),
+    });
+  }
+  return unrecorded;
+}
+
 /** A `files` row of this user names something under the prefix. */
 async function namesFrames(
   db: Database,

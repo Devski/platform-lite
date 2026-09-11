@@ -26,6 +26,24 @@ export function collectorRunsIn(appEnv: string | undefined): boolean {
 }
 
 /**
+ * What one run did: the unfinished sets it collected, and (#156) the sets
+ * no record names, which it only looked at. Structural on purpose — this
+ * file loads nothing of the database or the bucket.
+ */
+export interface CollectorRun {
+  collected: string[];
+  unrecorded: {
+    keyPrefix: string;
+    objects: number;
+    bytes: number;
+    more?: boolean;
+  }[];
+}
+
+/** How many reported sets the log names before it says "and more". */
+const REPORTED_IN_LOG = 20;
+
+/**
  * Starts the schedule, or does nothing where the collector may not run
  * (null then). A tick while the last run is still going is skipped; a run
  * that fails is logged, and the next one comes as planned. The timers do
@@ -33,7 +51,7 @@ export function collectorRunsIn(appEnv: string | undefined): boolean {
  */
 export function scheduleCollector(options: {
   appEnv: string | undefined;
-  collect: () => Promise<string[]>;
+  collect: () => Promise<CollectorRun>;
 }): (() => void) | null {
   if (!collectorRunsIn(options.appEnv)) return null;
   let running = false;
@@ -41,12 +59,28 @@ export function scheduleCollector(options: {
     if (running) return;
     running = true;
     try {
-      const collected = await options.collect();
+      const { collected, unrecorded } = await options.collect();
       console.info(
         `[r360] collector: ${collected.length} unfinished set(s) collected${
           collected.length ? `: ${collected.join(", ")}` : ""
         }`,
       );
+      // #156: said out loud, left where it is — a human decides.
+      if (unrecorded.length > 0) {
+        const named = unrecorded
+          .slice(0, REPORTED_IN_LOG)
+          .map(
+            (set) =>
+              `${set.keyPrefix} (${set.objects}${set.more ? "+" : ""} objects, ${set.bytes} bytes)`,
+          )
+          .join("; ");
+        const more = unrecorded.length - REPORTED_IN_LOG;
+        console.warn(
+          `[r360] collector: ${unrecorded.length} frame set(s) no record names, left alone: ${named}${
+            more > 0 ? `; and ${more} more` : ""
+          }`,
+        );
+      }
     } catch (error) {
       console.error("[r360] collector: the run failed", error);
     } finally {

@@ -229,9 +229,11 @@ trial, all on this milestone. In the order agreed with Dawid on 10.09.2026:
    Then, at his word, a new zip of the same frame count keeps the parameters and the cue
    points (#155).
 8. ~~#127's timer~~ — **done 11.09.2026** (#157): a minute after the server starts and every
-   12 hours, for every owner, only where `APP_ENV` is `dev` or `production`. The report of
-   the objects no record names, the design's last point on #126, is
-   [#156](https://github.com/Devski/platform-lite/issues/156), outside the milestone.
+   12 hours, for every owner, only where `APP_ENV` is `dev` or `production`. It proved itself
+   on the deploy: three abandoned sets collected on dev, one of them from Dawid's own phone
+   trial. ~~[#156](https://github.com/Devski/platform-lite/issues/156), the design's last
+   point on #126 — what no record names at all~~ — **done 12.09.2026**, at his word, in the
+   same run: counted, named in the log, never deleted.
 
 ### Open decisions (§12)
 
