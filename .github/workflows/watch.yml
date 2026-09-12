@@ -101,12 +101,17 @@ jobs:
                 "" \
                 "@$OWNER")")
             # Locked: the thread notifies the owner, so it is not a place for
-            # anyone passing by to post "run this to fix it". Collaborators —
-            # and this workflow — can still write in it.
+            # anyone passing by to post "run this to fix it".
             gh issue lock "$issue" || true
           elif [ "$up" = true ] && [ -n "$open" ]; then
-            gh issue comment "$open" --body "Answering again at $now (\`$CODE\`)." || true
+            # A locked issue refuses comments from this workflow too — the
+            # first drill (#188) closed its issue without saying when the site
+            # came back. Unlocked for the one comment, locked again after.
+            gh issue unlock "$open" || true
+            gh issue comment "$open" --body "Answering again at $now (\`$CODE\`)." ||
+              echo "::warning::the recovery comment was not posted; the issue is closed anyway, since its state is the answer"
             gh issue close "$open"
+            gh issue lock "$open" || true
           else
             echo "nothing changed: up=$up, open $LABEL issue: ${open:-none}"
           fi
