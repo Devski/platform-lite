@@ -157,6 +157,8 @@ export function OwnerProfileView({
   const [headlineError, setHeadlineError] = useState<string | null>(null);
   const [bioError, setBioError] = useState<string | null>(null);
   const [locationsError, setLocationsError] = useState<string | null>(null);
+  /** What a screen reader is told about the place list, out loud (#66). */
+  const [locationsNotice, setLocationsNotice] = useState("");
 
   const [avatarBusy, setAvatarBusy] = useState(false);
   // #80: the bytes on their way, 0..1, then 1 while the server processes;
@@ -291,10 +293,15 @@ export function OwnerProfileView({
       setLocationsError(tSections("locations.tooMany", { max: LOCATIONS_MAX }));
       return;
     }
+    // #66: a chip appearing is the whole of the feedback, and a chip is not
+    // announced. The field empties itself the moment a place is taken, which
+    // to a screen reader is indistinguishable from the text being thrown away.
+    setLocationsNotice(tSections("locations.added", { place }));
     void saveLocations([...fields.locations, place]);
   }
 
   function removePlace(place: string) {
+    setLocationsNotice(tSections("locations.removed", { place }));
     void saveLocations(
       fields.locations.filter((existing) => existing !== place),
     );
@@ -724,6 +731,9 @@ export function OwnerProfileView({
                   onAdd={addPlace}
                   error={locationsError}
                 />
+                <p role="status" className="sr-only">
+                  {locationsNotice}
+                </p>
               </section>
             ) : (
               <LocationsView locations={fields.locations} />
@@ -1041,6 +1051,10 @@ function PlaceCombobox({
           placeholder={tSections("locations.placeholder")}
           autoComplete="off"
           maxLength={LOCATION_MAX}
+          // The field is not inside a form, so a phone has nothing to infer
+          // the key's job from and shows a bare return. "done" makes it say
+          // so — the hint under the field names both keys (#66).
+          enterKeyHint="done"
           role="combobox"
           aria-expanded={hits.length > 0}
           aria-controls={listId}
@@ -1071,6 +1085,15 @@ function PlaceCombobox({
               );
             } else if (event.key === "Enter") {
               event.preventDefault();
+              const chosen = activeIndex >= 0 ? hits[activeIndex] : undefined;
+              choose(chosen ? chosen.name : query);
+            } else if (event.key === "Tab" && query.trim()) {
+              // #66: a phone's keyboard offers "next" where a desktop offers
+              // Enter, and next is Tab — so a place typed on a phone could not
+              // be added at all: the key moved focus and the text went with
+              // it. Tab adds what Enter would and then goes on its way (no
+              // preventDefault), which on a desktop only rescues text that
+              // tabbing away was about to discard anyway.
               const chosen = activeIndex >= 0 ? hits[activeIndex] : undefined;
               choose(chosen ? chosen.name : query);
             } else if (event.key === "Escape") {

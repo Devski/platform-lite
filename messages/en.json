@@ -231,8 +231,10 @@
         "locations": {
           "label": "Add a place",
           "placeholder": "City, voivodeship or your own words",
-          "hint": "Suggestions come from the TERYT register. Enter adds your own text, e.g. “all of Poland” or “Berlin”.",
+          "hint": "Suggestions come from the TERYT register. Enter — or Tab on a phone keyboard — adds your own text, e.g. “all of Poland” or “Berlin”.",
           "remove": "Remove {place}",
+          "added": "Place added: {place}",
+          "removed": "Place removed: {place}",
           "suggestions": "Suggestions",
           "kind": {
             "voivodeship": "voivodeship",

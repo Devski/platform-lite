@@ -28,7 +28,7 @@ export default async function RegisterPage({
   return (
     <main className={AUTH_MAIN}>
       <div className={AUTH_COLUMN}>
-        <Logo href="/" size="compact" />
+        <Logo size="compact" />
         <Card padding="lg" className="w-full">
           <h1 className={AUTH_HEADING}>{t("heading")}</h1>
           <RegisterForm />

@@ -231,8 +231,10 @@
         "locations": {
           "label": "Dodaj miejsce",
           "placeholder": "Miasto, województwo albo własny opis",
-          "hint": "Podpowiedzi z rejestru TERYT: województwa, powiaty, gminy i wszystkie miejscowości. Enter dodaje własny tekst, np. „cała Polska” albo „Berlin”.",
+          "hint": "Podpowiedzi z rejestru TERYT: województwa, powiaty, gminy i wszystkie miejscowości. Enter — albo Tab na klawiaturze telefonu — dodaje własny tekst, np. „cała Polska” albo „Berlin”.",
           "remove": "Usuń {place}",
+          "added": "Dodano miejsce: {place}",
+          "removed": "Usunięto miejsce: {place}",
           "suggestions": "Podpowiedzi",
           "kind": {
             "voivodeship": "województwo",
