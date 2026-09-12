@@ -26,6 +26,11 @@ services:
     # compose keeps from one deploy to the next.
     logging:
       driver: journald
+      # The tag is what rsyslog is told to leave alone (remote-deploy.sh), so
+      # the lines are kept once, in the capped journal, and not again in
+      # /var/log/syslog.
+      options:
+        tag: platform-lite-app
 
   caddy:
     image: caddy:2-alpine
@@ -56,6 +61,8 @@ services:
     # Same as the app's, for the same reason (#167).
     logging:
       driver: journald
+      options:
+        tag: platform-lite-caddy
 
 networks:
   # Created once by the deployment procedure, not by this file, because the

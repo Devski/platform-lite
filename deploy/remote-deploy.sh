@@ -158,7 +158,10 @@ install_ops_timer() (
 cat >"$units/platform-ops.service" <<'UNIT'
 [Unit]
 Description=Look at this instance and tell a person what needs a decision (#167)
-Requires=docker.service
+# Wants, not Requires: with Requires a failed Docker would stop this check from
+# starting at all — and "Docker is not answering" is one of the things it is
+# there to say.
+Wants=docker.service
 After=docker.service
 
 [Service]
@@ -169,7 +172,20 @@ User=ubuntu
 SupplementaryGroups=systemd-journal
 StateDirectory=platform-ops
 PrivateTmp=true
-TimeoutStartSec=300
+# Every call in the script has its own limit; this is the sum of them with room
+# to spare, so a run is ended by its own time-outs, which report, and not by
+# systemd, which does not.
+TimeoutStartSec=600
+# One core, no swap: a check must never be the process the OOM killer weighs
+# against PostgreSQL.
+MemoryMax=128M
+# It reads, and writes only its own state. Nothing in it needs to become
+# anyone else — the account has passwordless sudo, and this closes that path.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateDevices=yes
+RestrictSUIDSGID=yes
 ExecStart=/bin/bash /opt/platform-lite/ops-check.sh
 UNIT
 cat >"$units/platform-ops.timer" <<'UNIT'
@@ -185,12 +201,26 @@ RandomizedDelaySec=120
 WantedBy=timers.target
 UNIT
 # The journal is where the application's log now lives, so it is also what
-# could fill the disk being watched. Capped here rather than left to journald's
-# default, which is a tenth of the filesystem.
+# could fill the disk being watched — and application log lines can carry an
+# address or a session token, so how long they stay is a data question as much
+# as a disk one. Capped at 300 MB and two weeks. MaxFileSec makes the two weeks
+# true: journald deletes whole files, and at dev's volume a file otherwise
+# covers a month. SystemKeepFree is set because the default is 15% of the disk,
+# which a disk at 92% already breaks, and journald would then keep almost
+# nothing.
 cat >"$units/platform-lite.conf" <<'UNIT'
 [Journal]
 SystemMaxUse=300M
-MaxRetentionSec=30day
+SystemKeepFree=500M
+MaxFileSec=1day
+MaxRetentionSec=14day
+UNIT
+# Ubuntu forwards the journal to rsyslog, which would keep a second copy of
+# every application line in /var/log/syslog — rotated weekly for a month and
+# capped by nothing. The containers log under a tag (compose.yaml), and lines
+# with that tag stop here. Only those: auth.log and the rest are untouched.
+cat >"$units/10-platform-lite.conf" <<'UNIT'
+if $programname startswith 'platform-lite-' then stop
 UNIT
   units_changed=false
   for unit in platform-ops.service platform-ops.timer; do
@@ -208,7 +238,12 @@ UNIT
     sudo install -d -m 755 /etc/systemd/journald.conf.d
     sudo install -m 644 "$units/platform-lite.conf" /etc/systemd/journald.conf.d/platform-lite.conf
     sudo systemctl restart systemd-journald
-    echo "journal: capped at 300M"
+    echo "journal: capped at 300M and two weeks"
+  fi
+  if [ -d /etc/rsyslog.d ] && ! cmp -s "$units/10-platform-lite.conf" /etc/rsyslog.d/10-platform-lite.conf; then
+    sudo install -m 644 "$units/10-platform-lite.conf" /etc/rsyslog.d/10-platform-lite.conf
+    sudo systemctl restart rsyslog
+    echo "syslog: application lines kept out of /var/log/syslog"
   fi
 )
 set +e

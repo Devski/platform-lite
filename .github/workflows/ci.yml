@@ -302,13 +302,25 @@ jobs:
       # the instance, or the report that exists to break the silence is itself
       # silently missing.
       - name: The application logs to the journal
+        env:
+          APP_IMAGE: ghcr.io/example/app:validate
+          SITE_ADDRESS: dev.example.invalid
+          S3_ORIGIN: https://bucket.example.invalid
+          S3_UPLOAD_ORIGIN: https://endpoint.example.invalid
         run: |
-          test "$(grep -c 'driver: journald' deploy/compose.yaml)" -ge 2
+          # Read from the resolved configuration, not grepped: a commented-out
+          # line or one under the wrong service must not pass.
+          : > deploy/.env
+          docker compose --file deploy/compose.yaml config --format json |
+            jq -e '.services.app.logging.driver == "journald" and .services.caddy.logging.driver == "journald"'
+          rm deploy/.env
       - name: The operations check is shipped and installed
         run: |
           # Anchored to the scp line's indentation, so this line cannot satisfy itself.
           grep -qE '^ +deploy/backup-db.sh deploy/ops-check.sh' .github/workflows/ci.yml
           grep -q 'ExecStart=/bin/bash /opt/platform-lite/ops-check.sh' deploy/remote-deploy.sh
+          # Defined is not called: the installer has to be invoked on a line of its own.
+          grep -qxE 'install_ops_timer' deploy/remote-deploy.sh
           bash -n deploy/ops-check.sh
 
   # Smoke on every push and PR (SPEC §6): the database-less project only. No

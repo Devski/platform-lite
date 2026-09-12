@@ -24,11 +24,12 @@ on:
   workflow_dispatch:
     inputs:
       url:
-        description: "Address to check instead of dev's (to try the alarm without breaking dev)"
+        description: "An https address to check instead of dev's — a drill, kept apart from the real alarm under the outage-drill label"
         required: false
 
+# Nothing is checked out and nothing is read from the repository: the one thing
+# this needs is to open and close an issue.
 permissions:
-  contents: read
   issues: write
 
 # Two runs must not both decide to open the issue.
@@ -42,19 +43,27 @@ jobs:
     timeout-minutes: 5
     env:
       URL: ${{ inputs.url || 'https://dev.architektow3d.pl/' }}
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
+      # A drill has its own label, so trying the alarm against an address that
+      # cannot answer never opens — or closes — dev's real outage issue.
+      LABEL: ${{ inputs.url && 'outage-drill' || 'outage' }}
     steps:
       - name: Does it answer?
         id: probe
         run: |
-          # Three tries a minute apart: one slow answer during a deploy is not
-          # an outage, and an alarm that cries wolf is an alarm nobody reads.
-          # A 4xx is an answer — the server is up and deciding; only a 5xx, a
-          # timeout or no connection at all counts as down.
+          # https only, and passed to curl as a URL rather than as an argument:
+          # the address can come from a person running this by hand, and a
+          # value starting with a dash, or a file:// one, is not an address.
+          case "$URL" in
+            https://*) ;;
+            *) echo "::error::only https addresses are checked, not: $URL"; exit 1 ;;
+          esac
+          # Three tries thirty seconds apart: one slow answer during a deploy is
+          # not an outage, and an alarm that cries wolf is an alarm nobody
+          # reads. A 4xx is an answer — the server is up and deciding; only a
+          # 5xx, a timeout or no connection at all counts as down.
           code=000
           for attempt in 1 2 3; do
-            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$URL" || true)
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 --proto '=https' --url "$URL" || true)
             case "$code" in
               [1-4][0-9][0-9]) break ;;
             esac
@@ -67,8 +76,12 @@ jobs:
         env:
           CODE: ${{ steps.probe.outputs.code }}
           OWNER: ${{ github.repository_owner }}
+          # Here and only here: the step above runs curl against an address a
+          # person may have typed, and has no use for a token.
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          open=$(gh issue list --label outage --state open --json number --jq '.[0].number // empty')
+          open=$(gh issue list --label "$LABEL" --state open --json number --jq '.[0].number // empty')
           now=$(date -u +%Y-%m-%dT%H:%MZ)
           case "$CODE" in
             [1-4][0-9][0-9]) up=true ;;
@@ -76,20 +89,24 @@ jobs:
           esac
 
           if [ "$up" = false ] && [ -z "$open" ]; then
-            gh label create outage --color B60205 \
+            gh label create "$LABEL" --color B60205 \
               --description "The site is not answering (opened and closed by .github/workflows/watch.yml)" \
               --force >/dev/null
-            gh issue create --label outage \
+            issue=$(gh issue create --label "$LABEL" \
               --title "$URL is not answering" \
               --body "$(printf '%s\n' \
-                "Checked from GitHub's machines at $now: three tries a minute apart, last answer \`$CODE\` (\`000\` is no answer at all)." \
+                "Checked from GitHub's machines at $now: three tries thirty seconds apart, last answer \`$CODE\` (\`000\` is no answer at all)." \
                 "" \
-                "What to do: docs/operations.md, \"The site does not answer\". This issue closes itself when the site answers again." \
+                "What to do: docs/operations.md, \"What each signal means\". This issue closes itself when the site answers again." \
                 "" \
-                "@$OWNER")"
+                "@$OWNER")")
+            # Locked: the thread notifies the owner, so it is not a place for
+            # anyone passing by to post "run this to fix it". Collaborators —
+            # and this workflow — can still write in it.
+            gh issue lock "$issue" || true
           elif [ "$up" = true ] && [ -n "$open" ]; then
-            gh issue comment "$open" --body "Answering again at $now (\`$CODE\`)."
+            gh issue comment "$open" --body "Answering again at $now (\`$CODE\`)." || true
             gh issue close "$open"
           else
-            echo "nothing changed: up=$up, open issue: ${open:-none}"
+            echo "nothing changed: up=$up, open $LABEL issue: ${open:-none}"
           fi
