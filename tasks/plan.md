@@ -90,13 +90,22 @@ in under 5 minutes (manual walkthrough); e2e green.
   and someone is there to reason about it.
 - [#111](https://github.com/Devski/platform-lite/issues/111) Preview cleanup loses the race
   with a CI run still in flight, and the orphan blocks the two-preview cap (`bug`).
-- [#172](https://github.com/Devski/platform-lite/issues/172) The database has no deadlines
-  (`infra`, `deployment`). Found 12.09.2026 in the security review of #66: the pool is built
-  with pg's defaults, so `connectionTimeoutMillis` is 0 — a request waiting for a free
-  connection waits for ever — and neither `statement_timeout` nor `lock_timeout` is set
-  anywhere, on either side. Every limit in this system is a rate limit on the way IN; past
-  it, nothing bounds how long a request holds a connection or a lock, so contention queues
-  silently instead of failing with something to read.
+- ~~[#172](https://github.com/Devski/platform-lite/issues/172) The database has no deadlines~~
+  — **done 12.09.2026**. Found in the security review of #66: the pool was built with pg's
+  defaults, so `connectionTimeoutMillis` was 0 — a request waiting for a free connection
+  waited for ever — and neither `statement_timeout` nor `lock_timeout` was set anywhere, on
+  either side. Now the pool says how many connections it may hold, waits five seconds for a
+  free one and then answers, and the server cuts off a statement that runs past ten seconds
+  or waits past three for a lock. Each number is an environment variable, because prod's
+  managed database (#24) is another machine with another cap, and they travel in the
+  connection rather than in `DATABASE_URL`: a migration or a seed must never be cut off by a
+  bound meant for a page, so the scripts declare themselves batch jobs and run without them.
+  Proven against a real PostgreSQL — including that `lock_timeout` does cover the advisory
+  lock every write in this app takes, which was worth measuring rather than assuming. The
+  review found the sting in the tail: the new idle-transaction bound kills a connection
+  somebody is holding, and pg-pool takes its own error listener off a connection while it is
+  checked out — so without a listener of ours the kill ended the PROCESS. Measured, fixed,
+  and the test fails without the fix.
 - [#119](https://github.com/Devski/platform-lite/issues/119) The dev instance keeps every
   image it ever pulled (`infra`). Filed 09.09.2026 when its root filesystem reached 100%:
   129 images, 21.8 GB, three of them in use. Previews stopped starting at all, and dev's

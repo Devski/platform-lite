@@ -1,6 +1,6 @@
 import { eq, isNull } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import { getDb } from "@/db/client";
+import { getDb, runAsBatchJob } from "@/db/client";
 import { files } from "@/db/schema";
 import { requireEnv } from "@/lib/env";
 import { contentKey, keyPrefix } from "@/lib/storage";
@@ -46,6 +46,8 @@ function assertLocalTarget(url: string, allowRemote: boolean): void {
 }
 
 async function main(): Promise<void> {
+  // #172: one pass over every file row, allowed to take as long as it takes.
+  runAsBatchJob();
   loadDotEnv();
   const url = requireEnv("DATABASE_URL");
   assertLocalTarget(url, process.argv.includes("--allow-remote"));

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { sql } from "drizzle-orm";
-import { getDb, type Database } from "@/db/client";
+import { getDb, runAsBatchJob, type Database } from "@/db/client";
 import { places } from "@/db/schema";
 import { requireEnv } from "@/lib/env";
 import {
@@ -106,6 +106,9 @@ export async function importPlaces(
 }
 
 async function main(argv: readonly string[]): Promise<number> {
+  // #172: a hundred thousand places upserted in one statement is a batch job,
+  // not a web request.
+  runAsBatchJob();
   loadDotEnv();
   const target = new URL(requireEnv("DATABASE_URL"));
   const database = `${target.host}${target.pathname}`;

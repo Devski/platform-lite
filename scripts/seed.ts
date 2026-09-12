@@ -1,4 +1,4 @@
-import { getDb } from "@/db/client";
+import { getDb, runAsBatchJob } from "@/db/client";
 import { requireEnv } from "@/lib/env";
 import { getStorage, isStorageConfigured, keyPrefix } from "@/lib/storage";
 import {
@@ -68,6 +68,9 @@ function printSummary(summary: SeedSummary, password: string): void {
 }
 
 async function main(argv: readonly string[]): Promise<number> {
+  // #172: a seed writes fourteen accounts and their photos — long by the web
+  // deadlines' standards, and nobody is waiting on a page for it.
+  runAsBatchJob();
   loadDotEnv();
   // Sample accounts with one published password belong in dev and test
   // databases only. The loopback check below is the guard; this is the belt.
