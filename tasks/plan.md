@@ -101,7 +101,11 @@ in under 5 minutes (manual walkthrough); e2e green.
   connection rather than in `DATABASE_URL`: a migration or a seed must never be cut off by a
   bound meant for a page, so the scripts declare themselves batch jobs and run without them.
   Proven against a real PostgreSQL — including that `lock_timeout` does cover the advisory
-  lock every write in this app takes, which was worth measuring rather than assuming.
+  lock every write in this app takes, which was worth measuring rather than assuming. The
+  review found the sting in the tail: the new idle-transaction bound kills a connection
+  somebody is holding, and pg-pool takes its own error listener off a connection while it is
+  checked out — so without a listener of ours the kill ended the PROCESS. Measured, fixed,
+  and the test fails without the fix.
 - [#119](https://github.com/Devski/platform-lite/issues/119) The dev instance keeps every
   image it ever pulled (`infra`). Filed 09.09.2026 when its root filesystem reached 100%:
   129 images, 21.8 GB, three of them in use. Previews stopped starting at all, and dev's

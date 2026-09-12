@@ -28,11 +28,20 @@ interface Deadlines {
   poolMax: number;
   /** How long a caller waits for a free connection before it is told no. */
   connectMs: number;
-  /** How long one statement may run. 0 turns it off (PostgreSQL's own 0). */
+  /** How long one statement may run. */
   statementMs: number;
-  /** How long one statement may wait for a lock. 0 turns it off. */
+  /** How long one statement may wait for a lock. */
   lockMs: number;
+  /** How long a transaction may sit between statements, holding its locks. */
+  idleTxMs: number;
 }
+
+// 0 on the three server-side bounds does NOT mean "off": pg only puts a
+// setting in the startup packet when it is truthy (pg/lib/client.js), so 0
+// means "send nothing, the server's own setting stands". On ours that setting
+// is 0, which is off — but a managed database (#24) may well ship a role-level
+// statement_timeout, and a batch job there would inherit it. Read 0 as
+// "inherit", and check what is inherited when production exists.
 
 // Dev's numbers, chosen for the shape of dev: one core, one containerised
 // PostgreSQL with max_connections 100, and dev plus every open preview
@@ -45,19 +54,39 @@ interface Deadlines {
 // stuck one. Three seconds of waiting for a lock is a queue forming behind
 // another writer — answering then beats joining it.
 const DEADLINES: Record<DatabaseUse, Deadlines> = {
-  web: { poolMax: 10, connectMs: 5_000, statementMs: 10_000, lockMs: 3_000 },
-  batch: { poolMax: 4, connectMs: 30_000, statementMs: 0, lockMs: 0 },
+  web: {
+    poolMax: 10,
+    connectMs: 5_000,
+    statementMs: 10_000,
+    lockMs: 3_000,
+    idleTxMs: 10_000,
+  },
+  batch: {
+    poolMax: 4,
+    connectMs: 30_000,
+    statementMs: 0,
+    lockMs: 0,
+    idleTxMs: 0,
+  },
 };
 
+// setTimeout's ceiling. Past it Node warns and fires after ONE millisecond —
+// so an operator reaching for a large finite number as "effectively never"
+// would make every queued checkout fail instantly, and the log would blame
+// the database. Refused instead.
+const MAX_MS = 2_147_483_647;
+
 // Fail loud, like requireEnv: a mistyped deadline that silently fell back to
-// the default would be discovered the night it was needed.
-function readOverride(name: string, fallback: number): number {
+// the default would be discovered the night it was needed. Decimal digits
+// only — Number("0x10") is 16, and a typo that quietly means something else
+// is worse than one that stops the process.
+function readOverride(name: string, fallback: number, least = 0): number {
   const raw = process.env[name]?.trim();
   if (!raw) return fallback;
   const value = Number(raw);
-  if (!Number.isInteger(value) || value < 0) {
+  if (!/^\d+$/.test(raw) || value < least || value > MAX_MS) {
     throw new Error(
-      `${name} must be a whole number of milliseconds (0 turns the bound off), not "${raw}"`,
+      `${name} must be a whole number between ${least} and ${MAX_MS}, not "${raw}"`,
     );
   }
   return value;
@@ -65,11 +94,22 @@ function readOverride(name: string, fallback: number): number {
 
 export function deadlinesFor(use: DatabaseUse): Deadlines {
   const defaults = DEADLINES[use];
+  // A batch job takes the built-in numbers and nothing else. These variables
+  // belong to the WEB process of an environment; a seed or an import that
+  // inherited a web statement timeout would be cut off halfway through, which
+  // is the whole reason the opt-out exists.
+  if (use === "batch") return defaults;
   return {
-    poolMax: readOverride("DB_POOL_MAX", defaults.poolMax),
-    connectMs: readOverride("DB_CONNECT_TIMEOUT_MS", defaults.connectMs),
+    // Never 0: a pool of 0 silently becomes pg's default of 10, and a connect
+    // deadline of 0 is the unbounded wait this issue is about.
+    poolMax: readOverride("DB_POOL_MAX", defaults.poolMax, 1),
+    connectMs: readOverride("DB_CONNECT_TIMEOUT_MS", defaults.connectMs, 1),
     statementMs: readOverride("DB_STATEMENT_TIMEOUT_MS", defaults.statementMs),
     lockMs: readOverride("DB_LOCK_TIMEOUT_MS", defaults.lockMs),
+    // Its own variable, not the statement bound reused: raising the statement
+    // bound to let one slow report through must not also let a transaction
+    // sit on its locks for ever.
+    idleTxMs: readOverride("DB_IDLE_TX_TIMEOUT_MS", defaults.idleTxMs),
   };
 }
 
@@ -87,7 +127,8 @@ export function poolConfig(
   use: DatabaseUse,
   connectionString: string,
 ): PoolConfig {
-  const { poolMax, connectMs, statementMs, lockMs } = deadlinesFor(use);
+  const { poolMax, connectMs, statementMs, lockMs, idleTxMs } =
+    deadlinesFor(use);
   return {
     connectionString,
     max: poolMax,
@@ -102,8 +143,8 @@ export function poolConfig(
     lock_timeout: lockMs,
     // A transaction left open with nothing happening in it still holds every
     // lock it has taken. Nothing here does I/O inside a transaction, so a gap
-    // longer than a whole statement may run means the caller is gone.
-    idle_in_transaction_session_timeout: statementMs,
+    // that long means the caller is gone.
+    idle_in_transaction_session_timeout: idleTxMs,
     // Who is holding the connection, as pg_stat_activity will show it: dev
     // and every preview share one database (#113), so "one of them is
     // queueing" is only actionable if the row says which.
@@ -132,6 +173,11 @@ let poolUse: DatabaseUse = "web";
  * throws rather than pretend.
  */
 export function runAsBatchJob(): void {
+  if (process.env.NEXT_RUNTIME) {
+    throw new Error(
+      "runAsBatchJob() is for scripts/*: a server must not put the pool its pages use on the batch deadlines (#172)",
+    );
+  }
   if (db) {
     throw new Error(
       "the database pool is already open — runAsBatchJob() belongs before the first getDb()",
@@ -144,17 +190,63 @@ export function runAsBatchJob(): void {
 // modules can be evaluated at build time (and by the DB-less e2e job) without
 // DATABASE_URL; the first query is where a missing variable fails loudly.
 export function getDb(): Database {
-  if (!db) {
-    const pool = new Pool(poolConfig(poolUse, requireEnv("DATABASE_URL")));
-    // Without a listener here an idle connection dropped by the server (a
-    // restart, an idle-transaction kill) reaches the process as an unhandled
-    // 'error' event, which is a crash rather than a log line.
-    pool.on("error", (error) => {
-      console.error("[db] an idle connection failed:", error.message);
-    });
-    db = drizzle({ client: pool, schema }) as Database;
-  }
+  db ??= openPool(poolUse);
   return db;
+}
+
+let backgroundDb: Database | undefined;
+
+/**
+ * A second pool, for work that runs inside the server but is answering
+ * nobody: today the R360 collector's sweep (#127, #156), which reads every
+ * file row to find objects no record names.
+ *
+ * It has to be a pool of its own, because the deadlines are a property of the
+ * connection and the collector shares this process with the pages. Under the
+ * web bound its sweep would not fail loudly, it would return "nothing found"
+ * as the table grows — and nothing tells that apart from a clean bucket.
+ */
+export function getBackgroundDb(): Database {
+  backgroundDb ??= openPool("batch");
+  return backgroundDb;
+}
+
+function openPool(use: DatabaseUse): Database {
+  const pool = watchPool(new Pool(poolConfig(use, requireEnv("DATABASE_URL"))));
+  return drizzle({ client: pool, schema }) as Database;
+}
+
+/**
+ * Both listeners a pool of ours must carry, and the second is not the first
+ * one written twice.
+ *
+ * pg-pool's own listener watches a connection sitting IDLE IN THE POOL, and
+ * it takes that listener off the client the moment the client is checked out.
+ * So a connection the server kills while somebody holds it — an
+ * idle-in-transaction kill, a restart, the tunnel dropping — arrives at a
+ * client with no listener at all, and Node turns an 'error' event with no
+ * listener into a crashed process.
+ *
+ * Measured on 12.09.2026 against dev's PostgreSQL: with only the pool
+ * listener the process exits on the idle-in-transaction kill; with the client
+ * listener the query rejects and the request fails on its own.
+ */
+export function watchPool(pool: Pool): Pool {
+  pool.on("error", (error) => {
+    console.error(
+      `[db] an idle connection failed (${databaseStall(error) ?? "no bound"}):`,
+      error.message,
+    );
+  });
+  pool.on("connect", (client) => {
+    client.on("error", (error) => {
+      console.error(
+        `[db] a connection in use failed (${databaseStall(error) ?? "no bound"}):`,
+        error.message,
+      );
+    });
+  });
+  return pool;
 }
 
 /**
@@ -183,10 +275,12 @@ const STALL_BY_CODE: Record<string, DatabaseStall> = {
 const NO_CONNECTION = "timeout exceeded when trying to connect";
 
 export function databaseStall(error: unknown): DatabaseStall | null {
+  // Bounded: a cause chain that points back at itself would otherwise spin
+  // for ever, and this runs on the failure path of every request.
   for (
-    let current: unknown = error;
-    current instanceof Error;
-    current = current.cause
+    let current: unknown = error, links = 0;
+    current instanceof Error && links < 16;
+    current = current.cause, links++
   ) {
     const code = (current as { code?: unknown }).code;
     if (typeof code === "string" && code in STALL_BY_CODE) {

@@ -342,9 +342,14 @@ export function ownerKey(
   queueing them for ever, and the server cuts off a statement that runs past ten seconds or
   waits past three for a lock. The numbers live in `src/db/client.ts`, sized for dev's one
   core shared by dev and every preview, and each is an environment variable (`DB_POOL_MAX`,
-  `DB_CONNECT_TIMEOUT_MS`, `DB_STATEMENT_TIMEOUT_MS`, `DB_LOCK_TIMEOUT_MS`) because prod's
-  managed database is another machine with another cap. They travel in the connection, not
-  in `DATABASE_URL`, so a migration or a script is never cut off by a bound meant for a page.
+  `DB_CONNECT_TIMEOUT_MS`, `DB_STATEMENT_TIMEOUT_MS`, `DB_LOCK_TIMEOUT_MS`,
+  `DB_IDLE_TX_TIMEOUT_MS`) because prod's managed database is another machine with another
+  cap. They travel in the connection, not in `DATABASE_URL`, so a migration or a script is
+  never cut off by a bound meant for a page — the scripts ignore those variables entirely.
+  The migration runner keeps one bound of its own, and it guards the site rather than the
+  migration: five seconds of waiting for a lock, because the old container is still serving
+  and a migration queueing for `ACCESS EXCLUSIVE` queues every reader of that table behind
+  itself.
 - Outside prod (`APP_ENV` other than `production`): `X-Robots-Tag: noindex` (A7) — set on
   every response by `src/proxy.ts`; the deployment provides `APP_ENV`.
 - One time zone for the whole interface: `Europe/Warsaw` (next-intl `timeZone`; decision of

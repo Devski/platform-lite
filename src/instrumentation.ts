@@ -20,7 +20,7 @@ export async function register() {
       appEnv: process.env.APP_ENV,
       collect: async () => {
         const [
-          { getDb },
+          { getBackgroundDb },
           { getStorage, keyPrefix },
           { collectAllUnfinishedFrameSets, unrecordedFrameSets },
         ] = await Promise.all([
@@ -29,7 +29,11 @@ export async function register() {
           import("@/lib/r360/frame-set"),
         ]);
         const deps = {
-          db: getDb(),
+          // #172: its own pool, without the web deadlines. This sweep reads
+          // every file row, and under a statement bound it would stop
+          // reporting rather than fail — "nothing found" and "nothing looked"
+          // read the same in a log.
+          db: getBackgroundDb(),
           storage: getStorage(),
           prefix: keyPrefix(),
         };
@@ -61,10 +65,22 @@ export async function onRequestError(
   error: unknown,
   request: { path: string; method: string },
 ) {
-  const { databaseStall } = await import("@/db/client");
-  const stall = databaseStall(error);
-  if (!stall) return;
-  console.error(
-    `[db] ${request.method} ${request.path} hit the ${stall} bound — the numbers are DB_* in .env.example (#172)`,
-  );
+  // Nothing in here may throw: this hook runs while a request is already
+  // failing, and a failure of its own would replace the error somebody needs
+  // to read with the error of the thing meant to explain it.
+  try {
+    const { databaseStall } = await import("@/db/client");
+    const stall = databaseStall(error);
+    if (!stall) return;
+    // The path, not the request target Next hands over: that one carries the
+    // query string, and a verification or reset token lives there. Those are
+    // hashed at rest (lib/auth.ts) precisely so a leaked store cannot redeem
+    // a live link — writing one into the log would undo that in another store.
+    const path = request.path.split("?")[0];
+    console.error(
+      `[db] ${request.method} ${path} hit the ${stall} bound — the numbers are DB_* in .env.example (#172)`,
+    );
+  } catch {
+    // Deliberately silent: Next has already reported the original error.
+  }
 }

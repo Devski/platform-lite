@@ -59,7 +59,10 @@ function withCallbackStatus(verifyUrl: string, status: string): string {
   const link = new URL(verifyUrl);
   const callbackURL = link.searchParams.get("callbackURL") ?? "/email-changed";
   const separator = callbackURL.includes("?") ? "&" : "?";
-  link.searchParams.set("callbackURL", `${callbackURL}${separator}status=${status}`);
+  link.searchParams.set(
+    "callbackURL",
+    `${callbackURL}${separator}status=${status}`,
+  );
   return link.href;
 }
 
@@ -131,6 +134,12 @@ export function createAuth(options: {
     telemetry: { enabled: false },
     // #4 contract: no `fields` mappings — the adapter resolves by the TS
     // property names in schema.ts, which are the Better Auth defaults.
+    //
+    // No `transaction: true`, and that is load-bearing since #172: the
+    // library wraps sign-up in a transaction when the adapter says it can,
+    // and that wrapper would hold a connection across scrypt AND the e-mail
+    // provider's HTTP call — straight into the idle-transaction bound. With
+    // it off the wrapper is a pass-through and nothing pins a connection.
     database: drizzleAdapter(db, { provider: "pg", usePlural: true, schema }),
     advanced: {
       // §9: ids come from the database (gen_random_uuid()), never the app.
@@ -311,7 +320,9 @@ export function createAuth(options: {
           const callbackURL = requestUrl.searchParams.get("callbackURL");
           if (
             callbackURL &&
-            ctx.context.isTrustedOrigin(callbackURL, { allowRelativePaths: true })
+            ctx.context.isTrustedOrigin(callbackURL, {
+              allowRelativePaths: true,
+            })
           ) {
             const target = new URL(callbackURL, ctx.context.baseURL);
             target.searchParams.set("error", "INVALID_TOKEN");

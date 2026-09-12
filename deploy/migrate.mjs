@@ -44,9 +44,16 @@ console.log(`${pending.length} migration file(s) in the image`);
 // by a bound meant for a page. The one bound worth having here is the
 // opposite one — a database that cannot be reached should fail the deploy
 // rather than hold it open for ever.
+// The lock bound is the exception, and it guards the SITE rather than the
+// migration: the old container is still serving while this runs, and a
+// migration waiting for ACCESS EXCLUSIVE queues every reader of that table
+// behind itself. Better to fail the deploy in five seconds — old container
+// serving, old schema untouched — than to stall the site for as long as
+// whatever holds the table.
 const pool = new Pool({
   connectionString: url,
   connectionTimeoutMillis: 30_000,
+  lock_timeout: 5_000,
 });
 try {
   // Drizzle records what it has applied in its own table and skips those, so

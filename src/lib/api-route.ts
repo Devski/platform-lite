@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import type { z } from "zod";
+import { databaseStall } from "@/db/client";
 import { getAuth } from "@/lib/auth";
 import { appOrigin } from "@/lib/env";
 
@@ -15,7 +16,18 @@ export async function sessionUserId(): Promise<string | null> {
       headers: await headers(),
     });
     return session?.user.id ?? null;
-  } catch {
+  } catch (error) {
+    // Closed, but no longer silent (#172). Since the pool answers instead of
+    // queueing, a database in trouble arrives HERE — and signing everybody
+    // out is what that looks like from the outside. Nothing else would say so:
+    // this catch returns a value, so the request succeeds and Next's error
+    // path never runs.
+    const stall = databaseStall(error);
+    if (stall) {
+      console.error(
+        `[db] a session could not be read: the ${stall} bound — everyone reads as signed out while this lasts (#172)`,
+      );
+    }
     return null;
   }
 }
