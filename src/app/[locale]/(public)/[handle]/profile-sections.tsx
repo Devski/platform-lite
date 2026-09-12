@@ -53,6 +53,7 @@ export function PlaceChip({
   removeLabel,
   grip,
   gripLabel,
+  gripHint,
   held = false,
   landing = false,
 }: {
@@ -67,6 +68,8 @@ export function PlaceChip({
    */
   grip?: React.ComponentPropsWithRef<"button">;
   gripLabel?: string;
+  /** The element saying which keys move it, for a screen reader. */
+  gripHint?: string;
   /** This chip is the one being dragged. */
   held?: boolean;
   /** This chip is where the dragged one would land. */
@@ -85,6 +88,7 @@ export function PlaceChip({
           type="button"
           {...grip}
           aria-label={gripLabel}
+          aria-describedby={gripHint}
           title={gripLabel}
           className="-ml-1 flex h-5 w-5 cursor-grab items-center justify-center rounded-full text-(--text-subtle) hover:bg-(--surface-sunken) hover:text-(--text-body) focus-visible:shadow-[var(--ring-focus)] focus-visible:outline-none active:cursor-grabbing"
         >

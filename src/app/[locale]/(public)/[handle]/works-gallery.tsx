@@ -143,8 +143,10 @@ export function WorksGallery({
    */
   order?: {
     reorder: Reorder;
-    /** What the grip on the work at `index` is called. */
-    label: (work: GalleryWork) => string;
+    /** What the grip is called: the work, and where it sits right now. */
+    label: (work: GalleryWork, at: number, of: number) => string;
+    /** Names the element that says how to move it from a keyboard. */
+    describedBy: string;
   };
   /** #86: the work being edited shows its form where its card was, the
    * others stay put — three cards for two works was the wrong picture. */
@@ -153,6 +155,11 @@ export function WorksGallery({
   onDelete?: (work: GalleryWork) => Promise<boolean>;
 }) {
   const t = useTranslations("Works");
+  // #66: no reordering while a work's form stands in the list. The form's
+  // row is not one of the measured boxes, so a drag would answer the wrong
+  // index for everything after it — and the grips stayed there looking
+  // draggable while pointer drags quietly did nothing.
+  const reorder = inPlace ? undefined : order;
   const [lightbox, setLightbox] = useState<Lightbox | null>(null);
   // #84: on a phone, back is the gesture for "close this picture", and it
   // used to leave the site. Opening pushes a history entry marked as the
@@ -216,7 +223,7 @@ export function WorksGallery({
             <li
               key={work.id}
               className="flex"
-              {...order?.reorder.itemProps(at)}
+              {...reorder?.reorder.itemProps(at)}
             >
               <WorkCard
                 // #107: the card holds the hand on its orbit, which starts
@@ -231,13 +238,14 @@ export function WorksGallery({
                 onEdit={onEdit}
                 onDelete={onDelete}
                 grip={
-                  order && works.length > 1
-                    ? order.reorder.handleProps(at)
+                  reorder && works.length > 1
+                    ? reorder.reorder.handleProps(at)
                     : undefined
                 }
-                gripLabel={order?.label(work)}
-                held={order?.reorder.dragging === at}
-                landing={order?.reorder.over === at}
+                gripLabel={reorder?.label(work, at, works.length)}
+                gripHint={reorder?.describedBy}
+                held={reorder?.reorder.dragging === at}
+                landing={reorder?.reorder.over === at}
               />
             </li>
           ),
@@ -264,6 +272,7 @@ function WorkCard({
   onDelete,
   grip,
   gripLabel,
+  gripHint,
   held = false,
   landing = false,
 }: {
@@ -275,6 +284,8 @@ function WorkCard({
   /** #66: whatever `useReorder` hands out for this card's place in the list. */
   grip?: React.ComponentPropsWithRef<"button">;
   gripLabel?: string;
+  /** The element saying which keys move it, for a screen reader. */
+  gripHint?: string;
   /** This card is the one being dragged. */
   held?: boolean;
   /** This card is where the dragged one would land. */
@@ -429,6 +440,7 @@ function WorkCard({
                   type="button"
                   {...grip}
                   aria-label={gripLabel}
+                  aria-describedby={gripHint}
                   title={gripLabel}
                   className="flex h-8 w-8 shrink-0 cursor-grab items-center justify-center rounded-sm text-(--text-subtle) hover:bg-(--surface-sunken) hover:text-(--text-body) focus-visible:shadow-[var(--ring-focus)] focus-visible:outline-none active:cursor-grabbing"
                 >

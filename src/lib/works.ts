@@ -395,12 +395,20 @@ export async function reorderWorks(
     if (mine.size !== asked.size || workIds.some((id) => !mine.has(id))) {
       throw new WorksError("stale_order");
     }
-    for (const [position, id] of workIds.entries()) {
-      await tx
-        .update(works)
-        .set({ position })
-        .where(and(eq(works.id, id), eq(works.userId, userId)));
-    }
+    // One statement rather than ten: the lock and the pooled connection are
+    // held for a round trip instead of a dozen. The owner is still in the
+    // WHERE — the set comparison above is the first answer to "are these
+    // yours", this is the second, and neither is a comment about the other.
+    const pairs = sql.join(
+      workIds.map((id, position) => sql`(${id}::uuid, ${position}::int)`),
+      sql`, `,
+    );
+    await tx.execute(sql`
+      update "works" as w
+      set "position" = v."position"
+      from (values ${pairs}) as v("id", "position")
+      where w."id" = v."id" and w."user_id" = ${userId}::uuid
+    `);
   });
 }
 

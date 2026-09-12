@@ -29,6 +29,7 @@ export interface Reorder {
     onPointerMove: (event: React.PointerEvent<HTMLElement>) => void;
     onPointerUp: (event: React.PointerEvent<HTMLElement>) => void;
     onPointerCancel: (event: React.PointerEvent<HTMLElement>) => void;
+    onLostPointerCapture: (event: React.PointerEvent<HTMLElement>) => void;
     onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void;
     style: { touchAction: "none" };
   };
@@ -68,6 +69,10 @@ export function useReorder(options: {
   // list entirely, which is the whole feature for anyone not using a mouse.
   const refocus = useRef<number | null>(null);
 
+  // Deliberately a fresh closure per render: that is what makes React re-run
+  // it, which is how the focus restore below ever gets a chance to fire.
+  // Memoizing these — the obvious future tidy-up — silently ends keyboard
+  // reordering, and no test would notice.
   const keep = useCallback(
     (map: React.RefObject<Map<number, HTMLElement>>, index: number) =>
       (node: HTMLElement | null) => {
@@ -99,6 +104,10 @@ export function useReorder(options: {
       ref: keep(handles, index),
       onPointerDown: (event: React.PointerEvent<HTMLElement>) => {
         if (event.button !== 0 && event.pointerType === "mouse") return;
+        // One drag at a time. A second finger on another grip would take the
+        // drag over, and the first finger's release would then commit the
+        // second one's half-finished move — and make its own release a no-op.
+        if (draggingRef.current !== null) return;
         // Every item or none: a box list with a hole in it would answer the
         // wrong index for every item after the hole, and silently.
         const measured: Box[] = [];
@@ -120,6 +129,9 @@ export function useReorder(options: {
       onPointerMove: (event: React.PointerEvent<HTMLElement>) => {
         if (draggingRef.current === null) return;
         const at = indexAtPoint(boxes.current, event.clientX, event.clientY);
+        // Pointer moves arrive dozens of times a second and every card here
+        // holds a live orbit: re-render only when the answer actually moves.
+        if (at === overRef.current) return;
         overRef.current = at;
         setOver(at);
       },
@@ -137,6 +149,11 @@ export function useReorder(options: {
       // A cancelled pointer is not a decision: the browser took the gesture
       // over (a scroll, a back-swipe), and the list stays as it was.
       onPointerCancel: finish,
+      // Capture lost any other way — the grip unmounted because editing
+      // ended, or the list shrank under it. `pointercancel` does not fire
+      // then, and without this the card keeps its held look until the next
+      // drag.
+      onLostPointerCapture: finish,
       onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => {
         const back = event.key === "ArrowLeft" || event.key === "ArrowUp";
         const on = event.key === "ArrowRight" || event.key === "ArrowDown";

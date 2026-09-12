@@ -74,6 +74,9 @@ function fieldsOf(profile: OwnerProfile): Fields {
   };
 }
 
+/** #66: how long the order waits for the moving to stop before it is sent. */
+const ORDER_SAVE_AFTER_MS = 300;
+
 type SectionsErrorKey = "invalid" | "rateLimited" | "generic";
 
 // The one call every section makes: a subset of the A12 fields, answered
@@ -171,12 +174,20 @@ export function OwnerProfileView({
   // same bargain the fields on this page make.
   const [orderedWorks, setOrderedWorks] = useState(works);
   const [syncedWorks, setSyncedWorks] = useState(works);
-  if (works !== syncedWorks) {
+  // An order the server has not acknowledged yet. While one stands, a
+  // refresh from somewhere else on this page (an avatar landing, a work
+  // saved) must not re-seed the list under it and throw the move away.
+  const [orderDirty, setOrderDirty] = useState(false);
+  if (works !== syncedWorks && !orderDirty) {
     setSyncedWorks(works);
     setOrderedWorks(works);
   }
   const [worksNotice, setWorksNotice] = useState("");
   const [worksOrderError, setWorksOrderError] = useState<string | null>(null);
+  const pendingOrder = useRef<GalleryWork[] | null>(null);
+  const orderTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
   const workOrder = useReorder({
     count: orderedWorks.length,
     onMove: (from, to) => moveWork(from, to),
@@ -200,6 +211,8 @@ export function OwnerProfileView({
   const headlineId = useId();
   const bioId = useId();
   const locationsId = useId();
+  /** #66: the one line telling a keyboard which keys move a thing. */
+  const moveHintId = useId();
 
   // Saves still in flight, each resolving to whether it succeeded, so
   // "Zapisz" can wait for them and stay open if one failed.
@@ -333,35 +346,71 @@ export function OwnerProfileView({
   // about a list that is not the owner's current works — so a second tab
   // adding or deleting a work makes this fail rather than shuffle something
   // nobody touched.
+  //
+  // Sent once the moving stops, not once per move: an arrow key repeats
+  // about twenty-five times a second, and each press would otherwise be its
+  // own request — several in flight at once, committed in whatever order
+  // they reach the lock, with the rate limit refusing the tail of them.
   function moveWork(from: number, to: number) {
     const work = orderedWorks[from];
-    if (!work) return;
-    const before = orderedWorks;
+    if (work === undefined) return;
     const next = moveItem(orderedWorks, from, to);
     setOrderedWorks(next);
     setWorksOrderError(null);
     setWorksNotice(tWorks("card.moved", { name: work.name, position: to + 1 }));
-    void track(
+    queueOrderSave(next);
+  }
+
+  function queueOrderSave(next: GalleryWork[]) {
+    pendingOrder.current = next;
+    setOrderDirty(true);
+    if (orderTimer.current !== undefined) clearTimeout(orderTimer.current);
+    orderTimer.current = setTimeout(() => {
+      void saveWorkOrder();
+    }, ORDER_SAVE_AFTER_MS);
+  }
+
+  /**
+   * Sends the newest order, if one is waiting. Resolves to whether the list
+   * on screen is what the server holds, so "Zapisz" can wait for it.
+   *
+   * Nothing is reverted from a snapshot on failure: by the time a refused
+   * save comes back, the list may have changed for a reason — a work deleted
+   * in another tab is exactly why `stale_order` exists — and putting an old
+   * copy back would resurrect it on screen, with its buttons, until a full
+   * page load. The server's own answer is the way back.
+   */
+  function saveWorkOrder(): Promise<boolean> {
+    if (orderTimer.current !== undefined) {
+      clearTimeout(orderTimer.current);
+      orderTimer.current = undefined;
+    }
+    const next = pendingOrder.current;
+    if (next === null) return Promise.resolve(true);
+    pendingOrder.current = null;
+    return track(
       (async () => {
         try {
           const response = await postJson("/api/works/order", {
             workIds: next.map((one) => one.id),
           });
-          if (response.ok) return true;
-          setOrderedWorks(before);
+          if (response.ok) {
+            setOrderDirty(false);
+            return true;
+          }
           setWorksOrderError(
             tWorks(
               response.status === 429
                 ? "card.moveRateLimited"
-                : "card.moveFailed",
+                : "card.moveStale",
             ),
           );
-          return false;
         } catch {
-          setOrderedWorks(before);
           setWorksOrderError(tWorks("card.moveFailed"));
-          return false;
         }
+        setOrderDirty(false);
+        router.refresh();
+        return false;
       })(),
     );
   }
@@ -502,6 +551,9 @@ export function OwnerProfileView({
         if (outcome === "kept") return;
         if (outcome === "closed") setWorkForm(null);
       }
+      // A waiting order goes now rather than on its timer, or "Zapisano"
+      // would be claimed over a save that has not left the page (#66).
+      await saveWorkOrder();
       const outcomes = await Promise.all([...pending.current]);
       if (outcomes.some((ok) => !ok)) return;
       setEditing(false);
@@ -521,6 +573,7 @@ export function OwnerProfileView({
     setHeadlineError(null);
     setBioError(null);
     setLocationsError(null);
+    setWorksOrderError(null);
   }
 
   return (
@@ -795,7 +848,12 @@ export function OwnerProfileView({
                         onRemove={() => removePlace(place)}
                         removeLabel={tSections("locations.remove", { place })}
                         grip={placeOrder.handleProps(index)}
-                        gripLabel={tSections("locations.grip", { place })}
+                        gripLabel={tSections("locations.grip", {
+                          place,
+                          position: index + 1,
+                          count: fields.locations.length,
+                        })}
+                        gripHint={moveHintId}
                         held={placeOrder.dragging === index}
                         landing={placeOrder.over === index}
                       />
@@ -894,7 +952,13 @@ export function OwnerProfileView({
                 editing
                   ? {
                       reorder: workOrder,
-                      label: (work) => tWorks("card.move", { name: work.name }),
+                      label: (work, at, of) =>
+                        tWorks("card.move", {
+                          name: work.name,
+                          position: at + 1,
+                          count: of,
+                        }),
+                      describedBy: moveHintId,
                     }
                   : undefined
               }
@@ -940,13 +1004,19 @@ export function OwnerProfileView({
               />
             )
           )}
-          {worksOrderError && (
+          {editing && worksOrderError && (
             <p className="type-sm text-(--state-danger)" role="alert">
               {worksOrderError}
             </p>
           )}
           <p role="status" className="sr-only">
             {worksNotice}
+          </p>
+          {/* Named by every grip on the page (#66). A grip is a button, and
+              a button's keys are Enter and Space — neither of which moves
+              anything here, so the arrows have to be said out loud. */}
+          <p id={moveHintId} className="sr-only">
+            {tWorks("card.moveHint")}
           </p>
         </section>
       </main>
