@@ -189,7 +189,7 @@ at one:
   afterwards is not there, and anything added in the preview — an account, a
   work — exists only there and goes away with it. The objects those uploads
   put in the bucket do NOT: they stay under `pr-<n>/` with nothing naming
-  them (the same tail as #34 and #111).
+  them (the same tail as #34).
 - **You have to sign in to a preview.** Its copy is restored with `sessions`
   and `verifications` emptied: a session copied out of dev would stay valid in
   the copy after it was revoked on dev, and nothing could reach in to end it.

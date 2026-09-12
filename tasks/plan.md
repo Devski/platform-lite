@@ -91,8 +91,16 @@ in under 5 minutes (manual walkthrough); e2e green.
   dies with it. The copy is taken with a dump rather than `create database ... template`,
   which PostgreSQL refuses while anything is connected to the source — dev's own container
   always is.
-- [#111](https://github.com/Devski/platform-lite/issues/111) Preview cleanup loses the race
-  with a CI run still in flight, and the orphan blocks the two-preview cap (`bug`).
+- ~~[#111](https://github.com/Devski/platform-lite/issues/111) Preview cleanup loses the race
+  with a CI run still in flight, and the orphan blocks the two-preview cap~~ — **done
+  12.09.2026**: the preview job asks GitHub whether its pull request is still open before it
+  starts anything, and again once the preview is up — taking it down itself if the pull
+  request closed meanwhile, because the cleanup ran before there was anything to remove. A
+  merge had already stopped winning the race once #61 made it wait for e2e-full; a close
+  without a merge, a slow start and a re-run on a closed pull request had not. The issue's
+  second kind of orphan — rows in dev's database naming dead preview prefixes — ended with
+  #113. The objects under `pr-<n>/` stay with #34, which must delete by row and not by
+  prefix: 735 of dev's rows still name objects under such prefixes.
 - ~~[#172](https://github.com/Devski/platform-lite/issues/172) The database has no deadlines~~
   — **done 12.09.2026**. Found in the security review of #66: the pool was built with pg's
   defaults, so `connectionTimeoutMillis` was 0 — a request waiting for a free connection
