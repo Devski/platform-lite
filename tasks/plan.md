@@ -88,8 +88,21 @@ in under 5 minutes (manual walkthrough); e2e green.
   image it ever pulled (`infra`). Filed 09.09.2026 when its root filesystem reached 100%:
   129 images, 21.8 GB, three of them in use. Previews stopped starting at all, and dev's
   own health check could not run — Docker could not write the file needed to exec it.
-- [#61](https://github.com/Devski/platform-lite/issues/61) Nothing requires a green pipeline
-  before code reaches `main`, and `main` deploys itself (`blocked`, `deployment`).
+- ~~[#61](https://github.com/Devski/platform-lite/issues/61) Nothing requires a green pipeline
+  before code reaches `main`~~ — **done 12.09.2026**: the ruleset `main: green before it lands`
+  wants a pull request and five green checks (`check`, `e2e-smoke`, `e2e-full`, `image`,
+  `deploy-config`), and refuses a deleted or force-pushed branch. No bypass actors — every
+  commit here is pushed with the owner's account, so "admins may bypass" would have read as
+  "anyone may bypass". It costs nothing while the repository is public (since 10.09.2026).
+- [#163](https://github.com/Devski/platform-lite/issues/163) Take the repository private again
+  (`decision`, `infra`). Measured 12.09.2026: ~30 CI runs a day at ~11.9 billable minutes each,
+  ~11,000 a month. Free would leave `main` unguarded again, so it means Pro — about $52 a month
+  at this tempo. Not before the registry has a retention policy: 140 images in six days, ~8 GB
+  and growing by more than a gigabyte a day — the registry's side of #119.
+- [#164](https://github.com/Devski/platform-lite/issues/164) Rethink CI as a whole (`infra`,
+  `decision`). A merge now waits 6.2 minutes for the last required check, 2.6 of them
+  `e2e-full` standing idle on `needs: [check]`; the browsers are reinstalled every run and the
+  image is built with no layer cache. To be answered together with the path to prod (§8).
 
 22. ~~[#22](https://github.com/Devski/platform-lite/issues/22) Scaleway TEM + SPF/DKIM/DMARC + switch email.ts to TEM~~ — **done 05.09.2026**: sending from `kontakt@dev.architektow3d.pl`, all four DNS records verified, replies routed to `kontakt@architektow3d.pl`. A registration on dev delivered a real verification e-mail (SMTP 250). Unblocks #23.
 23. ~~[#23](https://github.com/Devski/platform-lite/issues/23) Deliverability test: Gmail / Onet / WP / Interia~~ — **done 05.09.2026**: all eight message types reach the Gmail inbox, none filtered. Scope cut to Gmail by decision; the reasoning and the method for the other three are in `docs/email-deliverability.md`.
