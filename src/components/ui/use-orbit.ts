@@ -7,7 +7,6 @@ import {
   frameAfterDrag,
   frameAfterKey,
   framesAlong,
-  glides,
   travelDuration,
   travelStop,
   wrapFrame,
@@ -66,9 +65,9 @@ export interface Orbit {
   /**
    * Moves along `path` (the frames on the way, the destination last) over
    * a time proportional to its length, within bounds; reduced motion
-   * jumps. A grab or a key on the way ends it where it is. #153: eased
-   * in and out of its frame on an orbit that glides, at a constant pace
-   * on one whose owner turned that off.
+   * jumps. A grab or a key on the way ends it where it is. One pace from
+   * beginning to end: #153's ease and #175's amounts for it are both gone
+   * (Dawid, 12.09.2026).
    */
   travelAlong: (path: readonly number[]) => void;
   cancelTravel: () => void;
@@ -93,11 +92,6 @@ export function useOrbit(
   } = {},
 ): Orbit {
   const { frameCount, framesPerWidth, direction } = params;
-  // #153: read once, and as a plain boolean — the parameters arrive as a
-  // fresh object on some renders (a form with no set yet builds its
-  // defaults inline), and a callback keyed on the object itself would be
-  // rebuilt with every one of them.
-  const glide = glides(params);
   const [frame, setFrameState] = useState(() =>
     wrapFrame(options.initialFrame ?? params.startFrame, frameCount),
   );
@@ -203,9 +197,9 @@ export function useOrbit(
         place(path[path.length - 1]);
         return;
       }
-      run(path, travelDuration(path.length), glide ? "eased" : "steady");
+      run(path, travelDuration(path.length), "steady");
     },
-    [cancelTravel, glide, place, run],
+    [cancelTravel, place, run],
   );
 
   // A frame count that changed under the hook (a new archive in the same
@@ -278,7 +272,6 @@ export function useOrbit(
           lift: { x: event.clientX, t: clockOf(event) },
           width: from.width,
           lifted: event.type === "pointerup",
-          glide,
           reducedMotion: reducedMotion(),
         },
         { framesPerWidth, direction },
@@ -290,7 +283,7 @@ export function useOrbit(
         "slowing",
       );
     },
-    [direction, frameCount, framesPerWidth, glide, run],
+    [direction, frameCount, framesPerWidth, run],
   );
 
   const onKeyDown = useCallback(

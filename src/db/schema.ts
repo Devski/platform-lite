@@ -277,11 +277,11 @@ export const works = pgTable(
     developer: text("developer"),
     // #102 (A13): the frame set the owner's browser derived from a zip on
     // their own disk — the prefix `u/<user>/r360/<set id>/` the frames sit
-    // under (32 hex digits minted at presign) — and the six viewer
+    // under (32 hex digits minted at presign) — and the five viewer
     // parameters: frame count, direction, frames per picture width, start
-    // frame and ring flattening (#68), and whether the orbit glides
-    // (#153). Both or neither: a set without parameters cannot be shown,
-    // parameters without a set describe nothing.
+    // frame and ring flattening (#68). Both or neither: a set without
+    // parameters cannot be shown, parameters without a set describe
+    // nothing.
     //
     // #120: there is no archive column any more. The zip never leaves the
     // owner's machine, so the work names its frames and nothing else.
@@ -488,11 +488,6 @@ export interface R360ParamsRow {
   flattening: number;
   /** #107: labelled frames; absent on a work saved before them. */
   cues?: { frame: number; label: string }[];
-  /**
-   * #153: whether the orbit eases and coasts. Absent is ON — the field
-   * arrived after works were saved — so only `false` is ever written.
-   */
-  glide?: boolean;
 }
 
 // #30: a staged upload is bytes that already exist in the bucket but have no

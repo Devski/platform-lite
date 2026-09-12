@@ -299,19 +299,6 @@ test("a new work: the photo goes through the upload chain as a work, then the fo
     expect(body?.subarray(8, 12).toString()).toBe("WEBP");
   }
 
-  // #153: the motion switch starts ON, because that is what a work saved
-  // before it existed reads as. Turned off and on again it must leave
-  // NOTHING behind — the parameters saved below carry no `glide` key at
-  // all, which is precisely how ON is stored.
-  const glideOn = page.getByTestId("work-r360-glide-on");
-  const glideOff = page.getByTestId("work-r360-glide-off");
-  await expect(glideOn).toHaveAttribute("aria-pressed", "true");
-  await glideOff.click();
-  await expect(glideOff).toHaveAttribute("aria-pressed", "true");
-  await expect(glideOn).toHaveAttribute("aria-pressed", "false");
-  await glideOn.click();
-  await expect(glideOn).toHaveAttribute("aria-pressed", "true");
-
   await page.getByLabel("Inwestor").fill("Archicom S.A.");
   await page.getByRole("button", { name: "Zapisz realizację" }).click();
   await expect.poll(() => created.length).toBe(1);

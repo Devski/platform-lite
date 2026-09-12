@@ -11,7 +11,6 @@ import {
   type R360Cue,
   type R360Params,
 } from "@/lib/r360/frame-set-shared";
-import { glides } from "@/lib/r360/orbit";
 
 // #103: the owner's five parameters of an R360 set, under the preview in
 // the work form (the sixth, the frame count, is the set's, shown read-only
@@ -95,22 +94,6 @@ export function R360ParamControls({
           {t("flatteningCircle")}
         </Button>
       </RangeParam>
-      {/* #153: what the visitor's orbit does — a travel that eases in and
-          out of its frame, a drag that coasts on after the hand. Only OFF
-          is written into the parameters: absent is on, so a work saved
-          before the switch existed glides like the rest. */}
-      <TwoWayParam
-        name={t("paramGlide")}
-        disabled={disabled}
-        hint={t("glideHint")}
-        choices={([true, false] as const).map((on) => ({
-          key: String(on),
-          label: t(on ? "glideOn" : "glideOff"),
-          active: glides(params) === on,
-          pick: () => onChange({ glide: on ? undefined : false }),
-          testId: `work-r360-glide-${on ? "on" : "off"}`,
-        }))}
-      />
       <CueControls
         params={params}
         frameInView={frameInView}

@@ -14,19 +14,6 @@ export interface OrbitParams {
   /** Frames per picture width: how far a drag across the whole picture goes. */
   framesPerWidth: number;
   startFrame: number;
-  /**
-   * #153: whether the orbit glides — a travel that eases in and out of
-   * its frame, a drag that coasts on after the hand. Absent is ON: the
-   * field arrived after works were saved, and what it names is the
-   * motion every orbit should have had. Only `false` is an owner who
-   * turned it off.
-   */
-  glide?: boolean;
-}
-
-/** #153: whether this orbit glides. Absent is on; only `false` is off. */
-export function glides(params: Pick<OrbitParams, "glide">): boolean {
-  return params.glide !== false;
 }
 
 /**
@@ -159,9 +146,9 @@ export const COAST_SAMPLES_KEPT = 12;
  * #153: the whole of what a release decides — whether the orbit coasts
  * on, and if so how far and for how long. Here rather than in the hook
  * so that every way of NOT coasting can be put to the test: a pointer
- * that was cancelled rather than lifted, an owner who turned the glide
- * off, a visitor whose system asks for less motion, and a hand that was
- * slowing or standing still when it let go.
+ * that was cancelled rather than lifted, a visitor whose system asks for
+ * less motion, and a hand that was slowing or standing still when it let
+ * go.
  *
  * That last one is why the lift is a reading like any other rather than
  * merely the moment of asking. Measured between MOVES, the time a hand
@@ -186,12 +173,11 @@ export function coastOnRelease(
     width: number;
     /** The pointer was LIFTED — not cancelled, not taken away. */
     lifted: boolean;
-    glide: boolean;
     reducedMotion: boolean;
   },
   params: Pick<OrbitParams, "framesPerWidth" | "direction">,
 ): { turn: number; ms: number } | null {
-  if (!release.lifted || !release.glide || release.reducedMotion) {
+  if (!release.lifted || release.reducedMotion) {
     return null;
   }
   const recent = [...release.samples, release.lift].filter(
@@ -242,14 +228,18 @@ export function frameAfterKey(
 
 /**
  * #153: the shape a travel's progress takes. `steady` gives every frame
- * the same slice of the time — what a travel always did, and what an
- * orbit whose owner turned the glide off still does. `eased` starts from
- * rest, runs fastest halfway and settles onto its frame: a click on the
- * ring. `slowing` starts at the hand's speed and comes to a stop — and
- * that one is not chosen for the look of it, it is where constant
- * slowing puts a thing, the very motion `coastAfterDrag` measures out.
+ * the same slice of the time — what a travel does, and what it did before
+ * any of this. `slowing` starts at the hand's speed and comes to a stop:
+ * not chosen for the look of it, it is where constant slowing puts a
+ * thing, the very motion `coastAfterDrag` measures out.
+ *
+ * There was an `eased` shape here too, and owner-set amounts for it on the
+ * way (#175). Both are gone on Dawid's decision of 12.09.2026 — the
+ * product is losing functions rather than gaining them — so a click on the
+ * ring travels at one pace again, and the only curve left is the one a
+ * thrown orbit cannot be without.
  */
-export type TravelCurve = "steady" | "eased" | "slowing";
+export type TravelCurve = "steady" | "slowing";
 
 // Every member named, and no `default`: a curve added to the union and
 // forgotten here is then a compile error, not a travel that quietly runs
@@ -258,9 +248,6 @@ function alongCurve(progress: number, curve: TravelCurve): number {
   switch (curve) {
     case "steady":
       return progress;
-    case "eased":
-      // Smoothstep: still at both ends, fastest in the middle.
-      return progress * progress * (3 - 2 * progress);
     case "slowing":
       // 2t − t²: full speed at the start, none at the end.
       return progress * (2 - progress);
@@ -298,7 +285,7 @@ export function travelStop(
   const since = Number.isFinite(elapsed) ? Math.max(0, elapsed) : 0;
   const progress = duration > 0 ? since / duration : 1;
   // A curve is only itself over the travel's own time: an animation
-  // frame that came late reads a progress past 1, and smoothstep of 1.2
+  // frame that came late reads a progress past 1, and a slowing curve at 1.2
   // turns back DOWN the path. Clamped for the curve, raw for the arrival.
   const at = Math.min(
     path.length - 1,
