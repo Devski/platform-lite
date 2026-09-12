@@ -51,19 +51,52 @@ export function PlaceChip({
   place,
   onRemove,
   removeLabel,
+  grip,
+  gripLabel,
+  held = false,
+  landing = false,
 }: {
   place: string;
   /** Present only while editing: the chip grows an × that removes it. */
   onRemove?: () => void;
   removeLabel?: string;
+  /**
+   * Present only while editing (#66): the map pin becomes the grip that drags
+   * this place up the list, and answers the arrow keys. Whatever `useReorder`
+   * hands out for this index.
+   */
+  grip?: React.ComponentPropsWithRef<"button">;
+  gripLabel?: string;
+  /** This chip is the one being dragged. */
+  held?: boolean;
+  /** This chip is where the dragged one would land. */
+  landing?: boolean;
 }) {
   return (
-    <span className="inline-flex items-center gap-(--sp-2) rounded-full border border-(--border-default) bg-(--surface-card) py-(--sp-1) pr-(--sp-3) pl-(--sp-3) type-label text-(--text-muted)">
-      <Icon
-        name="map-pin"
-        size={14}
-        className="shrink-0 text-(--text-subtle)"
-      />
+    <span
+      className={`inline-flex items-center gap-(--sp-2) rounded-full border bg-(--surface-card) py-(--sp-1) pr-(--sp-3) pl-(--sp-3) type-label text-(--text-muted) ${
+        landing && !held
+          ? "border-(--border-strong) shadow-[var(--ring-focus)]"
+          : "border-(--border-default)"
+      } ${held ? "opacity-60" : ""}`}
+    >
+      {grip ? (
+        <button
+          type="button"
+          {...grip}
+          aria-label={gripLabel}
+          title={gripLabel}
+          className="-ml-1 flex h-5 w-5 cursor-grab items-center justify-center rounded-full text-(--text-subtle) hover:bg-(--surface-sunken) hover:text-(--text-body) focus-visible:shadow-[var(--ring-focus)] focus-visible:outline-none active:cursor-grabbing"
+        >
+          <Icon name="grip-vertical" size={14} />
+        </button>
+      ) : (
+        <Icon
+          name="map-pin"
+          size={14}
+          className="shrink-0 text-(--text-subtle)"
+        />
+      )}
       {place}
       {onRemove && (
         <button

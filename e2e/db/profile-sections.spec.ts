@@ -184,3 +184,51 @@ test("a signed-out visitor reads the sections, with the bio's paragraphs kept an
     await visitor.close();
   }
 });
+
+test("the places are put in order and stay in it, for the owner and for a visitor (#66)", async ({
+  browser,
+}) => {
+  await page.goto(`/${identity.handle}`);
+  await page.getByRole("button", { name: "Edytuj profil" }).click();
+
+  const chips = page.locator("li:has(button[aria-label^='Przesuń miejsce'])");
+  expect(await chips.allInnerTexts()).toEqual(["Warszawa", "Nowa Wieś"]);
+
+  // The arrow keys on the grip, which is the whole of this for anyone not
+  // using a mouse — and, unlike a drag, it says what it did out loud.
+  const saved = page.waitForResponse((response) =>
+    response.url().includes("/api/profile/sections"),
+  );
+  await page.getByRole("button", { name: "Przesuń miejsce Nowa Wieś" }).focus();
+  await page.keyboard.press("ArrowLeft");
+  expect((await saved).status()).toBe(200);
+  await expect(
+    page.getByText("Miejsce Nowa Wieś jest teraz na pozycji 1"),
+  ).toHaveCount(1);
+  expect(await chips.allInnerTexts()).toEqual(["Nowa Wieś", "Warszawa"]);
+
+  await page.reload();
+  const section = page.locator("section", {
+    has: page.getByRole("heading", { name: "Siedziba i obszar działania" }),
+  });
+  expect(await section.locator("li").allInnerTexts()).toEqual([
+    "Nowa Wieś",
+    "Warszawa",
+  ]);
+
+  const visitor = await browser.newPage({ locale: "pl-PL" });
+  try {
+    await visitor.goto(`/${identity.handle}`);
+    const theirs = visitor.locator("section", {
+      has: visitor.getByRole("heading", {
+        name: "Siedziba i obszar działania",
+      }),
+    });
+    expect(await theirs.locator("li").allInnerTexts()).toEqual([
+      "Nowa Wieś",
+      "Warszawa",
+    ]);
+  } finally {
+    await visitor.close();
+  }
+});

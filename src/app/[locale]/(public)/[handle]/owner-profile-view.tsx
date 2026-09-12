@@ -15,7 +15,9 @@ import { Plaque } from "@/components/ui/plaque";
 import { Textarea } from "@/components/ui/textarea";
 import { TopBar } from "@/components/ui/top-bar";
 import { UploadProgress } from "@/components/ui/upload-progress";
+import { useReorder } from "@/components/ui/use-reorder";
 import { postJson } from "@/lib/api-client";
+import { moveItem } from "@/lib/reorder";
 import { IMAGE_CONTENT_TYPES } from "@/lib/image-upload-shared";
 import {
   BIO_MAX,
@@ -159,6 +161,26 @@ export function OwnerProfileView({
   const [locationsError, setLocationsError] = useState<string | null>(null);
   /** What a screen reader is told about the place list, out loud (#66). */
   const [locationsNotice, setLocationsNotice] = useState("");
+  /** #66: the places are dragged into order, and answer the arrow keys. */
+  const placeOrder = useReorder({
+    count: fields.locations.length,
+    onMove: (from, to) => movePlace(from, to),
+  });
+  // #66: the works in the order on screen. The prop is the truth until a drag
+  // moves one — the order shows at once and a refused save puts it back, the
+  // same bargain the fields on this page make.
+  const [orderedWorks, setOrderedWorks] = useState(works);
+  const [syncedWorks, setSyncedWorks] = useState(works);
+  if (works !== syncedWorks) {
+    setSyncedWorks(works);
+    setOrderedWorks(works);
+  }
+  const [worksNotice, setWorksNotice] = useState("");
+  const [worksOrderError, setWorksOrderError] = useState<string | null>(null);
+  const workOrder = useReorder({
+    count: orderedWorks.length,
+    onMove: (from, to) => moveWork(from, to),
+  });
 
   const [avatarBusy, setAvatarBusy] = useState(false);
   // #80: the bytes on their way, 0..1, then 1 while the server processes;
@@ -305,6 +327,54 @@ export function OwnerProfileView({
     void saveLocations(
       fields.locations.filter((existing) => existing !== place),
     );
+  }
+
+  // #66: a work moved. The whole order goes to the server, which refuses one
+  // about a list that is not the owner's current works — so a second tab
+  // adding or deleting a work makes this fail rather than shuffle something
+  // nobody touched.
+  function moveWork(from: number, to: number) {
+    const work = orderedWorks[from];
+    if (!work) return;
+    const before = orderedWorks;
+    const next = moveItem(orderedWorks, from, to);
+    setOrderedWorks(next);
+    setWorksOrderError(null);
+    setWorksNotice(tWorks("card.moved", { name: work.name, position: to + 1 }));
+    void track(
+      (async () => {
+        try {
+          const response = await postJson("/api/works/order", {
+            workIds: next.map((one) => one.id),
+          });
+          if (response.ok) return true;
+          setOrderedWorks(before);
+          setWorksOrderError(
+            tWorks(
+              response.status === 429
+                ? "card.moveRateLimited"
+                : "card.moveFailed",
+            ),
+          );
+          return false;
+        } catch {
+          setOrderedWorks(before);
+          setWorksOrderError(tWorks("card.moveFailed"));
+          return false;
+        }
+      })(),
+    );
+  }
+
+  // #66: the order of the places IS the array, so putting them in order is
+  // the same save as adding one — no column, no endpoint of its own.
+  function movePlace(from: number, to: number) {
+    const place = fields.locations[from];
+    if (place === undefined) return;
+    setLocationsNotice(
+      tSections("locations.moved", { place, position: to + 1 }),
+    );
+    void saveLocations(moveItem(fields.locations, from, to));
   }
 
   // The words for a failed upload are shared by the avatar and the cover
@@ -714,12 +784,20 @@ export function OwnerProfileView({
                       {tSections("locations.empty")}
                     </li>
                   )}
-                  {fields.locations.map((place) => (
-                    <li key={place} className="flex">
+                  {fields.locations.map((place, index) => (
+                    <li
+                      key={place}
+                      className="flex"
+                      {...placeOrder.itemProps(index)}
+                    >
                       <PlaceChip
                         place={place}
                         onRemove={() => removePlace(place)}
                         removeLabel={tSections("locations.remove", { place })}
+                        grip={placeOrder.handleProps(index)}
+                        gripLabel={tSections("locations.grip", { place })}
+                        held={placeOrder.dragging === index}
+                        landing={placeOrder.over === index}
                       />
                     </li>
                   ))}
@@ -810,8 +888,16 @@ export function OwnerProfileView({
           )}
           {works.length > 0 ? (
             <WorksGallery
-              works={works}
+              works={orderedWorks}
               owner={{ editing }}
+              order={
+                editing
+                  ? {
+                      reorder: workOrder,
+                      label: (work) => tWorks("card.move", { name: work.name }),
+                    }
+                  : undefined
+              }
               // #86: the edited work's form stands where its card was.
               inPlace={
                 editing && workForm?.kind === "edit"
@@ -854,6 +940,14 @@ export function OwnerProfileView({
               />
             )
           )}
+          {worksOrderError && (
+            <p className="type-sm text-(--state-danger)" role="alert">
+              {worksOrderError}
+            </p>
+          )}
+          <p role="status" className="sr-only">
+            {worksNotice}
+          </p>
         </section>
       </main>
       <div className="mx-auto flex max-w-(--measure-page) justify-center px-(--sp-5) py-(--sp-7) sm:px-(--sp-7) sm:py-(--sp-8)">

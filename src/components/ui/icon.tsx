@@ -23,7 +23,8 @@ type IconName =
   | "upload"
   | "layers"
   | "chevron-up"
-  | "chevron-down";
+  | "chevron-down"
+  | "grip-vertical";
 
 const PATHS: Record<IconName, ReactNode> = {
   "map-pin-off": (
@@ -130,6 +131,17 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M12 16V4" />
       <path d="m7 9 5-5 5 5" />
       <path d="M4 20h16" />
+    </>
+  ),
+  // #66: what a list takes hold of to be put in order.
+  "grip-vertical": (
+    <>
+      <circle cx="9" cy="5" r="1" />
+      <circle cx="9" cy="12" r="1" />
+      <circle cx="9" cy="19" r="1" />
+      <circle cx="15" cy="5" r="1" />
+      <circle cx="15" cy="12" r="1" />
+      <circle cx="15" cy="19" r="1" />
     </>
   ),
 };

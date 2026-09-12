@@ -87,6 +87,25 @@ export const workInputSchema = z
     { message: "duplicate photo", path: ["secondaryFileIds"] },
   );
 
+/**
+ * #66: the owner's order, as the ids of every work they have, first to last.
+ * Whole rather than a pair of indices: the client already knows the list it
+ * is looking at, and a request that names all of it can be checked against
+ * what the database holds instead of trusted to be about the same list.
+ */
+export const worksOrderSchema = z
+  .object({
+    workIds: z
+      .array(z.uuid())
+      .min(1)
+      .max(WORKS_MAX)
+      .refine((ids) => new Set(ids).size === ids.length, {
+        message: "duplicate work",
+      }),
+  })
+  .strict();
+export type WorksOrderInput = z.input<typeof worksOrderSchema>;
+
 /** The second channels of a parsed work, one per photo (null = none). */
 export function secondariesOf(work: {
   imageFileIds: string[];

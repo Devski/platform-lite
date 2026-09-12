@@ -18,6 +18,7 @@ import { OrbitCueButtons } from "@/components/ui/orbit-cues";
 import { OrbitRing } from "@/components/ui/orbit-ring";
 import { OrbitViewer } from "@/components/ui/orbit-viewer";
 import { useOrbit, type Orbit } from "@/components/ui/use-orbit";
+import type { Reorder } from "@/components/ui/use-reorder";
 import { useFrameLoader } from "@/components/ui/use-frame-loader";
 import { cuesInOrder } from "@/lib/r360/cues";
 import {
@@ -127,6 +128,7 @@ interface Lightbox {
 export function WorksGallery({
   works,
   owner,
+  order,
   inPlace,
   onEdit,
   onDelete,
@@ -134,6 +136,16 @@ export function WorksGallery({
   works: GalleryWork[];
   /** The owner's view: R360 badges and the edit/delete row (when editing). */
   owner?: { editing: boolean };
+  /**
+   * #66: the hand that puts the works in order, when there is more than one.
+   * The gallery only wires it up — the owner's view holds it, because it is
+   * the one that knows how to save an order.
+   */
+  order?: {
+    reorder: Reorder;
+    /** What the grip on the work at `index` is called. */
+    label: (work: GalleryWork) => string;
+  };
   /** #86: the work being edited shows its form where its card was, the
    * others stay put — three cards for two works was the wrong picture. */
   inPlace?: { workId: string; form: ReactNode };
@@ -195,13 +207,17 @@ export function WorksGallery({
   return (
     <>
       <ul className="grid grid-cols-1 gap-(--sp-5) sm:grid-cols-2">
-        {works.map((work) =>
+        {works.map((work, at) =>
           inPlace?.workId === work.id ? (
             <li key={work.id} className="flex sm:col-span-2">
               {inPlace.form}
             </li>
           ) : (
-            <li key={work.id} className="flex">
+            <li
+              key={work.id}
+              className="flex"
+              {...order?.reorder.itemProps(at)}
+            >
               <WorkCard
                 // #107: the card holds the hand on its orbit, which starts
                 // on the start frame once — a set the work did not have
@@ -214,6 +230,14 @@ export function WorksGallery({
                 }
                 onEdit={onEdit}
                 onDelete={onDelete}
+                grip={
+                  order && works.length > 1
+                    ? order.reorder.handleProps(at)
+                    : undefined
+                }
+                gripLabel={order?.label(work)}
+                held={order?.reorder.dragging === at}
+                landing={order?.reorder.over === at}
               />
             </li>
           ),
@@ -238,12 +262,23 @@ function WorkCard({
   onOpen,
   onEdit,
   onDelete,
+  grip,
+  gripLabel,
+  held = false,
+  landing = false,
 }: {
   work: GalleryWork;
   owner?: { editing: boolean };
   onOpen: (index: number, returnTo: HTMLElement | null) => void;
   onEdit?: (work: GalleryWork) => void;
   onDelete?: (work: GalleryWork) => Promise<boolean>;
+  /** #66: whatever `useReorder` hands out for this card's place in the list. */
+  grip?: React.ComponentPropsWithRef<"button">;
+  gripLabel?: string;
+  /** This card is the one being dragged. */
+  held?: boolean;
+  /** This card is where the dragged one would land. */
+  landing?: boolean;
 }) {
   const t = useTranslations("Works");
   const [confirming, setConfirming] = useState(false);
@@ -267,7 +302,9 @@ function WorkCard({
     <Card
       as="article"
       padding="none"
-      className="flex w-full flex-col overflow-hidden"
+      className={`flex w-full flex-col overflow-hidden ${
+        landing && !held ? "shadow-[var(--ring-focus)]" : ""
+      } ${held ? "opacity-60" : ""}`}
     >
       {/* The main picture takes both rows and two thirds of the width; the
           others stack beside it. Alone, it takes the whole strip. */}
@@ -383,11 +420,27 @@ function WorkCard({
         )}
         {owner && (
           <div className="mt-auto flex flex-wrap items-center justify-between gap-(--sp-3) pt-(--sp-2)">
-            {/* Whether the work has an orbit at all, for the owner's own
-                glance down the list. */}
-            <Badge uppercase tone={work.orbit ? "success" : "neutral"}>
-              {work.orbit ? t("card.r360Ready") : t("card.r360None")}
-            </Badge>
+            <div className="flex items-center gap-(--sp-3)">
+              {/* #66: what the owner takes hold of to move this work up the
+                  page. Only while editing, and only when there is more than
+                  one work to be ahead of. */}
+              {owner.editing && grip && (
+                <button
+                  type="button"
+                  {...grip}
+                  aria-label={gripLabel}
+                  title={gripLabel}
+                  className="flex h-8 w-8 shrink-0 cursor-grab items-center justify-center rounded-sm text-(--text-subtle) hover:bg-(--surface-sunken) hover:text-(--text-body) focus-visible:shadow-[var(--ring-focus)] focus-visible:outline-none active:cursor-grabbing"
+                >
+                  <Icon name="grip-vertical" size={18} />
+                </button>
+              )}
+              {/* Whether the work has an orbit at all, for the owner's own
+                  glance down the list. */}
+              <Badge uppercase tone={work.orbit ? "success" : "neutral"}>
+                {work.orbit ? t("card.r360Ready") : t("card.r360None")}
+              </Badge>
+            </div>
             {owner.editing && onEdit && onDelete && (
               <div className="flex flex-wrap items-center gap-(--sp-3)">
                 {confirming ? (
