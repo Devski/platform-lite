@@ -568,8 +568,9 @@ export const files = pgTable(
     // #49: the key this row's object was ACTUALLY written under, prefix and
     // all. The address used to be rebuilt at read time from sha256 + ext +
     // the READING environment's S3_PREFIX, so one row resolved to a different
-    // object in every environment: a PR preview, which shares dev's database
-    // and bucket and differs only in that prefix, 404'd on every avatar. It
+    // object in every environment: a PR preview, which runs on a copy of
+    // dev's rows against the same bucket and differs only in that prefix,
+    // 404'd on every avatar. It
     // also meant that changing S3_PREFIX anywhere silently unhooked every
     // existing file from its object, with the row and the object both still
     // there.

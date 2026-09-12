@@ -170,6 +170,43 @@ The bucket and its objects live independently of the instance and survive its lo
 Prod restore (managed database, snapshots) is defined by task #24 and will extend this
 document.
 
+## The databases on the instance
+
+The cluster holds more than the two databases cloud-init made:
+
+| Database                 | What it is                                         |
+| ------------------------ | -------------------------------------------------- |
+| `platform_<handle>`      | dev's own, and what a developer's tunnel points at |
+| `platform_test_<handle>` | the integration suite's (SPEC §6)                  |
+| `platform_pr_<n>`        | one per open pull request preview (#113)           |
+
+A preview's database is a `pg_dump` copy of dev taken when the preview starts,
+migrated by the pull request's own image, and dropped by `preview-down.sh`
+when the pull request closes. Two consequences worth knowing before you look
+at one:
+
+- **A preview shows dev's data as of its start.** Anything added to dev
+  afterwards is not there, and anything added in the preview — an account, a
+  work — exists only there and goes away with it. The objects those uploads
+  put in the bucket do NOT: they stay under `pr-<n>/` with nothing naming
+  them (the same tail as #34 and #111).
+- **You have to sign in to a preview.** Its copy is restored with `sessions`
+  and `verifications` emptied: a session copied out of dev would stay valid in
+  the copy after it was revoked on dev, and nothing could reach in to end it.
+- **A preview cannot delete dev's objects**, even though its rows name them:
+  `src/lib/storage.ts` refuses a delete whose key is outside the environment's
+  own `S3_PREFIX` and logs what it refused.
+- **A copy can be left behind** if a preview is removed some other way than
+  `preview-down.sh` — a cancelled CI run, or an older branch whose
+  `preview-down.sh` predates #113. The next `preview-up.sh` drops every copy
+  with no container of its own, so this heals on the next preview; to see or
+  do it by hand:
+
+  ```
+  ssh <DEV_SSH_HOST> docker exec postgres psql -U postgres -Atc "select datname from pg_database where datname like 'platform\_pr\_%'"
+  ssh <DEV_SSH_HOST> docker exec postgres psql -U postgres -c "drop database if exists platform_pr_<n> with (force)"
+  ```
+
 ## Decisions behind this setup
 
 - **SSH tunnel instead of an allow-listed IP** (30.08.2026) — survives home-IP rotation,

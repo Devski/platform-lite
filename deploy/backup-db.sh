@@ -119,8 +119,13 @@ roles=$(psql --command "select rolname from pg_roles where rolname !~ '^pg_' and
 
 # The test databases are excluded: a test run recreates them from nothing, and
 # copying them would double the bytes for something nobody would ever restore.
+# So are the preview copies (#113): `platform_pr_<n>` IS a copy of dev, made
+# an hour ago and dropped when the pull request closes. Copying those would
+# put dev's data in the object two or three times over — and, worse, would
+# make the size of a night's copy depend on how many pull requests happened to
+# be open, which the shrink guard below reads as a copy going bad.
 # `template1` and `postgres` hold nothing of ours.
-databases=$(psql --command "select datname from pg_database where datallowconn and datname like 'platform\_%' and datname not like '%\_test\_%' order by 1")
+databases=$(psql --command "select datname from pg_database where datallowconn and datname like 'platform\_%' and datname not like '%\_test\_%' and datname not like 'platform\_pr\_%' order by 1")
 if [ -z "$databases" ]; then
   echo "no platform_* database to copy — is this the right cluster?" >&2
   exit 1
