@@ -79,11 +79,24 @@ in under 5 minutes (manual walkthrough); e2e green.
 
 - ~~[#31](https://github.com/Devski/platform-lite/issues/31) PR preview deployments on the dev instance~~ — **done 05.09.2026**: `pr-<n>.dev.architektow3d.pl`, named sites over HTTP-01 (no wildcard certificate, so no DNS plugin), shared dev database and a `pr-<n>/` key prefix. Two at a time — the instance has one core and no swap. Previews never send e-mail.
 - [#113](https://github.com/Devski/platform-lite/issues/113) PR previews: a database cloned
-  from dev per preview, not the shared one (`deployment`). Filed 09.09.2026 when the preview
-  of #112 answered with a server error: it ran the pull request's image against dev's
-  schema, and previews never migrate. Sequenced after the R360 trial on dev.
+  from dev per preview, not the shared one (`deployment`). **Raised in priority 12.09.2026**
+  after it cost a second review cycle. Filed 09.09.2026 when the preview of #112 answered
+  with a server error: it runs the pull request's image against dev's database, and previews
+  never migrate. #170 hit it again — every page listing works answered 500 on that preview
+  because the migration adding `works.position` had not run there. It is not a flake but a
+  rule: **any pull request carrying a migration looks broken on its own preview**, exactly
+  when the preview exists to be looked at. The workaround both times was to apply the
+  migration to dev by hand first, which is only safe while migrations stay expand-only (G6)
+  and someone is there to reason about it.
 - [#111](https://github.com/Devski/platform-lite/issues/111) Preview cleanup loses the race
   with a CI run still in flight, and the orphan blocks the two-preview cap (`bug`).
+- [#172](https://github.com/Devski/platform-lite/issues/172) The database has no deadlines
+  (`infra`, `deployment`). Found 12.09.2026 in the security review of #66: the pool is built
+  with pg's defaults, so `connectionTimeoutMillis` is 0 — a request waiting for a free
+  connection waits for ever — and neither `statement_timeout` nor `lock_timeout` is set
+  anywhere, on either side. Every limit in this system is a rate limit on the way IN; past
+  it, nothing bounds how long a request holds a connection or a lock, so contention queues
+  silently instead of failing with something to read.
 - [#119](https://github.com/Devski/platform-lite/issues/119) The dev instance keeps every
   image it ever pulled (`infra`). Filed 09.09.2026 when its root filesystem reached 100%:
   129 images, 21.8 GB, three of them in use. Previews stopped starting at all, and dev's
@@ -290,6 +303,21 @@ recorded so it is not rediscovered later.
 - ~~[#36](https://github.com/Devski/platform-lite/issues/36) The public profile showed the user's e-mail address as their name~~ — **done 05.09.2026**: registration stopped inventing a name from the address; onboarding asks for one in two steps and derives the address from it. A migration cleared what the old flow wrote, keeping handles — they may already have been shared. Found two faults of my own on the way, both recorded on the issue and generalised as #39.
 - [#39](https://github.com/Devski/platform-lite/issues/39) Make the UI airtight against what the backend and the database will accept (`enhancement`) — opened 05.09.2026: a rule can live in the form, the API schema and a database constraint, and nothing keeps the three in agreement. Two instances on one screen in #36: a submit the form could not know would fail, and a `CHECK` nothing above the database could see — both surfacing as "try again".
 - [#44](https://github.com/Devski/platform-lite/issues/44) Where personal data lives: which of it is sensitive, and does it belong in its own store (`compliance`) — opened 06.09.2026, four questions to answer in writing before production. The name is public by design; the sensitive thing is its LINK to the private address. Also carries four gaps found while surveying: disk encryption unverified, no dev backups, session tokens in plaintext, recipient address possibly reaching a log line.
+- ~~[#66](https://github.com/Devski/platform-lite/issues/66) Small things to polish~~ —
+  **done 12.09.2026** (PR #170), four of them: the logo above the auth cards stopped being a
+  link (a visitor part-way through making an account was being offered a way out, and after
+  verification that link looped to the page it was on); Tab commits a typed place, because a
+  phone's keyboard offers "next" where a desktop offers Enter and the typed text went with
+  the focus; and both the places and the works can be dragged into order, one piece of
+  machinery for a wrapped row of chips and a grid of cards. Works needed a `position` column
+  — expand-only, backfilled from `created_at`, so nothing shuffled. The reviews found what
+  the tests could not: a refused save that resurrected a deleted work, saves racing each
+  other under a repeating arrow key, and grips whose keys a screen reader would never guess.
+- [#173](https://github.com/Devski/platform-lite/issues/173) Dragging a list should look like
+  dragging (`ux`). Dawid, 12.09.2026, on seeing #66 work: the order is right, the movement is
+  not — the held item fades in place and everything jumps on the drop. For now it stays. The
+  boxes needed for it are already measured at pointerdown, so this is a transform and a
+  transition rather than a rewrite.
 - Three from Dawid on 11.09.2026, deliberately outside the R360 milestone. One is already
   settled: ~~[#151](https://github.com/Devski/platform-lite/issues/151) an orbit from a RAR
   archive~~ — **dropped 12.09.2026** at his word, we do not support RAR for now; a zip is
