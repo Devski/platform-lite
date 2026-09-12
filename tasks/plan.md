@@ -94,6 +94,17 @@ in under 5 minutes (manual walkthrough); e2e green.
   `deploy-config`), and refuses a deleted or force-pushed branch. No bypass actors — every
   commit here is pushed with the owner's account, so "admins may bypass" would have read as
   "anyone may bypass". It costs nothing while the repository is public (since 10.09.2026).
+- [#168](https://github.com/Devski/platform-lite/issues/168) No copy of dev's database exists
+  anywhere (`deployment`, `infra`). **The urgent one.** Found 12.09.2026: the data lives in the
+  `pgdata` Docker volume on the instance's own disk and nothing ever copies it — there is no
+  `pg_dump` in the repository. Losing it would not merely cost the rows: object keys are content
+  hashes kept in those rows (G2), so the entire bucket would become unfindable bytes. G10's
+  written restore procedure has nothing to restore from.
+- [#167](https://github.com/Devski/platform-lite/issues/167) The state of an environment, and the
+  reports that reach nobody (`deployment`, `enhancement`). Found 12.09.2026 while reading the
+  R360 collector's report over SSH: it warns into a container's stdout, and that is the whole of
+  the path from "a human decides" (#156) to the human. The same silence covers the disk (#119),
+  whether the site answers at all, unhandled errors, and mail bounces. #168 was split out of it.
 - [#163](https://github.com/Devski/platform-lite/issues/163) Take the repository private again
   (`decision`, `infra`). Measured 12.09.2026: ~30 CI runs a day at ~11.9 billable minutes each,
   ~11,000 a month. Free would leave `main` unguarded again, so it means Pro — about $52 a month
