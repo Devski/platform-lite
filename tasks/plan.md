@@ -109,10 +109,18 @@ in under 5 minutes (manual walkthrough); e2e green.
   somebody is holding, and pg-pool takes its own error listener off a connection while it is
   checked out — so without a listener of ours the kill ended the PROCESS. Measured, fixed,
   and the test fails without the fix.
-- [#119](https://github.com/Devski/platform-lite/issues/119) The dev instance keeps every
-  image it ever pulled (`infra`). Filed 09.09.2026 when its root filesystem reached 100%:
-  129 images, 21.8 GB, three of them in use. Previews stopped starting at all, and dev's
-  own health check could not run — Docker could not write the file needed to exec it.
+- ~~[#119](https://github.com/Devski/platform-lite/issues/119) The dev instance keeps every
+  image it ever pulled~~ — **done 12.09.2026**: a deployment clears the images nothing needs
+  once the new container is healthy — and before the pull when under 5 GB is free, so a full
+  disk can still fetch the fix. What stays is decided by deployments, not by age: every image
+  a container uses, and the last three that came up healthy on dev, listed in
+  `deployed-images` on the instance and read from the running container rather than from
+  `.env`, which a hand rollback leaves stale. Age was the first version, and review caught
+  what it broke: previews pull into the same repository, so "the three newest images"
+  pushed out the version dev had been running a minute earlier — the one the documented
+  rollback needs on the instance, because the instance holds no registry credential.
+  Previews coming down clear nothing themselves, by Dawid's decision, since every
+  deployment of dev sweeps their images too. The registry's own growth stays with #163.
 - ~~[#61](https://github.com/Devski/platform-lite/issues/61) Nothing requires a green pipeline
   before code reaches `main`~~ — **done 12.09.2026**: the ruleset `main: green before it lands`
   wants a pull request and five green checks (`check`, `e2e-smoke`, `e2e-full`, `image`,

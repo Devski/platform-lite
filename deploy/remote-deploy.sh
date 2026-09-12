@@ -15,6 +15,122 @@ set -euo pipefail
 cd /opt/platform-lite
 export APP_IMAGE
 
+# #119: nothing in deploy/ or the workflows has ever removed an image; they
+# only ever arrived. On 09.09.2026 that filled the instance's 24 GB root
+# filesystem to 100% with 129 of them — 76 one per commit from this very
+# deployment. Previews stopped starting at all (`no space left on device`),
+# and dev read `unhealthy` for thirty checks in a row because Docker could
+# not write the temporary file its health check needs, while the application
+# served normally throughout.
+#
+# The obvious reflex would not have helped: every image here carries its
+# commit sha as a tag, so `docker image prune` — which removes only untagged
+# ones — frees exactly zero bytes. It has to be removal by name.
+#
+# What stays is decided by DEPLOYMENTS, not by age. Rolling back needs no
+# registry (docs/deployment.md) because the instance holds no credential of
+# its own (G9): an image that is not here cannot come back without CI.
+# Previews pull into the same repository, so "the three newest images" is
+# routinely the new dev image and two previews — with the version dev was
+# running a minute ago in fourth place, removed. Caught in review.
+IMAGES_KEPT=3
+# The last $IMAGES_KEPT images that came up HEALTHY here, oldest first, one
+# per line. A deployment whose container never became healthy is not one
+# anybody would roll back to, and letting it take a place pushed the last
+# good version out (review).
+DEPLOYED=/opt/platform-lite/deployed-images
+# Below this a pull has nowhere to unpack, so an instance that is already
+# full can never fetch the deployment that would fix it. Hence clearing
+# before fetching and not only after serving.
+DISK_FLOOR_KB=$((5 * 1024 * 1024))
+
+# Moves an image to the end of the list and keeps the last $IMAGES_KEPT: a
+# redeploy or a rollback of the same sha counts once, as the newest.
+record_deployed() {
+  { grep -vxF "$1" "$DEPLOYED" 2>/dev/null || true; echo "$1"; } |
+    tail -n "$IMAGES_KEPT" >"$DEPLOYED.tmp" || return 1
+  # Only after the whole list was written: on a full disk the temporary file
+  # is empty, and moving it over the real one would forget every rollback
+  # target at the moment they matter most.
+  mv "$DEPLOYED.tmp" "$DEPLOYED"
+}
+
+# Records the image dev's container runs right now — if it is serving. Read
+# from the CONTAINER, not from .env: the rollback in docs/deployment.md
+# changes the container and leaves the file naming the version that was
+# rolled back FROM, so trusting the file removed the very image being run
+# (review). Nothing is recorded without a container, or for one that is
+# neither healthy nor on the list already.
+record_running() {
+  local container line
+  container=$(docker compose ps --quiet app) || return 1
+  [ -n "$container" ] || return 0
+  line=$(docker inspect --format '{{.Config.Image}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "$container") || return 1
+  # Already on the list is enough: that version once came up healthy, and dev
+  # running it now means someone put it back on purpose. A health check still
+  # catching up — up to 30 s after room was made, on the day the disk filled —
+  # must not cost the operator that choice (review).
+  if [ "${line#* }" = healthy ] || grep -qxF "${line%% *}" "$DEPLOYED" 2>/dev/null; then
+    record_deployed "${line%% *}"
+  fi
+}
+
+# Removes every image of ours that no container refers to and that is not
+# one of the last $IMAGES_KEPT deployments. Housekeeping, so it never decides
+# whether a deployment succeeded — see how it is called.
+prune_old_images() {
+  local in_use images id repo_tag removed=0
+  # Running or stopped, ours or not. A preview (#31) sits on the sha of its
+  # own pull request, which no deployment of dev ever recorded, and taking
+  # its image would leave it unable to restart.
+  #
+  # Each read returns rather than carrying on: called with errexit off, an
+  # empty list from a failed call would read as nothing to keep.
+  in_use=$(docker ps -aq | xargs -r docker inspect --format '{{.Image}}') || return 1
+  # A wildcard for the namespace: the registry owner has been renamed once
+  # already (`3dbdg` → `devski`), and on the disk that filled 50 of the 129
+  # images were still under the dead one.
+  images=$(docker images --no-trunc --filter 'reference=ghcr.io/*/platform-lite' \
+    --format '{{.ID}} {{.Repository}}:{{.Tag}}') || return 1
+  while read -r id repo_tag; do
+    [ -n "$id" ] || continue
+    if grep -qxF "$id" <<<"$in_use" || grep -qxF "$repo_tag" "$DEPLOYED" 2>/dev/null; then
+      continue
+    fi
+    # By tag, not by id: an image carried under both registry names is one id
+    # with two tags, and Docker refuses to remove such an id without --force.
+    # Untagging the dead name first leaves the image to the name still kept.
+    # `if`, not `&&`, so a refusal is not the last word of the loop.
+    if docker image rm "$repo_tag" >/dev/null 2>&1; then
+      removed=$((removed + 1))
+    fi
+  done <<<"$images"
+  echo "images: $removed removed; kept every one in use and the last $IMAGES_KEPT deployments"
+}
+
+# Only when it is tight: a deployment that changes nothing about the disk
+# should not spend time on it, and the clearing after a healthy start below
+# is what keeps it from getting here in the ordinary case. Unreadable reads
+# as tight — `|| free_kb=0`, because under `set -euo pipefail` a failing
+# `df` would otherwise end the deployment right here, fallback unreached.
+#
+# FIRST, before anything writes to the disk: recording the list and
+# `docker login` both write a file, and on a disk at 100% — the day this
+# is for — the first of them would end the run before any room was made
+# (review). Nothing is lost by clearing this early: dev's container still
+# runs and protects its image, and the list still holds the ones before.
+free_kb=$(df --output=avail -k /var/lib/docker 2>/dev/null | tail -1) || free_kb=0
+if [ "${free_kb:-0}" -lt "$DISK_FLOOR_KB" ]; then
+  echo "under $((DISK_FLOOR_KB / 1024 / 1024)) GB free before the pull (or unreadable); clearing old images first"
+  prune_old_images || echo "WARNING: clearing old images failed (#119); pulling anyway"
+fi
+
+# The version serving now is the one this deployment would be rolled back to,
+# so it is on the list before `up` replaces its container — on the first
+# deploy after #119 there is no list yet, and it would otherwise be the one
+# image nothing protects.
+record_running || echo "WARNING: could not record the running version (#119)"
+
 echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_ACTOR" --password-stdin
 trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
 
@@ -260,6 +376,13 @@ for attempt in $(seq 1 60); do
   status=$(docker inspect --format '{{.State.Health.Status}}' "$container" 2>/dev/null || echo starting)
   if [ "$status" = "healthy" ]; then
     echo "healthy after ${attempt}s"
+    # #119: here and nowhere earlier. Only now is this a version worth going
+    # back to, and only now is everything the clearing could remove known
+    # not to be needed for going back from it. Both on the left of `||`, so
+    # bash runs them with errexit off: the application is already serving,
+    # and housekeeping failing must not turn a healthy deployment red.
+    record_deployed "$APP_IMAGE" || echo "WARNING: could not record $APP_IMAGE (#119)"
+    prune_old_images || echo "WARNING: clearing old images failed (#119)"
     exit 0
   fi
   if [ "$status" = "unhealthy" ]; then

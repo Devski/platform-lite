@@ -249,13 +249,27 @@ container starts (#53), and an older image then runs against the newer schema. A
 migrations survive that; a migration that drops or renames a column removes the ability
 to roll back past it, and is a one-way door on the day it ships.
 
-The image is already on the instance if it was ever deployed there, so this
-needs no registry access:
+The images of the last three deployments that came up healthy stay on the instance —
+`/opt/platform-lite/deployed-images` lists them, newest last — so going back to
+either of the two before the current one needs no registry access (#119). A
+deployment that never became healthy takes no place on that list:
 
 ```
 cd /opt/platform-lite
 APP_IMAGE=ghcr.io/devski/platform-lite:<older sha> docker compose up --detach
 ```
+
+This command changes the container and leaves `.env` naming the version you rolled
+back from. That is fine: the next deployment records what the container is actually
+running, not what the file says, so the version you went back to stays on the
+instance afterwards.
+
+Anything older has been cleared, so that the disk cannot fill again the way it did
+on 09.09.2026. Its image is not on the instance, and the instance holds no registry
+credential of its own, so a pull would be refused: re-run that commit's `deploy-dev`
+job from Actions instead. GitHub offers a re-run for 30 days after the original run;
+past that, going back means reverting through a pull request to `main`, which builds
+the old code into a new image and deploys it like any other change.
 
 **Drilled 05.09.2026**, two deployments back and forward again: seven seconds
 to a healthy container each way, the site answering 200 throughout. The
