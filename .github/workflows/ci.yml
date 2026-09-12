@@ -265,22 +265,36 @@ jobs:
         run: grep -q 'import site' deploy/preview-up.sh
 
       # #113: a preview runs on its own copy of dev, migrated by the pull
-      # request's own image. All three lines matter and each has a silent
-      # failure: without the copy the preview is back on dev's database and
-      # every migration-carrying pull request previews as a server error;
-      # without the migrate step the copy has main's schema, which is the same
-      # failure with more steps; without DATABASE_URL the container keeps the
-      # instance .env's value and never sees the copy at all.
+      # request's own image. Each line has a silent failure: without the copy
+      # the preview is back on dev's database and every migration-carrying
+      # pull request previews as a server error; without the migrate step the
+      # copy carries main's schema, which is the same failure with more steps;
+      # without DATABASE_URL on BOTH containers — the migrator and the app —
+      # one of them keeps the instance .env's value and never sees the copy.
+      #
+      # Matched on the psql flag rather than the SQL alone: both files also
+      # MENTION these statements, in a comment and in a by-hand instruction,
+      # and a check a comment can satisfy is not a check.
       - name: A preview gets its own database, migrated, and is pointed at it
         run: |
-          grep -q 'create database' deploy/preview-up.sh
-          grep -q '/app/migrate.mjs' deploy/preview-up.sh
-          grep -q 'DATABASE_URL=$PREVIEW_DB_URL' deploy/preview-up.sh
-      # And it goes away again: a copy of dev's data left behind on a disk
-      # that has already filled once (#119) is the cost of getting this wrong
-      # in the other direction.
+          grep -q -- '-c "create database' deploy/preview-up.sh
+          grep -q -- '/app/migrate.mjs' deploy/preview-up.sh
+          test "$(grep -c -- '--env DATABASE_URL' deploy/preview-up.sh)" -ge 2
+      # And it goes away again, both ways: when the pull request closes, and —
+      # because an older branch's preview-up.sh knows nothing about copies —
+      # whenever a copy is found with no container to own it. A copy of every
+      # dev account's rows, left on a disk that has already filled once
+      # (#119), is the cost of getting this wrong in the other direction.
       - name: Closing a preview drops its database
-        run: grep -q 'drop database if exists' deploy/preview-down.sh
+        run: grep -q -- '-c "drop database if exists' deploy/preview-down.sh
+      - name: A copy with no container is swept up
+        run: grep -q 'no \$container container to own it' deploy/preview-up.sh
+      # The nightly copy of the databases (#168) must not copy the copies: a
+      # preview clone is dev's data again, and a night with two previews open
+      # would be three times the size of one without — which the shrink guard
+      # reads as a copy gone bad, and then refuses every night after it.
+      - name: The nightly copy skips the preview copies
+        run: grep -q "not like 'platform..pr..%'" deploy/backup-db.sh
 
   # Smoke on every push and PR (SPEC §6): the database-less project only. No
   # DATABASE_URL_TEST here on purpose — that is what makes this job prove the
@@ -309,8 +323,9 @@ jobs:
       # The log is the server's whole stdout, and the dev e-mail transport
       # prints every message body — verification and reset links included. The
       # database behind those links is a throwaway container today, but the
-      # artifact outlives the job by a week and SPEC §8 puts PR previews on the
-      # shared dev database, so the links never leave the runner intact.
+      # artifact outlives the job by a week and the same accounts exist on dev
+      # and in every preview's copy of it (#113), so the links never leave the
+      # runner intact.
       - name: Redact action links from the server log
         if: failure()
         run: |
@@ -399,8 +414,9 @@ jobs:
       # The log is the server's whole stdout, and the dev e-mail transport
       # prints every message body — verification and reset links included. The
       # database behind those links is a throwaway container today, but the
-      # artifact outlives the job by a week and SPEC §8 puts PR previews on the
-      # shared dev database, so the links never leave the runner intact.
+      # artifact outlives the job by a week and the same accounts exist on dev
+      # and in every preview's copy of it (#113), so the links never leave the
+      # runner intact.
       - name: Redact action links from the server log
         if: failure()
         run: |

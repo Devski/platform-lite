@@ -4,13 +4,17 @@
 // runs is collectAllUnfinishedFrameSets; this file only says when, and
 // where never.
 //
-// Never in a preview. Previews share dev's database (#113), and the
-// collector deletes RECORDS, not just bytes: one scoping mistake there
-// would cost dev's data. So the block is a hard allow-list on APP_ENV —
-// the deployed environments that own their database — not a setting that
-// could be left on: a preview, CI, a developer's machine, a missing or a
-// mistyped value all run nothing. Pure, with the collection handed in, so
-// the schedule is tested without a database or a clock.
+// Never in a preview. Since #113 a preview has a database of its own — but
+// it is a COPY of dev's, naming dev's objects in the bucket every
+// environment shares, and this collector deletes RECORDS and the bytes
+// behind them. A sweep there would reason about dev's objects with a copy
+// of dev's rows that nothing keeps current. (lib/storage.ts confines a
+// delete to the environment's own key prefix, which is the belt; this is
+// the braces, and the older of the two.) So the block is a hard allow-list
+// on APP_ENV — the deployed environments that own their data — not a
+// setting that could be left on: a preview, CI, a developer's machine, a
+// missing or a mistyped value all run nothing. Pure, with the collection
+// handed in, so the schedule is tested without a database or a clock.
 
 /** Every twelve hours (#126). */
 export const COLLECT_EVERY_MS = 12 * 60 * 60 * 1000;

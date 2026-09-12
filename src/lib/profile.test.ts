@@ -342,8 +342,8 @@ describe("setAvatar + getProfile (A4, G2)", () => {
     expect(view.avatar?.fileId).toBe(uploaded.original.fileId);
   });
 
-  // #49: a PR preview shares dev's database and its bucket, and differs only
-  // in S3_PREFIX. Rebuilding the address at read time made the same row point
+  // #49: a PR preview runs on a copy of dev's rows against the same bucket,
+  // and differs only in S3_PREFIX. Rebuilding the address at read time made the same row point
   // at a different object per environment, so every avatar 404'd on a
   // preview. The row has to name the object the upload actually wrote.
   it("resolves to the object the upload wrote, from an environment with another prefix", async () => {

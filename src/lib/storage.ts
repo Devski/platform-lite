@@ -583,13 +583,54 @@ let instance: FileStorage | undefined;
 
 export function getStorage(): FileStorage {
   if (!instance) {
-    instance = createS3Storage({
-      endpoint: requireEnv(S3_VARIABLES.endpoint),
-      region: requireEnv(S3_VARIABLES.region),
-      bucket: requireEnv(S3_VARIABLES.bucket),
-      accessKeyId: requireEnv(S3_VARIABLES.accessKeyId),
-      secretAccessKey: requireEnv(S3_VARIABLES.secretAccessKey),
-    });
+    instance = deletesConfinedToOurPrefix(
+      createS3Storage({
+        endpoint: requireEnv(S3_VARIABLES.endpoint),
+        region: requireEnv(S3_VARIABLES.region),
+        bucket: requireEnv(S3_VARIABLES.bucket),
+        accessKeyId: requireEnv(S3_VARIABLES.accessKeyId),
+        secretAccessKey: requireEnv(S3_VARIABLES.secretAccessKey),
+      }),
+      keyPrefix(),
+    );
   }
   return instance;
+}
+
+/**
+ * An environment may delete only what it could have written (#113 review).
+ *
+ * One bucket is shared by dev, every preview and — one day — production, and
+ * SPEC §4 gives each its own key prefix. Nothing enforced that on the way
+ * OUT: a delete names the key the row records, and a preview now carries a
+ * COPY of dev's rows, so deleting a work there would have deleted dev's
+ * objects out from under dev's own rows. Permanent, silent, and invisible to
+ * the environment that lost them.
+ *
+ * Production's prefix is blank, which makes this a no-op there — as it should
+ * be: the bare bucket IS production's, and it is the environments scoped
+ * inside it that must stay inside.
+ */
+export function deletesConfinedToOurPrefix(
+  storage: FileStorage,
+  prefix: string,
+): FileStorage {
+  if (prefix === "") return storage;
+  const ours = (key: string): boolean => {
+    if (key.startsWith(prefix)) return true;
+    console.error(
+      `[storage] refusing to delete ${key}: this environment writes under "${prefix}" (#113)`,
+    );
+    return false;
+  };
+  return {
+    ...storage,
+    async deleteObject(key) {
+      if (ours(key)) await storage.deleteObject(key);
+    },
+    async deleteObjects(keys) {
+      const mine = keys.filter(ours);
+      if (mine.length > 0) await storage.deleteObjects(mine);
+    },
+  };
 }

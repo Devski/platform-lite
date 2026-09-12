@@ -347,8 +347,17 @@ export function ownerKey(
   migration in dev's journal whose hash no longer matched the file, and the next deployment of
   `main` would fail on it. What a preview therefore is: dev's data as of its start, plus this
   pull request's schema. Accounts created in a preview, and the rows recording what was
-  uploaded there, die with it. Everything else stays shared — the bucket (under `pr-<n>/`),
-  the signing key, the instance.
+  uploaded there, die with it. Three things follow from the copy and are enforced rather
+  than hoped for: dev's `sessions` and `verifications` are emptied in the copy (signing out
+  on dev cannot reach a copy, so a copied session would be a credential nothing could
+  revoke — you sign in to a preview); a delete may only touch keys under the environment's
+  own prefix (`src/lib/storage.ts`), because the copy's rows name dev's objects in the
+  bucket everything shares; and a copy with no container is dropped by the next
+  `preview-up.sh`, since only closing the pull request would otherwise remove one.
+  What stays shared: the bucket (new writes under `pr-<n>/`), the signing key, the instance.
+  **The signing key being shared is the thing production must not inherit** — one
+  `AUTH_SECRET` across environments plus a copy of the rows is how a session from one
+  becomes a session in another; #24 gives production its own.
 - **Every wait on the database has a deadline, and each environment sets its own** (#172):
   the pool answers a caller it cannot give a connection to within five seconds instead of
   queueing them for ever, and the server cuts off a statement that runs past ten seconds or

@@ -136,8 +136,8 @@ export function poolConfig(
     // and 0 means no deadline at all. This is the whole of #172 in one line.
     connectionTimeoutMillis: connectMs,
     // A connection nobody has used for half a minute is given back. Previews
-    // come and go all day and each holds its own pool against dev's single
-    // PostgreSQL; idle connections there are pure occupancy.
+    // come and go all day and each holds its own pool against the one
+    // PostgreSQL on the instance; idle connections there are pure occupancy.
     idleTimeoutMillis: 30_000,
     statement_timeout: statementMs,
     lock_timeout: lockMs,
@@ -146,8 +146,9 @@ export function poolConfig(
     // that long means the caller is gone.
     idle_in_transaction_session_timeout: idleTxMs,
     // Who is holding the connection, as pg_stat_activity will show it: dev
-    // and every preview share one database (#113), so "one of them is
-    // queueing" is only actionable if the row says which.
+    // and every preview share one PostgreSQL — a database each since #113,
+    // but one instance and one core — so "something is queueing" is only
+    // actionable if the row says which of them.
     application_name: connectionLabel(use),
   };
 }

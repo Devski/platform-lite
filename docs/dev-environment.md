@@ -190,8 +190,17 @@ at one:
   work — exists only there and goes away with it. The objects those uploads
   put in the bucket do NOT: they stay under `pr-<n>/` with nothing naming
   them (the same tail as #34 and #111).
+- **You have to sign in to a preview.** Its copy is restored with `sessions`
+  and `verifications` emptied: a session copied out of dev would stay valid in
+  the copy after it was revoked on dev, and nothing could reach in to end it.
+- **A preview cannot delete dev's objects**, even though its rows name them:
+  `src/lib/storage.ts` refuses a delete whose key is outside the environment's
+  own `S3_PREFIX` and logs what it refused.
 - **A copy can be left behind** if a preview is removed some other way than
-  `preview-down.sh`. List and drop by hand:
+  `preview-down.sh` — a cancelled CI run, or an older branch whose
+  `preview-down.sh` predates #113. The next `preview-up.sh` drops every copy
+  with no container of its own, so this heals on the next preview; to see or
+  do it by hand:
 
   ```
   ssh <DEV_SSH_HOST> docker exec postgres psql -U postgres -Atc "select datname from pg_database where datname like 'platform\_pr\_%'"

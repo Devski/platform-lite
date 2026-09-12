@@ -3,6 +3,8 @@ import {
   contentKey,
   createMemoryStorage,
   createS3Storage,
+  deletesConfinedToOurPrefix,
+  type FileStorage,
   IMMUTABLE_CACHE_CONTROL,
   isNotFound,
   isStorageConfigured,
@@ -483,4 +485,63 @@ describe("getStorage environment wiring", () => {
       expect(() => getStorage()).toThrow(name);
     },
   );
+});
+
+describe("deletes confined to our own prefix (#113)", () => {
+  function spyStorage() {
+    const deleted: string[][] = [];
+    const one: string[] = [];
+    const storage: FileStorage = {
+      ...createMemoryStorage().storage,
+      async deleteObjects(keys: string[]) {
+        deleted.push(keys);
+      },
+      async deleteObject(key: string) {
+        one.push(key);
+      },
+    };
+    return { storage, deleted, one };
+  }
+
+  it("passes through what this environment wrote", async () => {
+    const { storage, deleted } = spyStorage();
+    const confined = deletesConfinedToOurPrefix(storage, "pr-113/");
+    await confined.deleteObjects(["pr-113/a/one.webp", "pr-113/a/two.webp"]);
+    expect(deleted).toEqual([["pr-113/a/one.webp", "pr-113/a/two.webp"]]);
+  });
+
+  it("refuses a key belonging to another environment", async () => {
+    // A preview runs on a COPY of dev's rows, and those rows name dev's
+    // objects. Deleting a work there would otherwise take dev's object with
+    // it and leave dev's own row pointing at nothing — permanent, and
+    // invisible to the environment that lost it.
+    const { storage, deleted, one } = spyStorage();
+    const said = vi.spyOn(console, "error").mockImplementation(() => {});
+    const confined = deletesConfinedToOurPrefix(storage, "pr-113/");
+    await confined.deleteObjects(["devski/a/one.webp", "pr-113/a/mine.webp"]);
+    await confined.deleteObject("devski/a/two.webp");
+    expect(deleted).toEqual([["pr-113/a/mine.webp"]]);
+    expect(one).toEqual([]);
+    expect(said.mock.calls.flat().join(" ")).toContain("devski/a/one.webp");
+    said.mockRestore();
+  });
+
+  it("calls the bucket not at all when nothing is ours", async () => {
+    const { storage, deleted } = spyStorage();
+    const said = vi.spyOn(console, "error").mockImplementation(() => {});
+    const confined = deletesConfinedToOurPrefix(storage, "pr-113/");
+    await confined.deleteObjects(["devski/a/one.webp"]);
+    expect(deleted).toEqual([]);
+    said.mockRestore();
+  });
+
+  it("leaves production alone: the bare bucket is its own", async () => {
+    const { storage, deleted } = spyStorage();
+    // Production's prefix is blank (SPEC §4), so every key is under it — the
+    // wrapper must not stand between production and its own objects.
+    const confined = deletesConfinedToOurPrefix(storage, "");
+    expect(confined).toBe(storage);
+    await confined.deleteObjects(["a/one.webp"]);
+    expect(deleted).toEqual([["a/one.webp"]]);
+  });
 });
