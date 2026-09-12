@@ -6,3 +6,7 @@ coverage/
 playwright-report/
 test-results/
 next-env.d.ts
+
+# Read by an agent, not a person (#185): aligning its tables would grow the
+# file by nearly 30%, all of it spaces the agent reads as tokens.
+docs/ui-specification.md
