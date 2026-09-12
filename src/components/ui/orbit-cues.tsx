@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { R360Cue } from "@/lib/r360/frame-set-shared";
 import type { OrbitParams } from "@/lib/r360/orbit";
 import { travelPath } from "@/lib/r360/ring";
@@ -68,6 +69,29 @@ export function OrbitCueButtons({
   tone?: "light" | "dark";
   className?: string;
 }) {
+  // #175: the cues this motion has crossed, held until their pulse has
+  // finished playing. Derived state would not do: the orbit stands on a
+  // crossed frame for one animation frame — 28 ms, less through the fast
+  // middle of an eased travel — and an animation whose attribute is taken
+  // away is an animation cut off, which is the blink again in another
+  // property. Each entry clears itself on animationend.
+  const [crossed, setCrossed] = useState<readonly number[]>([]);
+  const passedThrough = orbit.moving ? orbit.frame : null;
+  const [wasOn, setWasOn] = useState<number | null>(null);
+  if (passedThrough !== wasOn) {
+    setWasOn(passedThrough);
+    // Only a frame the motion MOVED onto, and only one it is not headed
+    // for: the frame a travel starts from was never crossed, and the one
+    // it ends on is arrived at.
+    if (
+      passedThrough !== null &&
+      wasOn !== null &&
+      passedThrough !== orbit.aimedAt &&
+      !crossed.includes(passedThrough)
+    ) {
+      setCrossed([...crossed, passedThrough]);
+    }
+  }
   if (cues.length === 0) return null;
   const look = TONES[tone];
   return (
@@ -78,16 +102,20 @@ export function OrbitCueButtons({
     >
       {cues.map((cue) => {
         // #175: where the orbit was ASKED to be — the frame it is travelling
-        // to while it travels, the frame it stands on otherwise. Lighting
-        // the current frame instead meant a press did nothing until the
-        // orbit arrived, and that every cue a travel crossed on the way lit
-        // for the single frame it stood there: a blink, not a signal.
-        const here = cue.frame === (orbit.aimedAt ?? orbit.frame);
-        // Crossed on the way to somewhere else: a pulse says the orbit went
-        // by, and says it in a ring rather than in the tones, which cannot
-        // fade between each other without passing through colours that
-        // cannot be read (#107, caught by axe in the lightbox).
-        const passing = orbit.aimedAt !== null && cue.frame === orbit.frame;
+        // to while it travels, the frame it stands on when it is still.
+        // Reading the current frame instead meant a press did nothing until
+        // the orbit arrived, and that every cue a motion crossed lit for the
+        // single frame it stood there: a blink, not a signal. A coast is
+        // moving with nowhere asked for, so nothing is marked until it
+        // stops.
+        const here = orbit.moving
+          ? cue.frame === orbit.aimedAt
+          : cue.frame === orbit.frame;
+        // Crossed on the way elsewhere: a pulse says the orbit went by, and
+        // says it in a ring rather than in the tones, which cannot fade
+        // between each other without passing through colours that cannot be
+        // read (#107, caught by axe in the lightbox).
+        const passing = crossed.includes(cue.frame);
         const state = here
           ? look.here
           : cue.frame === preview
@@ -123,7 +151,12 @@ export function OrbitCueButtons({
               // two tones passes through ones that cannot be read (axe
               // caught one mid-way in the lightbox).
               data-passing={passing ? "" : undefined}
-              className={`inline-flex min-h-8 cursor-pointer items-center gap-(--sp-3) rounded-full border px-(--sp-4) type-label focus-visible:outline-none data-passing:animate-cue-pulse motion-reduce:data-passing:animate-none ${look.focus} ${state}`}
+              onAnimationEnd={() =>
+                setCrossed((frames) =>
+                  frames.filter((frame) => frame !== cue.frame),
+                )
+              }
+              className={`inline-flex min-h-8 items-center gap-(--sp-3) rounded-full border px-(--sp-4) type-label focus-visible:outline-none data-passing:animate-cue-pulse motion-reduce:data-passing:animate-none ${look.focus} ${state}`}
             >
               {/* The ring's marker, in small: this button is that diamond. */}
               <span

@@ -577,7 +577,7 @@
         "paramEaseIn": "Ease in",
         "paramEaseOut": "Ease out",
         "easePercent": "{percent}%",
-        "glideHint": "Eased: a click on the ring gathers pace and settles onto its frame, and an orbit thrown with the hand keeps turning and slows to a stop. Constant is one pace from beginning to end. A visitor whose system asks for less motion gets neither — the orbit simply arrives.",
+        "glideHint": "Ease in and ease out are the two sliders below. Eased: a click on the ring gathers pace and settles onto its frame, and an orbit thrown with the hand keeps turning and slows to a stop. Constant is one pace from beginning to end. A visitor whose system asks for less motion gets neither — the orbit simply arrives.",
         "flatteningCircle": "Circle",
         "refused": {
           "not_a_zip": "This is not a zip archive.",

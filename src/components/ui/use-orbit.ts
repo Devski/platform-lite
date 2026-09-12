@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   COAST_SAMPLES_KEPT,
   coastOnRelease,
@@ -79,6 +79,13 @@ export interface Orbit {
    * happens to be crossing.
    */
   aimedAt: number | null;
+  /**
+   * #175: whether the orbit is moving of its own accord — an aimed travel
+   * or a coast. What tells a readout "do not call any frame the current
+   * one yet": the frames a motion crosses are passed through, not arrived
+   * at, and a row that marks them marks a blink.
+   */
+  moving: boolean;
   cancelTravel: () => void;
   dragging: boolean;
   /** Spread onto the element that is the picture. */
@@ -107,8 +114,14 @@ export function useOrbit(
   // rebuilt with every one of them.
   const glide = glides(params);
   // #175: one curve for every travel, whichever hand started it — the ring,
-  // a marker on it, or a cue button all come through travelAlong.
-  const curve = travelCurve(params);
+  // a marker on it, or a cue button all come through travelAlong. Memoised
+  // for the reason stated just above: it is an object, and the parameters
+  // it is built from arrive fresh on some renders.
+  const curve = useMemo(
+    () =>
+      travelCurve({ glide, easeIn: params.easeIn, easeOut: params.easeOut }),
+    [glide, params.easeIn, params.easeOut],
+  );
   const [frame, setFrameState] = useState(() =>
     wrapFrame(options.initialFrame ?? params.startFrame, frameCount),
   );
@@ -130,10 +143,14 @@ export function useOrbit(
   // landing that does not depend on it (#161).
   const travel = useRef<number | undefined>(undefined);
   const landing = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  // #175: the frame an aimed travel is on its way to, or null.
+  // #175: the frame an aimed travel is on its way to, or null — and
+  // whether the orbit is moving on its own at all, which a coast does
+  // without anyone having asked for the frame it stops on.
   const [aimedAt, setAimedAt] = useState<number | null>(null);
+  const [coasting, setCoasting] = useState(false);
   const cancelTravel = useCallback(() => {
     setAimedAt(null);
+    setCoasting(false);
     if (travel.current !== undefined) {
       window.cancelAnimationFrame(travel.current);
     }
@@ -317,6 +334,10 @@ export function useOrbit(
         coast.ms,
         "slowing",
       );
+      // After `run`, like the aim above and for the same reason (#175): a
+      // coast passes cues too, and while it does, none of them is where the
+      // orbit was asked to be — nobody asked.
+      setCoasting(true);
     },
     [direction, frameCount, framesPerWidth, glide, run],
   );
@@ -334,6 +355,7 @@ export function useOrbit(
   return {
     frame,
     aimedAt,
+    moving: aimedAt !== null || coasting,
     setFrame,
     travelAlong,
     cancelTravel,

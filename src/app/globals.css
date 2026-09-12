@@ -266,7 +266,7 @@
      it on the cue row, and it was true of all of them. Here rather than in
      the Button component, because half the buttons in the app are bare
      elements, and a disabled one keeps the cursor that says so. */
-  button:not(:disabled),
+  button:not(:disabled):not([aria-disabled="true"]),
   [role="button"]:not([aria-disabled="true"]) {
     cursor: pointer;
   }

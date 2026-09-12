@@ -38,10 +38,16 @@ export function glides(params: Pick<OrbitParams, "glide">): boolean {
   return params.glide !== false;
 }
 
+/** Within 0..1; anything that is not a number reads as 0. */
+function clampAmount(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(1, Math.max(0, value));
+}
+
 /** Within 0..1, with anything that is not a number reading as `fallback`. */
 function amount(value: number | undefined, fallback: number): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
-  return Math.min(1, Math.max(0, value));
+  return clampAmount(value);
 }
 
 /**
@@ -299,10 +305,19 @@ function alongCurve(progress: number, curve: TravelCurve): number {
   if (typeof curve === "object") {
     // A blend, not a second formula: the eased shape and the straight line
     // agree at the halfway point, so mixing each half towards the line by
-    // its own amount leaves the two halves meeting where they always did —
-    // no step in the middle, whatever the owner picked, and 1/1 IS the
-    // curve #153 shipped rather than an approximation of it.
-    const towards = progress <= 0.5 ? curve.easeIn : curve.easeOut;
+    // its own amount leaves the two halves meeting where they always did,
+    // and 1/1 IS the curve #153 shipped rather than an approximation of it.
+    //
+    // Where they meet, the POSITION is continuous; the speed is not. 100
+    // in and 0 out changes pace at the halfway mark rather than at a frame
+    // boundary — a third of it, at the moment the travel is fastest, so it
+    // reads as part of the motion. It is a thing the owner chose, not a
+    // seam to hide.
+    //
+    // Clamped here as well as in travelCurve: the type is exported, and an
+    // amount outside 0..1 turns the blend back DOWN the path — `path[-3]`,
+    // a frame that is not a number, out of a function that promises one.
+    const towards = clampAmount(progress <= 0.5 ? curve.easeIn : curve.easeOut);
     return progress + towards * (smoothstep(progress) - progress);
   }
   switch (curve) {

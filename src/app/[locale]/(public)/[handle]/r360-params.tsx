@@ -122,9 +122,9 @@ export function R360ParamControls({
             shown={t("easePercent", { percent: easeAmount(params.easeIn) })}
             min={0}
             max={100}
-            step={10}
+            step={1}
             value={easeAmount(params.easeIn)}
-            onChange={(percent) => onChange({ easeIn: percent / 100 })}
+            onChange={(percent) => onChange({ easeIn: easeValue(percent) })}
             disabled={disabled}
             testId="work-r360-ease-in"
           />
@@ -133,9 +133,9 @@ export function R360ParamControls({
             shown={t("easePercent", { percent: easeAmount(params.easeOut) })}
             min={0}
             max={100}
-            step={10}
+            step={1}
             value={easeAmount(params.easeOut)}
-            onChange={(percent) => onChange({ easeOut: percent / 100 })}
+            onChange={(percent) => onChange({ easeOut: easeValue(percent) })}
             disabled={disabled}
             testId="work-r360-ease-out"
           />
@@ -367,6 +367,15 @@ function ParamLabel({
 function easeAmount(value: number | undefined): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return 100;
   return Math.round(Math.min(1, Math.max(0, value)) * 100);
+}
+
+/**
+ * The other way about: full ease is written as nothing at all, so a slider
+ * dragged away and back leaves the work as untouched as it found it — the
+ * same bargain the motion switch makes, where only OFF is written down.
+ */
+function easeValue(percent: number): number | undefined {
+  return percent >= 100 ? undefined : percent / 100;
 }
 
 function RangeParam({

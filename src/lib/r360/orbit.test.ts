@@ -401,6 +401,22 @@ describe("travelStop", () => {
     }
   });
 
+  // The type is exported, so an amount can reach alongCurve without having
+  // been through travelCurve. Unclamped, a blend of 5 turns back DOWN the
+  // path and travelStop hands out `path[-3]` — undefined, from a function
+  // whose type says number.
+  it("clamps an amount it is handed directly, and stays on the path", () => {
+    const ten = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    for (const at of [0, 100, 250, 500, 750, 1000]) {
+      const wild = travelStop(ten, at, 1000, { easeIn: 5, easeOut: -3 });
+      expect(ten, `at ${at}`).toContain(wild.frame);
+    }
+    // 5 clamps to 1 and −3 to 0, so it is the same travel as 1 and 0.
+    expect(travelStop(ten, 100, 1000, { easeIn: 5, easeOut: -3 }).frame).toBe(
+      travelStop(ten, 100, 1000, { easeIn: 1, easeOut: 0 }).frame,
+    );
+  });
+
   it("reads an amount outside 0..1, or none at all, as the full ease", () => {
     const ten = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     const full = travelStop(ten, 100, 1000, EASED).frame;
