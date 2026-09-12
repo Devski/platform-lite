@@ -134,9 +134,10 @@ if [ "$timer_status" -ne 0 ]; then
   echo "         the deployment continues — see docs/backup-and-restore.md"
 fi
 
-# Until #167 gives reports a way to reach a person, the deployment is the one
-# routine that a human already watches. It only warns: a stale copy is not a
-# reason to refuse to deploy, it is a reason to know.
+# The hourly check (#167) mails this when it is true; the deployment says it too,
+# because a deploy log is read at the moment someone is already paying
+# attention. It only warns: a stale copy is not a reason to refuse to deploy,
+# it is a reason to know.
 last_copy=/var/lib/platform-backup/last-success
 if [ ! -f "$last_copy" ]; then
   echo "WARNING: no database copy has ever succeeded on this instance (#168)"
@@ -144,6 +145,79 @@ elif [ $(($(date +%s) - $(stat -c %Y "$last_copy"))) -gt 172800 ]; then
   echo "WARNING: the newest database copy is over two days old (#168):"
   echo "         $(cat "$last_copy")"
   echo "         check: systemctl status platform-backup.timer"
+fi
+
+# #167: the hourly look at this instance, and the one place its findings are
+# turned into a message to a person — deploy/ops-check.sh, docs/operations.md.
+# Installed the same way as the copy above and for the same reasons, including
+# the subshell and the captured status; it must never stop a deployment.
+install_ops_timer() (
+  set -e
+  units=$(mktemp -d)
+  trap 'rm -rf "$units"' EXIT
+cat >"$units/platform-ops.service" <<'UNIT'
+[Unit]
+Description=Look at this instance and tell a person what needs a decision (#167)
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+# The application's log is in the journal (compose.yaml), and reading another
+# unit's entries takes this group. Granted to the service, not to the account.
+SupplementaryGroups=systemd-journal
+StateDirectory=platform-ops
+PrivateTmp=true
+TimeoutStartSec=300
+ExecStart=/bin/bash /opt/platform-lite/ops-check.sh
+UNIT
+cat >"$units/platform-ops.timer" <<'UNIT'
+[Unit]
+Description=Hourly look at this instance (#167)
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target
+UNIT
+# The journal is where the application's log now lives, so it is also what
+# could fill the disk being watched. Capped here rather than left to journald's
+# default, which is a tenth of the filesystem.
+cat >"$units/platform-lite.conf" <<'UNIT'
+[Journal]
+SystemMaxUse=300M
+MaxRetentionSec=30day
+UNIT
+  units_changed=false
+  for unit in platform-ops.service platform-ops.timer; do
+    if ! cmp -s "$units/$unit" "/etc/systemd/system/$unit"; then
+      sudo install -m 644 "$units/$unit" "/etc/systemd/system/$unit"
+      units_changed=true
+    fi
+  done
+  if [ "$units_changed" = true ]; then
+    echo "ops timer: units installed"
+    sudo systemctl daemon-reload
+  fi
+  sudo systemctl enable --now platform-ops.timer >/dev/null
+  if ! cmp -s "$units/platform-lite.conf" /etc/systemd/journald.conf.d/platform-lite.conf; then
+    sudo install -d -m 755 /etc/systemd/journald.conf.d
+    sudo install -m 644 "$units/platform-lite.conf" /etc/systemd/journald.conf.d/platform-lite.conf
+    sudo systemctl restart systemd-journald
+    echo "journal: capped at 300M"
+  fi
+)
+set +e
+install_ops_timer
+ops_status=$?
+set -e
+if [ "$ops_status" -ne 0 ]; then
+  echo "WARNING: the hourly operations check could not be installed (#167);"
+  echo "         the deployment continues — see docs/operations.md"
 fi
 
 container=$(docker compose ps --quiet app)

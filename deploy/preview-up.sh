@@ -189,6 +189,7 @@ docker run --detach --name "$NAME" \
   --restart unless-stopped \
   --network platform \
   --memory 512m \
+  --log-opt max-size=10m --log-opt max-file=3 \
   --env-file /opt/platform-lite/.env \
   --env DATABASE_URL \
   --env "APP_URL=https://$HOSTNAME_" \

@@ -296,6 +296,21 @@ jobs:
       - name: The nightly copy skips the preview copies
         run: grep -q "not like 'platform..pr..%'" deploy/backup-db.sh
 
+      # #167. The application's log goes to the host journal, because a log
+      # kept in the container's own directory is deleted with the container —
+      # which is every deploy. And the hourly check that reads it has to reach
+      # the instance, or the report that exists to break the silence is itself
+      # silently missing.
+      - name: The application logs to the journal
+        run: |
+          test "$(grep -c 'driver: journald' deploy/compose.yaml)" -ge 2
+      - name: The operations check is shipped and installed
+        run: |
+          # Anchored to the scp line's indentation, so this line cannot satisfy itself.
+          grep -qE '^ +deploy/backup-db.sh deploy/ops-check.sh' .github/workflows/ci.yml
+          grep -q 'ExecStart=/bin/bash /opt/platform-lite/ops-check.sh' deploy/remote-deploy.sh
+          bash -n deploy/ops-check.sh
+
   # Smoke on every push and PR (SPEC §6): the database-less project only. No
   # DATABASE_URL_TEST here on purpose — that is what makes this job prove the
   # fail-closed behaviour (401s, redirects to /login, 404s) with no database at
@@ -491,7 +506,7 @@ jobs:
         run: |
           scp -i ~/.ssh/id_deploy \
             deploy/compose.yaml deploy/Caddyfile deploy/remote-deploy.sh \
-            deploy/backup-db.sh \
+            deploy/backup-db.sh deploy/ops-check.sh \
             "$HOST:/opt/platform-lite/"
       - name: Pull the image and restart the container
         if: steps.wired.outputs.wired == 'true'

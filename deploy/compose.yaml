@@ -18,6 +18,14 @@ services:
     # guess passwords without limit (the #8 review's trust contract).
     expose: ["3000"]
     networks: [platform]
+    # #167: into the host's journal, not a file in the container's own
+    # directory. That file is deleted with the container — which is every
+    # deploy — so the log of the hour before a bad deploy was gone by the time
+    # anyone looked for it. The journal outlives the container, is capped by
+    # remote-deploy.sh, and tags every entry with the container's name, which
+    # compose keeps from one deploy to the next.
+    logging:
+      driver: journald
 
   caddy:
     image: caddy:2-alpine
@@ -45,6 +53,9 @@ services:
       S3_UPLOAD_ORIGIN: ${S3_UPLOAD_ORIGIN:?set S3_UPLOAD_ORIGIN to the S3 endpoint origin}
     depends_on: [app]
     networks: [platform]
+    # Same as the app's, for the same reason (#167).
+    logging:
+      driver: journald
 
 networks:
   # Created once by the deployment procedure, not by this file, because the
