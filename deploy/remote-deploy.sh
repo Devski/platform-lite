@@ -110,16 +110,23 @@ prune_old_images() {
 
 # Only when it is tight: a deployment that changes nothing about the disk
 # should not spend time on it, and the clearing after a healthy start below
-# is what keeps it from getting here in the ordinary case. Unreadable reads
-# as tight — `|| free_kb=0`, because under `set -euo pipefail` a failing
-# `df` would otherwise end the deployment right here, fallback unreached.
+# is what keeps it from getting here in the ordinary case.
+#
+# Measured where the images actually are. With containerd's image store —
+# this instance — they are under /var/lib/containerd, not /var/lib/docker;
+# on one root filesystem the two read the same, but not once they sit on
+# different disks. So both, whichever exist, and the tighter one counts.
+# `df` exits non-zero when one path is missing, which under
+# `set -euo pipefail` would end the deployment, hence the `|| true` inside;
+# nothing readable leaves the value empty, and empty reads as tight.
 #
 # FIRST, before anything writes to the disk: recording the list and
 # `docker login` both write a file, and on a disk at 100% — the day this
 # is for — the first of them would end the run before any room was made
 # (review). Nothing is lost by clearing this early: dev's container still
 # runs and protects its image, and the list still holds the ones before.
-free_kb=$(df --output=avail -k /var/lib/docker 2>/dev/null | tail -1) || free_kb=0
+free_kb=$({ df --output=avail -k /var/lib/containerd /var/lib/docker 2>/dev/null || true; } |
+  awk '$1 ~ /^[0-9]+$/ && (min == "" || $1 < min) { min = $1 } END { print min }')
 if [ "${free_kb:-0}" -lt "$DISK_FLOOR_KB" ]; then
   echo "under $((DISK_FLOOR_KB / 1024 / 1024)) GB free before the pull (or unreadable); clearing old images first"
   prune_old_images || echo "WARNING: clearing old images failed (#119); pulling anyway"
