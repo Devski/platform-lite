@@ -270,6 +270,11 @@ test("a new work: the photo goes through the upload chain as a work, then the fo
   await page.mouse.move(box.x + box.width * 0.75, box.y + box.height / 2, {
     steps: 4,
   });
+  // #153: the hand comes to rest before it lets go. Playwright's moves
+  // land within a millisecond of one another, and a release read as a
+  // throw would coast the preview on while the start frame is being set
+  // from it.
+  await page.waitForTimeout(150);
   await page.mouse.up();
   await expect(viewer).toHaveAttribute("data-frame", "2");
   await page.getByRole("button", { name: "Użyj tej klatki" }).click();
@@ -293,6 +298,19 @@ test("a new work: the photo goes through the upload chain as a work, then the fo
     expect(body?.subarray(0, 4).toString()).toBe("RIFF");
     expect(body?.subarray(8, 12).toString()).toBe("WEBP");
   }
+
+  // #153: the motion switch starts ON, because that is what a work saved
+  // before it existed reads as. Turned off and on again it must leave
+  // NOTHING behind — the parameters saved below carry no `glide` key at
+  // all, which is precisely how ON is stored.
+  const glideOn = page.getByTestId("work-r360-glide-on");
+  const glideOff = page.getByTestId("work-r360-glide-off");
+  await expect(glideOn).toHaveAttribute("aria-pressed", "true");
+  await glideOff.click();
+  await expect(glideOff).toHaveAttribute("aria-pressed", "true");
+  await expect(glideOn).toHaveAttribute("aria-pressed", "false");
+  await glideOn.click();
+  await expect(glideOn).toHaveAttribute("aria-pressed", "true");
 
   await page.getByLabel("Inwestor").fill("Archicom S.A.");
   await page.getByRole("button", { name: "Zapisz realizację" }).click();

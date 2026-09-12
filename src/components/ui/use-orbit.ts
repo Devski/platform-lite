@@ -2,11 +2,18 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  COAST_SAMPLES_KEPT,
+  coastOnRelease,
   frameAfterDrag,
   frameAfterKey,
+  framesAlong,
+  glides,
+  travelDuration,
   travelStop,
   wrapFrame,
+  type DragSample,
   type OrbitParams,
+  type TravelCurve,
 } from "@/lib/r360/orbit";
 
 // #103/#104 (the decisions on #68): the hand on an orbit. A drag on the
@@ -16,12 +23,15 @@ import {
 // the same way (#104). A travel (#106: a click on the ring) moves frame by
 // frame along a path over a bounded time, and any hand that takes hold —
 // a grab, a key — ends it. The arithmetic is lib/r360/orbit.ts.
+//
+// #153: the motion eases, on a work whose owner has left it to. A
+// travel gathers pace and settles onto its frame; a drag thrown rather
+// than put down coasts on and slows to a stop. Reduced motion still
+// wins over both — a travel jumps, a release stops dead — and so does a
+// hand: a grab or a key ends a coast exactly as it ends a travel,
+// because a coast IS a travel, along the frames the throw would carry.
 
 const DRAG_SLOP_PX = 6;
-/** A travel's pace, and the bounds that keep a long one from dragging on. */
-const TRAVEL_MS_PER_FRAME = 28;
-const TRAVEL_MIN_MS = 250;
-const TRAVEL_MAX_MS = 1200;
 /**
  * How long after a travel's own time is up its landing waits for the
  * animation to have done the job itself (#161). Wide enough that a busy
@@ -30,6 +40,25 @@ const TRAVEL_MAX_MS = 1200;
  */
 const TRAVEL_LANDING_AFTER_MS = 200;
 
+function reducedMotion(): boolean {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+/**
+ * #153: the clock a drag is measured on. `event.timeStamp` is when the
+ * pointer actually moved, not when the handler got round to running —
+ * and on an orbit page those come apart: decoding frames blocks the main
+ * thread, the moves queued behind it then drain in one task, and
+ * `performance.now()` would read a whole swipe as having happened at
+ * once. Every reading of one gesture comes from here, so a browser whose
+ * stamps sit on another origin is still self-consistent; one that hands
+ * back no time at all leaves a span of zero, which `dragSpeed` reads as
+ * no speed — the safe way to be wrong.
+ */
+function clockOf(event: React.PointerEvent<HTMLElement>): number {
+  return event.timeStamp;
+}
+
 export interface Orbit {
   /** The frame in view, 1..N. */
   frame: number;
@@ -37,7 +66,9 @@ export interface Orbit {
   /**
    * Moves along `path` (the frames on the way, the destination last) over
    * a time proportional to its length, within bounds; reduced motion
-   * jumps. A grab or a key on the way ends it where it is.
+   * jumps. A grab or a key on the way ends it where it is. #153: eased
+   * in and out of its frame on an orbit that glides, at a constant pace
+   * on one whose owner turned that off.
    */
   travelAlong: (path: readonly number[]) => void;
   cancelTravel: () => void;
@@ -61,7 +92,12 @@ export function useOrbit(
     onFrameChange?: (frame: number) => void;
   } = {},
 ): Orbit {
-  const { frameCount } = params;
+  const { frameCount, framesPerWidth, direction } = params;
+  // #153: read once, and as a plain boolean — the parameters arrive as a
+  // fresh object on some renders (a form with no set yet builds its
+  // defaults inline), and a callback keyed on the object itself would be
+  // rebuilt with every one of them.
+  const glide = glides(params);
   const [frame, setFrameState] = useState(() =>
     wrapFrame(options.initialFrame ?? params.startFrame, frameCount),
   );
@@ -72,6 +108,9 @@ export function useOrbit(
     null,
   );
   const current = useRef(frame);
+  // #153: where the pointer has lately been, for the speed a release
+  // coasts at. Kept short, and thrown away with every new grab.
+  const samples = useRef<DragSample[]>([]);
   const onFrameChange = useRef(options.onFrameChange);
   useEffect(() => {
     onFrameChange.current = options.onFrameChange;
@@ -112,25 +151,23 @@ export function useOrbit(
     [cancelTravel, place],
   );
 
-  const travelAlong = useCallback(
-    (path: readonly number[]) => {
+  /**
+   * #153: the motion itself — the frames of `path` spread over `duration`
+   * along `curve`, and the landing that does not depend on the animation
+   * (#161). A click on the ring and a drag thrown both end up here; they
+   * differ only in where the path and the time come from.
+   */
+  const run = useCallback(
+    (path: readonly number[], duration: number, curve: TravelCurve) => {
       cancelTravel();
-      if (path.length === 0) return;
       const destination = path[path.length - 1];
-      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-        place(destination);
-        return;
-      }
-      const duration = Math.min(
-        TRAVEL_MAX_MS,
-        Math.max(TRAVEL_MIN_MS, path.length * TRAVEL_MS_PER_FRAME),
-      );
       const started = performance.now();
       const step = (now: number) => {
         const { frame: on, arrived } = travelStop(
           path,
           now - started,
           duration,
+          curve,
         );
         // Settled before the frame is placed, never after: placing tells the
         // consumer where the orbit is, and a consumer that takes hold there
@@ -158,6 +195,19 @@ export function useOrbit(
     [cancelTravel, place],
   );
 
+  const travelAlong = useCallback(
+    (path: readonly number[]) => {
+      cancelTravel();
+      if (path.length === 0) return;
+      if (reducedMotion()) {
+        place(path[path.length - 1]);
+        return;
+      }
+      run(path, travelDuration(path.length), glide ? "eased" : "steady");
+    },
+    [cancelTravel, glide, place, run],
+  );
+
   // A frame count that changed under the hook (a new archive in the same
   // form) keeps the frame within it, and ends a travel planned for the
   // old one.
@@ -176,6 +226,12 @@ export function useOrbit(
         x: event.clientX,
         width: box.width,
       };
+      // #153: the readings of the drag before this one are not this
+      // drag's. The press itself is not one of them either — it is where
+      // the finger landed, not motion, and counting it would measure a
+      // speed across the slop below and throw the orbit on a tap that
+      // wobbled.
+      samples.current = [];
       event.currentTarget.setPointerCapture(event.pointerId);
       setDragging(true);
     },
@@ -190,19 +246,52 @@ export function useOrbit(
       // A diagonal swipe sends a few moves before the browser claims the
       // vertical pan: a little slop keeps the orbit from jittering a frame.
       if (Math.abs(deltaX) < DRAG_SLOP_PX) return;
+      // #153: read past the slop, never within it. A tap whose finger
+      // jitters a few pixels quickly has a speed like any other motion,
+      // but it has not turned the orbit — and it must not throw it.
+      samples.current = [
+        ...samples.current,
+        { x: event.clientX, t: clockOf(event) },
+      ].slice(-COAST_SAMPLES_KEPT);
       place(frameAfterDrag(from.frame, deltaX, from.width, params));
     },
     [params, place],
   );
 
-  const release = useCallback((event: React.PointerEvent<HTMLElement>) => {
-    if (!anchor.current) return;
-    anchor.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    setDragging(false);
-  }, []);
+  const release = useCallback(
+    (event: React.PointerEvent<HTMLElement>) => {
+      const from = anchor.current;
+      if (!from) return;
+      anchor.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      setDragging(false);
+      // #153: a hand still moving throws the orbit on. What decides that
+      // is lib/r360/orbit.ts, where it can be put to the test — this is
+      // only the reading of the clock and of the event. A pointer
+      // cancelled or taken away is not a release the visitor made, which
+      // is the same way the ring tells a click from a drag.
+      const coast = coastOnRelease(
+        {
+          samples: samples.current,
+          lift: { x: event.clientX, t: clockOf(event) },
+          width: from.width,
+          lifted: event.type === "pointerup",
+          glide,
+          reducedMotion: reducedMotion(),
+        },
+        { framesPerWidth, direction },
+      );
+      if (!coast) return;
+      run(
+        framesAlong(current.current, coast.turn, frameCount),
+        coast.ms,
+        "slowing",
+      );
+    },
+    [direction, frameCount, framesPerWidth, glide, run],
+  );
 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLElement>) => {

@@ -322,11 +322,17 @@ recorded so it is not rediscovered later.
   settled: ~~[#151](https://github.com/Devski/platform-lite/issues/151) an orbit from a RAR
   archive~~ — **dropped 12.09.2026** at his word, we do not support RAR for now; a zip is
   what the export tools produce, and the readers RAR would need are not worth carrying
-  against that. The other two stand:
+  against that. Of the other two, one still stands:
   [#152](https://github.com/Devski/platform-lite/issues/152) orbits on one page loading one
   after another, because the page's frame queue is first come, first served and an orbit
-  in view queues its whole set; [#153](https://github.com/Devski/platform-lite/issues/153)
-  motion that eases on a ring click and coasts after a drag, with the owner's switch.
+  in view queues its whole set. The last is done:
+  ~~[#153](https://github.com/Devski/platform-lite/issues/153) motion that eases on a ring
+  click and coasts after a drag~~ — **done 12.09.2026**: a travel eases in and out of its
+  frame, a drag thrown with the hand coasts on and slows to a stop, and the owner has a
+  sixth parameter to turn both off per work. The coast is not a new mechanism — it is a
+  travel along the frames the throw would carry, so a grab, a key and the #161 landing
+  hold it exactly as they hold a ring click. Reduced motion still wins over all of it.
+  The curve and the length of a coast are to be tried on a phone with Dawid.
 
 ## Requirements coverage
 

@@ -986,7 +986,7 @@ export function WorkForm({
     commitLocalFrames(null);
   }
 
-  // #103: the owner's four parameters, on the set the work will name.
+  // #103: the owner's five parameters, on the set the work will name.
   function setParams(change: Partial<R360Params>) {
     commitR360((current) =>
       current

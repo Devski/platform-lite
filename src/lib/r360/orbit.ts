@@ -2,6 +2,10 @@
 // frame at a time, numbered 1..N in the viewer whatever the file names
 // said, wrapping past the last. Pure, so the hook and the viewer stay thin
 // hands on the pointer and the keyboard, and the mapping is tested here.
+//
+// #153 puts the shape of the motion here too: the curve a travel
+// follows, how fast a drag was going when the hand let go, and how far
+// that carries the orbit afterwards.
 
 export interface OrbitParams {
   frameCount: number;
@@ -10,6 +14,37 @@ export interface OrbitParams {
   /** Frames per picture width: how far a drag across the whole picture goes. */
   framesPerWidth: number;
   startFrame: number;
+  /**
+   * #153: whether the orbit glides — a travel that eases in and out of
+   * its frame, a drag that coasts on after the hand. Absent is ON: the
+   * field arrived after works were saved, and what it names is the
+   * motion every orbit should have had. Only `false` is an owner who
+   * turned it off.
+   */
+  glide?: boolean;
+}
+
+/** #153: whether this orbit glides. Absent is on; only `false` is off. */
+export function glides(params: Pick<OrbitParams, "glide">): boolean {
+  return params.glide !== false;
+}
+
+/**
+ * A travel's pace (#106), and the bounds that keep a long one from
+ * dragging on. Here rather than in the hook because #153's coast may not
+ * outlast a travel, and a cap that repeats the number in another file is
+ * a cap that stops being true the day somebody tunes the original.
+ */
+const TRAVEL_MS_PER_FRAME = 28;
+const TRAVEL_MIN_MS = 250;
+export const TRAVEL_MAX_MS = 1200;
+
+/** How long a travel over `pathLength` frames takes, within the bounds. */
+export function travelDuration(pathLength: number): number {
+  return Math.min(
+    TRAVEL_MAX_MS,
+    Math.max(TRAVEL_MIN_MS, pathLength * TRAVEL_MS_PER_FRAME),
+  );
 }
 
 /** The non-negative modulo: JavaScript's `%` keeps the dividend's sign. */
@@ -37,6 +72,132 @@ export function frameAfterDrag(
   if (width <= 0) return wrapFrame(anchorFrame, params.frameCount);
   const steps = Math.round((deltaX / width) * params.framesPerWidth);
   return wrapFrame(anchorFrame + params.direction * steps, params.frameCount);
+}
+
+/** #153: where the pointer was, and when — one reading of a drag. */
+export interface DragSample {
+  x: number;
+  /** Milliseconds; every sample of one drag read from the same clock. */
+  t: number;
+}
+
+/**
+ * #153: how fast a drag is turning the orbit when it is let go, in
+ * frames per millisecond, signed as the frame numbers run. Measured
+ * between the oldest and the newest sample given — the caller hands over
+ * only the recent ones, so a hand that came to rest before it let go has
+ * nothing here to measure and the orbit stops where it is.
+ *
+ * Zero wherever there is nothing to divide by: one sample, a picture
+ * without width, two readings of the same instant — or a clock that ran
+ * backwards, which `travelStop` guards against for its own reasons.
+ */
+export function dragSpeed(
+  samples: readonly DragSample[],
+  width: number,
+  params: Pick<OrbitParams, "framesPerWidth" | "direction">,
+): number {
+  if (samples.length < 2 || width <= 0) return 0;
+  const first = samples[0];
+  const last = samples[samples.length - 1];
+  const span = last.t - first.t;
+  // Not `span <= 0`: a NaN from either reading must land here too.
+  if (!(span > 0)) return 0;
+  const frames = ((last.x - first.x) / width) * params.framesPerWidth;
+  return (params.direction * frames) / span;
+}
+
+/**
+ * #153: how fast a coast sheds speed, in frames per millisecond squared.
+ * The one number that decides both how long a throw runs and how far it
+ * carries, and so the one to turn when the feel is wrong — to be tuned
+ * on a phone with Dawid.
+ */
+const COAST_SLOWING = 1 / 12_000;
+/**
+ * The fastest a coast may start: a harder throw than this is taken as
+ * this one. Derived from a travel's longest rather than stated again, so
+ * that no motion of the orbit outlasts another however either is tuned.
+ */
+export const COAST_MAX_SPEED = COAST_SLOWING * TRAVEL_MAX_MS;
+
+/**
+ * #153: where a drag let go at `speed` coasts to, and how long it takes
+ * to get there — the frames to turn, signed, and the milliseconds to
+ * spend slowing to a stop. The slowing is constant, so the distance is
+ * half the speed times the time, and `travelStop`'s "slowing" curve is
+ * that same motion drawn out frame by frame.
+ *
+ * Null when the throw would not carry a whole frame: a hand that let go
+ * rather than threw leaves the orbit where it is, as it always did. That
+ * is the floor, and there is no second threshold to keep in step with it.
+ */
+export function coastAfterDrag(
+  speed: number,
+): { turn: number; ms: number } | null {
+  if (!Number.isFinite(speed)) return null;
+  const capped = Math.max(-COAST_MAX_SPEED, Math.min(COAST_MAX_SPEED, speed));
+  const ms = Math.abs(capped) / COAST_SLOWING;
+  const turn = Math.round((capped * ms) / 2);
+  return turn === 0 ? null : { turn, ms };
+}
+
+/**
+ * #153: how far back a release looks for the speed to coast at. Long
+ * enough to hold several moves at any refresh rate, short enough that a
+ * hand which came to rest before it let go leaves nothing inside it —
+ * which is what makes a deliberate stop stop, with no threshold to tune.
+ */
+const COAST_SAMPLE_MS = 100;
+/**
+ * Readings a drag keeps. More than COAST_SAMPLE_MS can hold at any
+ * refresh rate, so the window decides what counts and not the slicing.
+ */
+export const COAST_SAMPLES_KEPT = 12;
+
+/**
+ * #153: the whole of what a release decides — whether the orbit coasts
+ * on, and if so how far and for how long. Here rather than in the hook
+ * so that every way of NOT coasting can be put to the test: a pointer
+ * that was cancelled rather than lifted, an owner who turned the glide
+ * off, a visitor whose system asks for less motion, and a hand that was
+ * slowing or standing still when it let go.
+ *
+ * That last one is why the lift is a reading like any other rather than
+ * merely the moment of asking. Measured between MOVES, the time a hand
+ * spends resting before it lets go never reaches the divisor: the speed
+ * would stay exactly what it was while the hand was still travelling,
+ * right up to the moment the window empties, and then fall to nothing.
+ * A finger lifts tens of milliseconds after it stops — the ordinary
+ * gesture — so that step would have thrown the orbit most of the way
+ * round on a drag the visitor had already finished. With the lift in the
+ * readings, resting lengthens the span without lengthening the distance,
+ * and the throw drains smoothly to nothing.
+ */
+export function coastOnRelease(
+  release: {
+    samples: readonly DragSample[];
+    /**
+     * Where and when the pointer lifted: the drag's last reading, and
+     * the clock the window is measured back from.
+     */
+    lift: DragSample;
+    /** The picture's width at the grab, which the drag was measured in. */
+    width: number;
+    /** The pointer was LIFTED — not cancelled, not taken away. */
+    lifted: boolean;
+    glide: boolean;
+    reducedMotion: boolean;
+  },
+  params: Pick<OrbitParams, "framesPerWidth" | "direction">,
+): { turn: number; ms: number } | null {
+  if (!release.lifted || !release.glide || release.reducedMotion) {
+    return null;
+  }
+  const recent = [...release.samples, release.lift].filter(
+    (reading) => release.lift.t - reading.t <= COAST_SAMPLE_MS,
+  );
+  return coastAfterDrag(dragSpeed(recent, release.width, params));
 }
 
 /** A twelfth of the orbit, at least one frame — the Page keys' step. */
@@ -80,6 +241,33 @@ export function frameAfterKey(
 }
 
 /**
+ * #153: the shape a travel's progress takes. `steady` gives every frame
+ * the same slice of the time — what a travel always did, and what an
+ * orbit whose owner turned the glide off still does. `eased` starts from
+ * rest, runs fastest halfway and settles onto its frame: a click on the
+ * ring. `slowing` starts at the hand's speed and comes to a stop — and
+ * that one is not chosen for the look of it, it is where constant
+ * slowing puts a thing, the very motion `coastAfterDrag` measures out.
+ */
+export type TravelCurve = "steady" | "eased" | "slowing";
+
+// Every member named, and no `default`: a curve added to the union and
+// forgotten here is then a compile error, not a travel that quietly runs
+// at a flat pace.
+function alongCurve(progress: number, curve: TravelCurve): number {
+  switch (curve) {
+    case "steady":
+      return progress;
+    case "eased":
+      // Smoothstep: still at both ends, fastest in the middle.
+      return progress * progress * (3 - 2 * progress);
+    case "slowing":
+      // 2t − t²: full speed at the start, none at the end.
+      return progress * (2 - progress);
+  }
+}
+
+/**
  * Where a travel stands (#106): the frame to show after `elapsed` of its
  * `duration`, and whether that frame is the destination. Every frame on
  * the path gets an equal share of the time, and the last one is the
@@ -95,16 +283,27 @@ export function frameAfterKey(
  *
  * An empty path has nowhere to be: no frame, and arrived. The hook never
  * asks, and `place` ignores a frame that is not a number.
+ *
+ * #153: `curve` is how the time is spread over the path — equally, or
+ * gathered towards one end. It decides which frame is shown when, never
+ * where the travel ends or when it is over.
  */
 export function travelStop(
   path: readonly number[],
   elapsed: number,
   duration: number,
+  curve: TravelCurve = "steady",
 ): { frame: number; arrived: boolean } {
   if (path.length === 0) return { frame: Number.NaN, arrived: true };
   const since = Number.isFinite(elapsed) ? Math.max(0, elapsed) : 0;
   const progress = duration > 0 ? since / duration : 1;
-  const at = Math.min(path.length - 1, Math.floor(progress * path.length));
+  // A curve is only itself over the travel's own time: an animation
+  // frame that came late reads a progress past 1, and smoothstep of 1.2
+  // turns back DOWN the path. Clamped for the curve, raw for the arrival.
+  const at = Math.min(
+    path.length - 1,
+    Math.floor(alongCurve(Math.min(1, progress), curve) * path.length),
+  );
   return { frame: path[at], arrived: progress >= 1 };
 }
 
@@ -116,6 +315,23 @@ export function shortestTurn(
 ): number {
   const forward = mod(to - from, frameCount);
   return forward <= frameCount - forward ? forward : forward - frameCount;
+}
+
+/**
+ * The frames a turn of `turn` from `from` passes through — the
+ * destination last, `from` itself not among them. A turn longer than the
+ * frame count wraps and keeps going, because a coast can carry the orbit
+ * more than once round (#153).
+ */
+export function framesAlong(
+  from: number,
+  turn: number,
+  frameCount: number,
+): number[] {
+  const step = Math.sign(turn);
+  return Array.from({ length: Math.abs(turn) }, (_, i) =>
+    wrapFrame(from + step * (i + 1), frameCount),
+  );
 }
 
 /**
