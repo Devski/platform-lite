@@ -330,6 +330,16 @@ recorded so it is not rediscovered later.
   not — the held item fades in place and everything jumps on the drop. For now it stays. The
   boxes needed for it are already measured at pointerdown, so this is a transform and a
   transition rather than a rewrite.
+- [#182](https://github.com/Devski/platform-lite/issues/182) A slider takes no focus on touch,
+  so the phone keeps scrolling back to the field being edited (`bug`, `ux`). Dawid,
+  12.09.2026, from the work form on a phone: with the cursor left in a text field, every move
+  of an R360 slider pulls the page back to that field. Nothing puts the focus back — it never
+  leaves. Measured in mobile Chromium: a browser gives an `input[type=range]` no focus from a
+  tap or from a drag, so the caret stays in the field, the keyboard stays up, and the browser
+  holds the caret in view against every re-render the slider causes. Safari on iOS withholds
+  the focus from buttons and tabbable divs as well, and Dawid works on both platforms, so the
+  fix has to reach the panel's buttons — the direction toggle, the cue row, "use this frame"
+  — and the dragged orbit too, not only the two sliders it was reported on.
 - Three from Dawid on 11.09.2026, deliberately outside the R360 milestone. One is already
   settled: ~~[#151](https://github.com/Devski/platform-lite/issues/151) an orbit from a RAR
   archive~~ — **dropped 12.09.2026** at his word, we do not support RAR for now; a zip is
@@ -337,14 +347,21 @@ recorded so it is not rediscovered later.
   against that. Of the other two, one still stands:
   [#152](https://github.com/Devski/platform-lite/issues/152) orbits on one page loading one
   after another, because the page's frame queue is first come, first served and an orbit
-  in view queues its whole set. The last is done:
+  in view queues its whole set. The last one shipped and was trimmed back hours later:
   ~~[#153](https://github.com/Devski/platform-lite/issues/153) motion that eases on a ring
-  click and coasts after a drag~~ — **done 12.09.2026**: a travel eases in and out of its
-  frame, a drag thrown with the hand coasts on and slows to a stop, and the owner has a
-  sixth parameter to turn both off per work. The coast is not a new mechanism — it is a
-  travel along the frames the throw would carry, so a grab, a key and the #161 landing
-  hold it exactly as they hold a ring click. Reduced motion still wins over all of it.
-  The curve and the length of a coast are to be tried on a phone with Dawid.
+  click and coasts after a drag~~ — **shipped 12.09.2026 (PR #171) and half taken out the
+  same day** (PR #177), at Dawid's word: the product is losing functions rather than
+  gaining them. What stands is the coast — an orbit thrown with the hand keeps turning and
+  slows to a stop. That curve is not a look chosen by eye but where constant slowing
+  actually puts a thing, and it is not a new mechanism either: it is a travel along the
+  frames the throw would carry, so a grab, a key and the #161 landing hold it exactly as
+  they hold a ring click. What came out is the eased travel and the owner's _Motion_
+  switch over it — a click travels at one pace again and the parameters are five once
+  more. A work still carrying the switch in its JSON reads as one without it, so nothing
+  was migrated. With it went ~~[#175](https://github.com/Devski/platform-lite/issues/175)
+  the ease as two owner-set amounts~~ — **closed unmerged**, none of it ever reached
+  `main`. Reduced motion still wins over what is left: such a visitor is not thrown.
+  The length of a coast is still to be tried on a phone with Dawid.
 
 ## Requirements coverage
 
