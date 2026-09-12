@@ -35,9 +35,15 @@ const THIRD = "Dom w lesie";
 let page: Page;
 let identity: Identity;
 
-/** The work names as the page lists them, top to bottom. */
-async function namesOn(target: Page): Promise<string[]> {
-  return target.locator("article h3").allInnerTexts();
+/**
+ * The work names as the page lists them, top to bottom — as a retrying
+ * assertion, not a snapshot. Reading the names straight after a key press
+ * asks the page what it looks like before React has finished putting it
+ * there: green on a quiet machine, red about one run in three on CI, and the
+ * difference is not the product.
+ */
+function namesOn(target: Page) {
+  return expect(target.locator("article h3"));
 }
 
 test.beforeAll(async ({ browser }) => {
@@ -55,7 +61,7 @@ test.afterAll(async () => {
 
 test("the grips appear only while editing", async () => {
   await page.goto(`/${identity.handle}`);
-  expect(await namesOn(page)).toEqual([FIRST, SECOND, THIRD]);
+  await namesOn(page).toHaveText([FIRST, SECOND, THIRD]);
   await expect(
     page.getByRole("button", { name: /^Przesuń realizację/ }),
   ).toHaveCount(0);
@@ -84,14 +90,21 @@ test("the arrow keys on a grip move a work, and the order survives a reload", as
   await expect(
     page.getByText(`Realizacja ${THIRD} jest teraz na pozycji 2`),
   ).toHaveCount(1);
-  expect(await namesOn(page)).toEqual([FIRST, THIRD, SECOND]);
+  await namesOn(page).toHaveText([FIRST, THIRD, SECOND]);
   // The keyboard stays on the work it moved, or a second press would move
   // whatever took its place.
+  const savedAgain = page.waitForResponse((response) =>
+    response.url().includes("/api/works/order"),
+  );
   await page.keyboard.press("ArrowUp");
-  expect(await namesOn(page)).toEqual([THIRD, FIRST, SECOND]);
+  await namesOn(page).toHaveText([THIRD, FIRST, SECOND]);
+  // Waited for before the reload, not out of tidiness: the order is sent
+  // once the moving stops, so a reload racing that timer would cancel the
+  // request in flight and the test would be about the wrong thing.
+  expect((await savedAgain).status()).toBe(200);
 
   await page.reload();
-  expect(await namesOn(page)).toEqual([THIRD, FIRST, SECOND]);
+  await namesOn(page).toHaveText([THIRD, FIRST, SECOND]);
 });
 
 test("a work dragged by its grip lands where it was dropped", async () => {
@@ -121,16 +134,16 @@ test("a work dragged by its grip lands where it was dropped", async () => {
   await page.mouse.up();
   expect((await saved).status()).toBe(200);
 
-  expect(await namesOn(page)).toEqual([SECOND, THIRD, FIRST]);
+  await namesOn(page).toHaveText([SECOND, THIRD, FIRST]);
   await page.reload();
-  expect(await namesOn(page)).toEqual([SECOND, THIRD, FIRST]);
+  await namesOn(page).toHaveText([SECOND, THIRD, FIRST]);
 });
 
 test("a visitor sees the owner's order", async ({ browser }) => {
   const visitor = await browser.newPage({ locale: "pl-PL" });
   try {
     await visitor.goto(`/${identity.handle}`);
-    expect(await namesOn(visitor)).toEqual([SECOND, THIRD, FIRST]);
+    await namesOn(visitor).toHaveText([SECOND, THIRD, FIRST]);
     // Nothing to take hold of on someone else's profile.
     await expect(
       visitor.getByRole("button", { name: /^Przesuń realizację/ }),

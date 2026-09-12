@@ -192,7 +192,7 @@ test("the places are put in order and stay in it, for the owner and for a visito
   await page.getByRole("button", { name: "Edytuj profil" }).click();
 
   const chips = page.locator("li:has(button[aria-label^='Przesuń miejsce'])");
-  expect(await chips.allInnerTexts()).toEqual(["Warszawa", "Nowa Wieś"]);
+  await expect(chips).toHaveText(["Warszawa", "Nowa Wieś"]);
 
   // The arrow keys on the grip, which is the whole of this for anyone not
   // using a mouse — and, unlike a drag, it says what it did out loud.
@@ -205,16 +205,13 @@ test("the places are put in order and stay in it, for the owner and for a visito
   await expect(
     page.getByText("Miejsce Nowa Wieś jest teraz na pozycji 1"),
   ).toHaveCount(1);
-  expect(await chips.allInnerTexts()).toEqual(["Nowa Wieś", "Warszawa"]);
+  await expect(chips).toHaveText(["Nowa Wieś", "Warszawa"]);
 
   await page.reload();
   const section = page.locator("section", {
     has: page.getByRole("heading", { name: "Siedziba i obszar działania" }),
   });
-  expect(await section.locator("li").allInnerTexts()).toEqual([
-    "Nowa Wieś",
-    "Warszawa",
-  ]);
+  await expect(section.locator("li")).toHaveText(["Nowa Wieś", "Warszawa"]);
 
   const visitor = await browser.newPage({ locale: "pl-PL" });
   try {
@@ -224,10 +221,7 @@ test("the places are put in order and stay in it, for the owner and for a visito
         name: "Siedziba i obszar działania",
       }),
     });
-    expect(await theirs.locator("li").allInnerTexts()).toEqual([
-      "Nowa Wieś",
-      "Warszawa",
-    ]);
+    await expect(theirs.locator("li")).toHaveText(["Nowa Wieś", "Warszawa"]);
   } finally {
     await visitor.close();
   }
