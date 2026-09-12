@@ -1,4 +1,9 @@
-import { shortestTurn, wrapFrame, type OrbitParams } from "./orbit";
+import {
+  framesAlong,
+  shortestTurn,
+  wrapFrame,
+  type OrbitParams,
+} from "./orbit";
 
 // #106 (A13, #68 decision 2): the ring dial's geometry. A circle flattened
 // to the elevation the render camera had (f from 0.15 to 1, 1 = a circle),
@@ -89,10 +94,7 @@ export function travelPath(
   // A tie — half the orbit either way — comes back from shortestTurn as +;
   // the work's direction decides it here.
   const signed = Math.abs(turn) * 2 === frameCount ? direction * turn : turn;
-  const step = Math.sign(signed);
-  return Array.from({ length: Math.abs(signed) }, (_, i) =>
-    wrapFrame(from + step * (i + 1), frameCount),
-  );
+  return framesAlong(from, signed, frameCount);
 }
 
 /** A stretch of consecutive loaded frames, possibly across the wrap. */

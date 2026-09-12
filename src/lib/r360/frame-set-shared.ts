@@ -132,9 +132,14 @@ export type R360Cue = z.infer<typeof cueSchema>;
 
 /**
  * The viewer parameters (#68), as stored in works.r360_params. The frame
- * count is detected, not chosen; the other four are the owner's, and so
+ * count is detected, not chosen; the other five are the owner's, and so
  * are the cue points (#107) — optional, so a work saved before them reads
  * as a work with none.
+ *
+ * #153's glide is optional the other way about: absent means the orbit
+ * glides, and only an owner turning it off is written down. A work saved
+ * before the switch existed therefore reads as one that glides, which is
+ * the motion it should have had all along.
  */
 export const r360ParamsSchema = z
   .object({
@@ -144,6 +149,7 @@ export const r360ParamsSchema = z
     startFrame: z.number().int().min(1).max(R360_MAX_FRAMES),
     flattening: z.number().min(0.15).max(1),
     cues: z.array(cueSchema).max(R360_CUES_MAX).optional(),
+    glide: z.boolean().optional(),
   })
   .refine(
     (p) => p.framesPerWidth <= p.frameCount && p.startFrame <= p.frameCount,
@@ -172,6 +178,8 @@ export function defaultR360Params(frameCount: number): R360Params {
 /**
  * Whether the parameters are the defaults for their count, untouched and
  * without cue points — nothing of the owner's in them to keep (#107).
+ * A glide turned off counts as something of theirs (#153); a glide left
+ * on is the default, and is not written down at all.
  */
 export function isDefaultR360Params(params: R360Params): boolean {
   const defaults = defaultR360Params(params.frameCount);
@@ -180,6 +188,7 @@ export function isDefaultR360Params(params: R360Params): boolean {
     params.framesPerWidth === defaults.framesPerWidth &&
     params.startFrame === defaults.startFrame &&
     params.flattening === defaults.flattening &&
+    params.glide !== false &&
     !params.cues?.length
   );
 }

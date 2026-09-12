@@ -61,7 +61,20 @@ test.afterAll(async () => {
   await visitor.context().close();
 });
 
-async function dragAcross(page: Page, fraction: number) {
+/**
+ * A drag across the picture. `thrown` is the difference #153 made: a
+ * hand still moving when it lets go throws the orbit on, and Playwright
+ * lands its moves within a millisecond of one another — a speed no hand
+ * reaches. So unless a throw is what the test is about, the hand comes to
+ * rest first; without that pause every drag here would coast on past the
+ * frame the assertions are about, at a distance decided by how busy the
+ * machine was.
+ */
+async function dragAcross(
+  page: Page,
+  fraction: number,
+  { thrown = false }: { thrown?: boolean } = {},
+) {
   const viewer = page.getByTestId("orbit-viewer").first();
   await viewer.scrollIntoViewIfNeeded();
   const box = await viewer.boundingBox();
@@ -71,6 +84,7 @@ async function dragAcross(page: Page, fraction: number) {
   await page.mouse.move(from, y);
   await page.mouse.down();
   await page.mouse.move(from + box.width * fraction, y, { steps: 4 });
+  if (!thrown) await page.waitForTimeout(150);
   await page.mouse.up();
 }
 
@@ -125,7 +139,7 @@ test("a drag by half the width at k = 2 turns one frame; past the last frame it 
   await expectNoAxeViolations(visitor, test.info(), "public-r360-card");
 });
 
-test("a tap on the ring's centre falls through to the picture, and a reduced-motion visitor jumps rather than travels (#106)", async () => {
+test("a tap on the ring's centre falls through to the picture; a reduced-motion visitor jumps rather than travels (#106) and a throw does not coast (#153)", async () => {
   const still = await visitor.context().browser()!.newContext({
     locale: "pl-PL",
     reducedMotion: "reduce",
@@ -149,6 +163,16 @@ test("a tap on the ring's centre falls through to the picture, and a reduced-mot
     box.y + box.height / 2,
   );
   await expect(viewer).toHaveAttribute("data-frame", "4");
+  // #153: a drag let go of while still moving. For this visitor it must
+  // not coast — a jump is no substitute for one, so the orbit stops on
+  // the frame the hand left it on. Asserted as stillness past the longest
+  // a coast could ever run, so nothing here depends on how the feel is
+  // tuned; a landing frame would.
+  await dragAcross(page, 0.5, { thrown: true });
+  const landed = await viewer.getAttribute("data-frame");
+  expect(landed).not.toBeNull();
+  await page.waitForTimeout(1400);
+  await expect(viewer).toHaveAttribute("data-frame", landed!);
   await still.close();
 });
 

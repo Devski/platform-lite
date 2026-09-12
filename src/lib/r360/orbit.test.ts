@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  COAST_MAX_SPEED,
+  TRAVEL_MAX_MS,
+  coastAfterDrag,
+  coastOnRelease,
+  dragSpeed,
   frameAfterDrag,
   frameAfterKey,
+  framesAlong,
+  glides,
   loadingOrder,
   nearestLoaded,
   pageStep,
@@ -12,7 +19,9 @@ import {
 } from "./orbit";
 
 // #103/#104: the orbit's arithmetic, as decided on #68 — relative,
-// discrete, wrapping, in the work's direction.
+// discrete, wrapping, in the work's direction. #153 adds the shape of
+// the motion: the curve a travel follows, and what a drag let go of
+// carries with it.
 
 const params = (
   frameCount: number,
@@ -88,6 +97,235 @@ describe("frameAfterKey", () => {
   });
 });
 
+describe("glides (#153)", () => {
+  it("is on unless the owner said otherwise: only false turns it off", () => {
+    expect(glides({})).toBe(true);
+    expect(glides({ glide: undefined })).toBe(true);
+    expect(glides({ glide: true })).toBe(true);
+    expect(glides({ glide: false })).toBe(false);
+  });
+});
+
+describe("framesAlong", () => {
+  it("lists the frames a turn passes, the destination last and the frame it starts on not among them", () => {
+    expect(framesAlong(1, 3, 10)).toEqual([2, 3, 4]);
+    expect(framesAlong(1, -3, 10)).toEqual([10, 9, 8]);
+    expect(framesAlong(9, 4, 10)).toEqual([10, 1, 2, 3]);
+  });
+
+  it("has nowhere to go on a turn of nothing", () => {
+    expect(framesAlong(4, 0, 10)).toEqual([]);
+  });
+
+  // #153: a throw can be worth more than one turn of the orbit, and the
+  // path must carry every frame of it — the travel spends its time on
+  // the list it is given, not on the distance between two numbers.
+  it("keeps going past the last frame when the turn is longer than the orbit", () => {
+    expect(framesAlong(1, 12, 10)).toEqual([
+      2, 3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 3,
+    ]);
+  });
+});
+
+describe("dragSpeed (#153)", () => {
+  const p = params(120, 10);
+
+  it("is the frames the drag covered over the time it took, in the work's direction", () => {
+    // Half the picture's width in 100 ms, at 10 frames a width: 5 frames
+    // in 100 ms.
+    const samples = [
+      { x: 0, t: 0 },
+      { x: 50, t: 50 },
+      { x: 100, t: 100 },
+    ];
+    expect(dragSpeed(samples, 200, p)).toBeCloseTo(0.05, 10);
+    expect(dragSpeed(samples, 200, params(120, 10, -1))).toBeCloseTo(-0.05, 10);
+  });
+
+  it("reads the oldest and the newest, whatever happened between them", () => {
+    // There and back again inside the window: the hand ends where it
+    // started and the orbit is going nowhere.
+    expect(
+      dragSpeed(
+        [
+          { x: 0, t: 0 },
+          { x: 90, t: 50 },
+          { x: 0, t: 100 },
+        ],
+        200,
+        p,
+      ),
+    ).toBe(0);
+  });
+
+  it("is nothing when there is nothing to divide by", () => {
+    const two = [
+      { x: 0, t: 0 },
+      { x: 100, t: 100 },
+    ];
+    expect(dragSpeed([], 200, p)).toBe(0);
+    expect(dragSpeed([{ x: 0, t: 0 }], 200, p)).toBe(0);
+    expect(dragSpeed(two, 0, p)).toBe(0);
+    // One instant, read twice — and a clock that ran backwards, which is
+    // the same guard travelStop keeps for #161.
+    expect(
+      dragSpeed(
+        [
+          { x: 0, t: 40 },
+          { x: 100, t: 40 },
+        ],
+        200,
+        p,
+      ),
+    ).toBe(0);
+    expect(
+      dragSpeed(
+        [
+          { x: 0, t: 100 },
+          { x: 100, t: 0 },
+        ],
+        200,
+        p,
+      ),
+    ).toBe(0);
+  });
+});
+
+// The numbers themselves are a feel, to be tried on a phone with Dawid;
+// what is tested here is what must hold whatever they are tuned to.
+describe("coastAfterDrag (#153)", () => {
+  it("goes the way the hand was going", () => {
+    // Half the cap: hard enough to carry whatever the feel is tuned to,
+    // and not so hard that both readings land on the cap and prove
+    // nothing.
+    const forward = coastAfterDrag(COAST_MAX_SPEED / 2);
+    const back = coastAfterDrag(-COAST_MAX_SPEED / 2);
+    expect(forward).not.toBeNull();
+    expect(forward?.turn).toBeGreaterThan(0);
+    expect(back?.turn).toBe(-(forward?.turn ?? 0));
+    expect(back?.ms).toBe(forward?.ms);
+  });
+
+  // Constant slowing: twice the speed takes twice as long to shed, and
+  // covers four times the ground doing it.
+  it("twice as fast runs twice as long and carries more than twice as far", () => {
+    // Both under the cap by construction, so the comparison is of the
+    // slowing and not of the clamp.
+    const slower = coastAfterDrag(COAST_MAX_SPEED / 4);
+    const faster = coastAfterDrag(COAST_MAX_SPEED / 2);
+    expect(faster?.ms).toBeCloseTo(2 * (slower?.ms ?? 0), 10);
+    expect(faster?.turn).toBeGreaterThan(2 * (slower?.turn ?? 0));
+  });
+
+  it("takes a throw no further than a travel's longest, however hard it was", () => {
+    // Derived, not guessed: the inputs stay above the cap and the bound
+    // stays the travel's own, whatever the feel is later tuned to.
+    const hard = coastAfterDrag(COAST_MAX_SPEED * 4);
+    const harder = coastAfterDrag(COAST_MAX_SPEED * 400);
+    expect(hard?.ms).toBeLessThanOrEqual(TRAVEL_MAX_MS);
+    expect(harder).toEqual(hard);
+  });
+
+  // The floor is the frame itself: a throw that would not carry one is a
+  // hand that let go rather than threw, and the orbit stops where it is.
+  it("does not coast a hand that was barely moving, or not at all", () => {
+    expect(coastAfterDrag(0)).toBeNull();
+    expect(coastAfterDrag(0.0001)).toBeNull();
+    expect(coastAfterDrag(Number.NaN)).toBeNull();
+    expect(coastAfterDrag(Number.POSITIVE_INFINITY)).toBeNull();
+  });
+});
+
+// #153: the four ways a release does NOT throw the orbit, and the one
+// way it does. This is the half of the coast that lives on a pointer
+// event rather than in a number, and the half most likely to be undone
+// by a tidy-up of the hook.
+describe("coastOnRelease (#153)", () => {
+  const p = params(120, 10);
+  // A hand crossing a fifth of a 200 px picture in the 40 ms before it
+  // let go: 2 frames in 40 ms at 10 frames a width, well over the floor.
+  const thrown = {
+    samples: [
+      { x: 0, t: 960 },
+      { x: 20, t: 980 },
+      { x: 40, t: 1000 },
+    ],
+    lift: { x: 40, t: 1000 },
+    width: 200,
+    lifted: true,
+    glide: true,
+    reducedMotion: false,
+  };
+  /** The same throw, the hand resting `rest` ms before it lets go. */
+  const rested = (rest: number) => ({
+    ...thrown,
+    lift: { x: 40, t: 1000 + rest },
+  });
+
+  /** The same throw, the hand going the other way. */
+  const mirrored = {
+    ...thrown,
+    samples: thrown.samples.map((s) => ({ ...s, x: -s.x })),
+    lift: { ...thrown.lift, x: -thrown.lift.x },
+  };
+
+  it("throws the orbit the way a hand still moving was going", () => {
+    const coast = coastOnRelease(thrown, p);
+    expect(coast).not.toBeNull();
+    expect(coast?.turn).toBeGreaterThan(0);
+    expect(coastOnRelease(mirrored, p)?.turn).toBe(-(coast?.turn ?? 0));
+  });
+
+  // The one with no flag of its own: a hand at rest states itself, which
+  // is why there is no threshold here to drift out of step with anything.
+  it("does not throw a hand that came to rest before it let go", () => {
+    expect(coastOnRelease(rested(500), p)).toBeNull();
+  });
+
+  // What that rest must NOT be is a step. Measured between moves, the
+  // time a hand spends still before lifting never reaches the divisor:
+  // the throw would keep its full speed until the window emptied and
+  // then vanish. A finger lifts tens of milliseconds after it stops, so
+  // that edge is the ordinary gesture, and it would have spun the orbit
+  // most of the way round on a drag the visitor had already finished.
+  it("drains the throw as the hand rests, rather than all at once", () => {
+    const turnAfter = (rest: number) => coastOnRelease(rested(rest), p)?.turn;
+    const straight = turnAfter(0);
+    expect(straight).toBeGreaterThan(0);
+    expect(turnAfter(40)).toBeLessThan(straight!);
+    expect(turnAfter(70)).toBeLessThan(turnAfter(40)!);
+    expect(coastOnRelease(rested(150), p)).toBeNull();
+  });
+
+  it("does not throw a pointer that was cancelled or taken away", () => {
+    expect(coastOnRelease({ ...thrown, lifted: false }, p)).toBeNull();
+  });
+
+  it("does not throw an orbit whose owner turned the glide off", () => {
+    expect(coastOnRelease({ ...thrown, glide: false }, p)).toBeNull();
+  });
+
+  // Reduced motion wins over the owner: a jump is not a substitute for a
+  // coast, so there is nothing to fall back to and the orbit stops dead.
+  it("does not throw for a visitor whose system asks for less motion", () => {
+    expect(coastOnRelease({ ...thrown, reducedMotion: true }, p)).toBeNull();
+  });
+
+  it("has nothing to measure from the lift alone, or a picture with no width", () => {
+    expect(coastOnRelease({ ...thrown, samples: [] }, p)).toBeNull();
+    expect(coastOnRelease({ ...thrown, width: 0 }, p)).toBeNull();
+  });
+
+  // The press is not a reading (the hook does not record it), so a tap
+  // that wobbled past the slop once and stopped has one move and a lift
+  // at the same place: no distance, no throw.
+  it("does not throw a tap that wobbled and stopped", () => {
+    expect(
+      coastOnRelease({ ...thrown, samples: [{ x: 40, t: 990 }] }, p),
+    ).toBeNull();
+  });
+});
+
 describe("travelStop", () => {
   const path = [4, 1];
 
@@ -113,6 +351,53 @@ describe("travelStop", () => {
 
   it("has arrived before it starts when there is no time to take", () => {
     expect(travelStop(path, 0, 0)).toEqual({ frame: 1, arrived: true });
+  });
+
+  // #153: the same path and the same time, the frames spread differently
+  // along it. A ten-frame path over a second, read against the constant
+  // pace every travel had before.
+  it("eased lingers at the start and settles onto its frame early", () => {
+    const ten = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    // A tenth of the way through, an eased travel has not left its first
+    // frame; a steady one is already on the second.
+    expect(travelStop(ten, 100, 1000, "eased").frame).toBe(1);
+    expect(travelStop(ten, 100, 1000).frame).toBe(2);
+    // Halfway is halfway either way — the curve is symmetric.
+    expect(travelStop(ten, 500, 1000, "eased").frame).toBe(6);
+    expect(travelStop(ten, 500, 1000).frame).toBe(6);
+    // And it is on its last frame with time left to settle there.
+    expect(travelStop(ten, 850, 1000, "eased").frame).toBe(10);
+    expect(travelStop(ten, 850, 1000).frame).toBe(9);
+  });
+
+  it("slowing spends its speed early: three quarters of the path in half the time", () => {
+    const ten = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    expect(travelStop(ten, 500, 1000, "slowing").frame).toBe(8);
+    expect(travelStop(ten, 500, 1000).frame).toBe(6);
+    expect(travelStop(ten, 200, 1000, "slowing").frame).toBe(4);
+    expect(travelStop(ten, 200, 1000).frame).toBe(3);
+  });
+
+  // A curve is a way of spending the time, not of changing where the
+  // travel ends or when it is over: an animation frame that arrives late
+  // reads a progress past 1, and smoothstep of 1.2 turns back DOWN the
+  // path — the orbit would walk backwards out of its destination.
+  it("ends on the destination, on time, whatever curve it took", () => {
+    const ten = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    for (const curve of ["steady", "eased", "slowing"] as const) {
+      expect(travelStop(ten, 1000, 1000, curve), curve).toEqual({
+        frame: 10,
+        arrived: true,
+      });
+      expect(travelStop(ten, 9_000, 1000, curve), curve).toEqual({
+        frame: 10,
+        arrived: true,
+      });
+      expect(travelStop(ten, -9_000, 1000, curve), curve).toEqual({
+        frame: 1,
+        arrived: false,
+      });
+    }
   });
 
   it("has nowhere to be with no path, and says so", () => {

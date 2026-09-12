@@ -79,6 +79,30 @@ describe("cues in the parameters", () => {
   });
 });
 
+// #153: the switch is stored the other way about from the cue points —
+// its absence is the feature being ON, so only an owner turning it off
+// is ever written into a work.
+describe("the glide in the parameters (#153)", () => {
+  it("reads a work saved before the switch as one that glides", () => {
+    const parsed = r360ParamsSchema.safeParse(defaultR360Params(4));
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.glide).toBeUndefined();
+  });
+
+  it("takes the owner turning it off, and refuses anything that is not a yes or a no", () => {
+    const off = r360ParamsSchema.safeParse({
+      ...defaultR360Params(4),
+      glide: false,
+    });
+    expect(off.success).toBe(true);
+    expect(off.data?.glide).toBe(false);
+    expect(
+      r360ParamsSchema.safeParse({ ...defaultR360Params(4), glide: "off" })
+        .success,
+    ).toBe(false);
+  });
+});
+
 describe("isDefaultR360Params", () => {
   it("is true for the defaults of any count, and false once anything of the owner's is in them", () => {
     expect(isDefaultR360Params(defaultR360Params(4))).toBe(true);
@@ -89,6 +113,7 @@ describe("isDefaultR360Params", () => {
       { startFrame: 3 },
       { flattening: 0.3 },
       { cues: [{ frame: 2, label: "Taras" }] },
+      { glide: false },
     ]) {
       expect(
         isDefaultR360Params({ ...defaultR360Params(4), ...change }),
@@ -97,6 +122,11 @@ describe("isDefaultR360Params", () => {
     }
     // An empty list of cues is no cue at all.
     expect(isDefaultR360Params({ ...defaultR360Params(4), cues: [] })).toBe(
+      true,
+    );
+    // #153: the glide left ON is the default, written down or not — it is
+    // nothing of the owner's to carry over to the next zip.
+    expect(isDefaultR360Params({ ...defaultR360Params(4), glide: true })).toBe(
       true,
     );
   });

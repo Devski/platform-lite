@@ -11,13 +11,15 @@ import {
   type R360Cue,
   type R360Params,
 } from "@/lib/r360/frame-set-shared";
+import { glides } from "@/lib/r360/orbit";
 
-// #103: the owner's four parameters of an R360 set, under the preview in
-// the work form (the fifth, the frame count, is the set's, shown read-only
+// #103: the owner's five parameters of an R360 set, under the preview in
+// the work form (the sixth, the frame count, is the set's, shown read-only
 // beside the preview). The direction is a two-way toggle, frames per
 // picture width a slider from 1 to N, the start frame is set from the
 // frame in view, the ring flattening a slider from 0.15 to 1 with a
-// "circle" button. #107 adds the cue points below them.
+// "circle" button, and the motion (#153) a two-way toggle like the
+// direction. #107 adds the cue points below them.
 
 export function R360ParamControls({
   params,
@@ -34,27 +36,16 @@ export function R360ParamControls({
   const t = useTranslations("Works.form.r360");
   return (
     <div className="grid gap-(--sp-4) sm:grid-cols-2">
-      <fieldset className="flex flex-col gap-(--sp-2)">
-        <legend className="type-label text-(--text-body)">
-          {t("paramDirection")}
-        </legend>
-        <div className="flex gap-(--sp-2)">
-          {([1, -1] as const).map((direction) => {
-            const active = params.direction === direction;
-            return (
-              <Button
-                key={direction}
-                variant={active ? "solid" : "quiet"}
-                aria-pressed={active}
-                onClick={() => onChange({ direction })}
-                disabled={disabled}
-              >
-                {t(direction === 1 ? "directionForward" : "directionReverse")}
-              </Button>
-            );
-          })}
-        </div>
-      </fieldset>
+      <TwoWayParam
+        name={t("paramDirection")}
+        disabled={disabled}
+        choices={([1, -1] as const).map((direction) => ({
+          key: String(direction),
+          label: t(direction === 1 ? "directionForward" : "directionReverse"),
+          active: params.direction === direction,
+          pick: () => onChange({ direction }),
+        }))}
+      />
       <RangeParam
         name={t("paramFramesPerWidth")}
         shown={String(params.framesPerWidth)}
@@ -104,6 +95,22 @@ export function R360ParamControls({
           {t("flatteningCircle")}
         </Button>
       </RangeParam>
+      {/* #153: what the visitor's orbit does — a travel that eases in and
+          out of its frame, a drag that coasts on after the hand. Only OFF
+          is written into the parameters: absent is on, so a work saved
+          before the switch existed glides like the rest. */}
+      <TwoWayParam
+        name={t("paramGlide")}
+        disabled={disabled}
+        hint={t("glideHint")}
+        choices={([true, false] as const).map((on) => ({
+          key: String(on),
+          label: t(on ? "glideOn" : "glideOff"),
+          active: glides(params) === on,
+          pick: () => onChange({ glide: on ? undefined : false }),
+          testId: `work-r360-glide-${on ? "on" : "off"}`,
+        }))}
+      />
       <CueControls
         params={params}
         frameInView={frameInView}
@@ -215,6 +222,60 @@ function CueControls({
           </span>
         )}
       </div>
+    </fieldset>
+  );
+}
+
+/**
+ * A parameter with two ways to be, a button each, the one in force
+ * pressed. The direction (#103) and the motion (#153) are the same
+ * control with different words in it.
+ */
+function TwoWayParam({
+  name,
+  choices,
+  disabled,
+  hint,
+}: {
+  name: string;
+  choices: readonly {
+    key: string;
+    label: string;
+    active: boolean;
+    pick: () => void;
+    testId?: string;
+  }[];
+  disabled: boolean;
+  /** A line under the buttons saying what the choice does. */
+  hint?: string;
+}) {
+  const hintId = useId();
+  return (
+    <fieldset className="flex flex-col gap-(--sp-2)">
+      <legend className="type-label text-(--text-body)">{name}</legend>
+      <div className="flex gap-(--sp-2)">
+        {choices.map((choice) => (
+          <Button
+            key={choice.key}
+            variant={choice.active ? "solid" : "quiet"}
+            aria-pressed={choice.active}
+            onClick={choice.pick}
+            disabled={disabled}
+            data-testid={choice.testId}
+            // The legend names the parameter, not what choosing either
+            // way does: without this a screen reader offers the choice
+            // and withholds the explanation sighted eyes get for free.
+            aria-describedby={hint ? hintId : undefined}
+          >
+            {choice.label}
+          </Button>
+        ))}
+      </div>
+      {hint && (
+        <p id={hintId} className="type-sm text-(--text-muted)">
+          {hint}
+        </p>
+      )}
     </fieldset>
   );
 }
