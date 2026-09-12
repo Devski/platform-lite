@@ -19,7 +19,7 @@ them R360 frames. This is the same reasoning that makes `files.user_id`
 |          |                                                                                            |
 | -------- | ------------------------------------------------------------------------------------------ |
 | What     | every `platform_*` database except the test ones, `pg_dump --create --clean --if-exists`   |
-| Where    | `s3://platform-dev/<prefix>backups/pg/<weekday>.sql.gz` (`mon`…`sun`)                      |
+| Where    | `s3://platform-dev/backups/<environment prefix>pg/<weekday>.sql.gz` (`mon`…`sun`)          |
 | When     | daily at 03:17 UTC, `Persistent=true` — an instance that was down copies at the next boot  |
 | How many | seven, one per weekday slot, each overwritten a week later                                 |
 | Size     | 1.8 MB compressed, about 3 seconds end to end (12.09.2026)                                 |
@@ -28,6 +28,14 @@ them R360 frames. This is the same reasoning that makes `files.user_id`
 Retention is the **shape of the key**, not a rule anyone maintains: seven slots,
 overwritten. Nothing lists, nothing deletes, and no second lifecycle rule can
 collide with the one the bootstrap wrote for staged uploads.
+
+`backups/` sits at the root of the bucket and the environment prefix goes
+_inside_ it — `backups/devski/pg/…`, not `devski/backups/…`. Everything that
+sweeps this bucket lists `<prefix>…` and removes what no database row names,
+which is every copy here by definition. The one such job already written down
+(the closing note in `deploy/preview-down.sh`, and #34) has exactly that shape.
+Being outside the swept namespace is the only version of this that survives
+someone writing that job without thinking about backups.
 
 Each run reads its own upload back and compares it byte for byte before
 recording success. A copy nobody has read back is not a copy — it is a request
@@ -43,54 +51,84 @@ that returned 200.
   assumption someone breaks in a year.
 - **The test databases** (`*_test_*`) — a test run recreates them from nothing.
 
-### Who can read a copy
+### Who can read a copy, and what it is worth
 
-Anyone holding the bucket's S3 key: the objects carry no public-read ACL, and
-OVHcloud implements no bucket policy, so private is the default here — but the
-key that writes the copy is the same key the application already uses for every
-user file. **A dump carries e-mail addresses and password hashes.** For dev that
-is accepted and written down here; production (#24) should not reuse the
-application's key for its copies.
+The object carries no public-read ACL, and OVHcloud implements no bucket policy,
+so private is the default here. The copy's confidentiality is therefore exactly
+the secrecy of the bucket's S3 key.
+
+That key is the application's own, and it is in the environment of the
+internet-facing process. **This is a deliberate trade for dev and it should not
+be repeated in production** (#24): before this, the key bought an attacker the
+user photos; now it also buys every row of every database — e-mail addresses and
+profile data for every account, scrypt password hashes (salted per user, so not
+a fast crack), session tokens, and the pending verification values that are
+stored in the clear for everything except password resets. The same key can also
+delete: seven fixed keys, no versioning, so a copy does not survive the
+compromise it exists to survive.
+
+Production wants a second, write-only credential used by nothing but the timer,
+ideally against a different bucket.
 
 ## Restoring
 
 The dump begins with `DROP DATABASE IF EXISTS`. Read that sentence twice before
 pointing it at a live cluster.
 
-Fetch the copy (from the instance, where the credentials already are):
+Fetch the copy (from the instance, where the credentials already are). `umask`
+first: without it curl writes a world-readable file into a directory that
+survives reboots, and the last step of this section is the one people skip.
 
 ```bash
-while IFS= read -r l; do case "$l" in S3_*=*) export "${l%%=*}=${l#*=}";; esac; done </opt/platform-lite/.env
+while IFS= read -r l || [ -n "$l" ]; do case "$l" in S3_*=*) export "${l%%=*}=${l#*=}";; esac; done </opt/platform-lite/.env
+umask 077
 curl --fail-with-body -sS --aws-sigv4 "aws:amz:$S3_REGION:s3" --user "$S3_KEY:$S3_SECRET" \
-  "$S3_ENDPOINT/$S3_BUCKET/${S3_PREFIX}backups/pg/LATEST"
+  "$S3_ENDPOINT/$S3_BUCKET/backups/${S3_PREFIX}pg/LATEST"
 curl --fail-with-body -sS --aws-sigv4 "aws:amz:$S3_REGION:s3" --user "$S3_KEY:$S3_SECRET" \
-  "$S3_ENDPOINT/$S3_BUCKET/${S3_PREFIX}backups/pg/sat.sql.gz" -o /var/tmp/dump.sql.gz
+  "$S3_ENDPOINT/$S3_BUCKET/backups/${S3_PREFIX}pg/sat.sql.gz" -o /var/tmp/dump.sql.gz
 ```
 
 `LATEST` names the newest slot, its timestamp and its size. Slots are named for
 the day the copy was made, so the age of a copy is in its name.
 
 **Into a throwaway cluster** (the drill, and how to read a copy without touching
-anything that is running):
+anything that is running). `rm -fv`, with the `v`: the image declares a volume,
+so without it the whole restored database stays on the disk as an anonymous
+volume nobody will ever look at.
 
 ```bash
 docker run -d --name pg-restore-drill -e POSTGRES_PASSWORD=drill-only postgres:17
 until docker exec pg-restore-drill pg_isready -U postgres; do sleep 2; done
 gzip -dc /var/tmp/dump.sql.gz | docker exec -i pg-restore-drill psql -U postgres -v ON_ERROR_STOP=1
 # ... look at it, compare counts, take what you need ...
-docker rm -f pg-restore-drill
+docker rm -fv pg-restore-drill
 ```
 
-**Into the live cluster** — this replaces the database:
+**Into the live cluster** — this replaces the database. Take a copy of what you
+are about to destroy first; restoring a slot up to seven days old throws away
+everything since, and in another seven days that slot is overwritten too, so
+even the evidence goes.
 
 ```bash
-docker compose --project-directory /opt/platform-lite stop app   # nothing writing
-gzip -dc /var/tmp/dump.sql.gz | docker exec -i postgres psql -U postgres -v ON_ERROR_STOP=1
+sudo systemctl start platform-backup.service   # step 0: today's state, in the bucket
+docker compose --project-directory /opt/platform-lite stop app
+PG=            # fill this in with: postgres
+gzip -dc /var/tmp/dump.sql.gz | docker exec -i "$PG" psql -U postgres -v ON_ERROR_STOP=1
 docker compose --project-directory /opt/platform-lite start app
 ```
 
+`PG` is left empty on purpose. This block is two lines away from a harmless one
+and will be read at three in the morning; filling in the container name is the
+deliberate act that separates them.
+
 `ON_ERROR_STOP=1` is not decoration: it is what makes "restore ok" mean
 something. A restore that prints errors and keeps going has told you nothing.
+
+**When you are done**, in either case:
+
+```bash
+rm -f /var/tmp/dump.sql.gz
+```
 
 ## Checking that it still works
 
@@ -109,7 +147,7 @@ reading a deploy log, which is exactly the gap #167 exists to close.
 Performed on the dev instance, against the copy in the bucket, not against a
 local file:
 
-1. Fetched `backups/pg/sat.sql.gz` (1,813,866 bytes) and `LATEST` from the bucket.
+1. Fetched the newest slot (1,813,866 bytes) and `LATEST` from the bucket.
 2. Restored into a throwaway `postgres:17` container with `ON_ERROR_STOP=1` —
    **no errors**.
 3. Compared six tables between the live cluster and the restored one:

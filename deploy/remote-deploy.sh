@@ -63,7 +63,15 @@ fi
 # application does. Written only when it differs: a deployment that changes
 # nothing reloads nothing. `bash <path>`, exactly as CI invokes this file, so
 # the copy never depends on an executable bit surviving a checkout and an scp.
-units=$(mktemp -d)
+#
+# In a subshell of its own, so that a machine where this cannot be installed —
+# no passwordless sudo, a read-only /etc, systemd missing — gets a warning and
+# a working deployment rather than a failed one. The copy matters; it does not
+# matter more than being able to ship a fix.
+install_backup_timer() (
+  set -e
+  units=$(mktemp -d)
+  trap 'rm -rf "$units"' EXIT
 cat >"$units/platform-backup.service" <<'UNIT'
 [Unit]
 Description=Copy the PostgreSQL cluster to the bucket (#168)
@@ -74,6 +82,14 @@ After=docker.service
 Type=oneshot
 User=ubuntu
 StateDirectory=platform-backup
+# The dump passes through /var/tmp. With a private one, it is not merely
+# unreadable to other accounts on the host — it is not there at all.
+PrivateTmp=true
+# A oneshot service has NO timeout unless it is given one, and a transfer that
+# hangs without closing leaves the unit activating for ever: every later timer
+# elapse merges into that job and does nothing. One hung night would stop every
+# copy after it, silently. Fifteen minutes is forty times the longest run so far.
+TimeoutStartSec=900
 ExecStart=/bin/bash /opt/platform-lite/backup-db.sh
 UNIT
 cat >"$units/platform-backup.timer" <<'UNIT'
@@ -91,19 +107,32 @@ RandomizedDelaySec=300
 [Install]
 WantedBy=timers.target
 UNIT
-units_changed=false
-for unit in platform-backup.service platform-backup.timer; do
-  if ! cmp -s "$units/$unit" "/etc/systemd/system/$unit"; then
-    sudo install -m 644 "$units/$unit" "/etc/systemd/system/$unit"
-    units_changed=true
+  units_changed=false
+  for unit in platform-backup.service platform-backup.timer; do
+    if ! cmp -s "$units/$unit" "/etc/systemd/system/$unit"; then
+      sudo install -m 644 "$units/$unit" "/etc/systemd/system/$unit"
+      units_changed=true
+    fi
+  done
+  if [ "$units_changed" = true ]; then
+    echo "backup timer: units installed"
+    sudo systemctl daemon-reload
   fi
-done
-rm -rf "$units"
-if [ "$units_changed" = true ]; then
-  echo "backup timer: units installed"
-  sudo systemctl daemon-reload
+  sudo systemctl enable --now platform-backup.timer >/dev/null
+)
+# NOT `if ! install_backup_timer`: calling it as a condition puts the whole
+# function in bash's "errexit ignored" context, and the `set -e` inside does not
+# re-arm it — a failed `install` would run on to the next line and the function
+# would return the status of whatever came last. Verified on the instance's bash
+# 5.2.21: under `if !` a failing step is invisible; captured this way it is not.
+set +e
+install_backup_timer
+timer_status=$?
+set -e
+if [ "$timer_status" -ne 0 ]; then
+  echo "WARNING: the database copy's timer could not be installed (#168);"
+  echo "         the deployment continues — see docs/backup-and-restore.md"
 fi
-sudo systemctl enable --now platform-backup.timer >/dev/null
 
 # Until #167 gives reports a way to reach a person, the deployment is the one
 # routine that a human already watches. It only warns: a stale copy is not a
