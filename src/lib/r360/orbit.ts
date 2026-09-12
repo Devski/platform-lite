@@ -79,6 +79,35 @@ export function frameAfterKey(
   }
 }
 
+/**
+ * Where a travel stands (#106): the frame to show after `elapsed` of its
+ * `duration`, and whether that frame is the destination. Every frame on
+ * the path gets an equal share of the time, and the last one is the
+ * destination.
+ *
+ * `elapsed` is the distance between two clock readings, and a clock can
+ * hand back less than it did before: a virtual machine's monotonic clock
+ * steps back when the host reschedules it, and an animation frame is given
+ * the time that frame BEGAN, which can precede the reading taken in the
+ * click that started the travel. Time that runs backwards counts as none —
+ * a travel that cannot tell how far it has come shows the first frame of
+ * its path, never one outside it (#161).
+ *
+ * An empty path has nowhere to be: no frame, and arrived. The hook never
+ * asks, and `place` ignores a frame that is not a number.
+ */
+export function travelStop(
+  path: readonly number[],
+  elapsed: number,
+  duration: number,
+): { frame: number; arrived: boolean } {
+  if (path.length === 0) return { frame: Number.NaN, arrived: true };
+  const since = Number.isFinite(elapsed) ? Math.max(0, elapsed) : 0;
+  const progress = duration > 0 ? since / duration : 1;
+  const at = Math.min(path.length - 1, Math.floor(progress * path.length));
+  return { frame: path[at], arrived: progress >= 1 };
+}
+
 /** The shorter way round from one frame to another, signed; a tie is +. */
 export function shortestTurn(
   from: number,
