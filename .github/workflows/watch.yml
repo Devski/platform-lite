@@ -1,0 +1,112 @@
+name: Watch
+
+# #167: whether the site answers, asked from somewhere that is not the
+# instance. The hourly check ON the instance (deploy/ops-check.sh) sees the
+# disk, the containers and the nightly copy — and cannot report the one thing
+# that silences all of it: the instance itself being gone. A box cannot report
+# its own death, so this runs on GitHub's machines.
+#
+# Where it speaks: a GitHub issue labelled `outage`, opened when the site stops
+# answering and closed — with the time it came back — when it answers again.
+# That is no new provider and no new cost while the repository is public, it
+# reaches the owner's phone through GitHub's own notifications, and its STATE
+# is the answer: an open `outage` issue means down, none means up.
+#
+# Every thirty minutes. GitHub runs scheduled workflows late under load and
+# not at all in a repository with no activity for sixty days — both written
+# down in docs/operations.md, because a watcher that has quietly stopped looks
+# exactly like a site that is fine. If the repository goes private (#163),
+# these runs start costing minutes: 48 a day at well under a minute each.
+
+on:
+  schedule:
+    - cron: "7,37 * * * *"
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "An https address to check instead of dev's — a drill, kept apart from the real alarm under the outage-drill label"
+        required: false
+
+# Nothing is checked out and nothing is read from the repository: the one thing
+# this needs is to open and close an issue.
+permissions:
+  issues: write
+
+# Two runs must not both decide to open the issue.
+concurrency:
+  group: watch
+  cancel-in-progress: false
+
+jobs:
+  answers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      URL: ${{ inputs.url || 'https://dev.architektow3d.pl/' }}
+      # A drill has its own label, so trying the alarm against an address that
+      # cannot answer never opens — or closes — dev's real outage issue.
+      LABEL: ${{ inputs.url && 'outage-drill' || 'outage' }}
+    steps:
+      - name: Does it answer?
+        id: probe
+        run: |
+          # https only, and passed to curl as a URL rather than as an argument:
+          # the address can come from a person running this by hand, and a
+          # value starting with a dash, or a file:// one, is not an address.
+          case "$URL" in
+            https://*) ;;
+            *) echo "::error::only https addresses are checked, not: $URL"; exit 1 ;;
+          esac
+          # Three tries thirty seconds apart: one slow answer during a deploy is
+          # not an outage, and an alarm that cries wolf is an alarm nobody
+          # reads. A 4xx is an answer — the server is up and deciding; only a
+          # 5xx, a timeout or no connection at all counts as down.
+          code=000
+          for attempt in 1 2 3; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 --proto '=https' --url "$URL" || true)
+            case "$code" in
+              [1-4][0-9][0-9]) break ;;
+            esac
+            [ "$attempt" -eq 3 ] || sleep 30
+          done
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "$URL answered ${code} (000 is no answer at all)"
+
+      - name: Open or close the outage issue
+        env:
+          CODE: ${{ steps.probe.outputs.code }}
+          OWNER: ${{ github.repository_owner }}
+          # Here and only here: the step above runs curl against an address a
+          # person may have typed, and has no use for a token.
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          open=$(gh issue list --label "$LABEL" --state open --json number --jq '.[0].number // empty')
+          now=$(date -u +%Y-%m-%dT%H:%MZ)
+          case "$CODE" in
+            [1-4][0-9][0-9]) up=true ;;
+            *) up=false ;;
+          esac
+
+          if [ "$up" = false ] && [ -z "$open" ]; then
+            gh label create "$LABEL" --color B60205 \
+              --description "The site is not answering (opened and closed by .github/workflows/watch.yml)" \
+              --force >/dev/null
+            issue=$(gh issue create --label "$LABEL" \
+              --title "$URL is not answering" \
+              --body "$(printf '%s\n' \
+                "Checked from GitHub's machines at $now: three tries thirty seconds apart, last answer \`$CODE\` (\`000\` is no answer at all)." \
+                "" \
+                "What to do: docs/operations.md, \"What each signal means\". This issue closes itself when the site answers again." \
+                "" \
+                "@$OWNER")")
+            # Locked: the thread notifies the owner, so it is not a place for
+            # anyone passing by to post "run this to fix it". Collaborators —
+            # and this workflow — can still write in it.
+            gh issue lock "$issue" || true
+          elif [ "$up" = true ] && [ -n "$open" ]; then
+            gh issue comment "$open" --body "Answering again at $now (\`$CODE\`)." || true
+            gh issue close "$open"
+          else
+            echo "nothing changed: up=$up, open $LABEL issue: ${open:-none}"
+          fi

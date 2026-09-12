@@ -128,9 +128,14 @@ in under 5 minutes (manual walkthrough); e2e green.
   copy, and the staleness warning still depends on someone reading a deploy log (#167).
 - [#167](https://github.com/Devski/platform-lite/issues/167) The state of an environment, and the
   reports that reach nobody (`deployment`, `enhancement`). Found 12.09.2026 while reading the
-  R360 collector's report over SSH: it warns into a container's stdout, and that is the whole of
-  the path from "a human decides" (#156) to the human. The same silence covers the disk (#119),
-  whether the site answers at all, unhandled errors, and mail bounces. #168 was split out of it.
+  R360 collector's report over SSH: it warned into a container's stdout, and that was the whole
+  of the path from "a human decides" (#156) to the human. **Built 12.09.2026**
+  (`docs/operations.md`): an hourly check on the instance that mails what needs a decision and
+  a report every morning either way, an outside check on GitHub that opens and closes an
+  `outage` issue, and application logs moved to the host journal so a deploy no longer deletes
+  them. Its first dry run on dev found two real things at once: the disk at 92% (#119) and a
+  preview copy of dev's database nobody owned. **Open until `OPS_EMAIL` is set on the instance
+  and the first daily report has arrived** — the recipient is Dawid's to choose.
 - [#163](https://github.com/Devski/platform-lite/issues/163) Take the repository private again
   (`decision`, `infra`). Measured 12.09.2026: ~30 CI runs a day at ~11.9 billable minutes each,
   ~11,000 a month. Free would leave `main` unguarded again, so it means Pro — about $52 a month

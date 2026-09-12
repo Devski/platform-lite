@@ -358,6 +358,17 @@ export function ownerKey(
   **The signing key being shared is the thing production must not inherit** — one
   `AUTH_SECRET` across environments plus a copy of the rows is how a session from one
   becomes a session in another; #24 gives production its own.
+- **What needs a decision reaches a person by itself** (#167, `docs/operations.md`): every
+  hour `deploy/ops-check.sh` looks at the instance — disk, containers, whether the site
+  answers, the nightly copy, preview copies nobody owns, the R360 collector's findings,
+  database deadlines, server errors, the mail provider's failures and blocks — and mails
+  `OPS_EMAIL` when something needs acting on, plus a report every morning either way, so an
+  empty inbox means "checked" and a missing report is itself the signal. Whether the site
+  answers from outside is `.github/workflows/watch.yml`, which opens and closes an `outage`
+  issue: a box cannot report its own death. Three tiers and no more. The reports carry counts,
+  never an address or a log line (§7). Application logs live in the host journal, capped,
+  because a log inside the container's directory died with every deploy. No new provider and
+  no new cost: the mail goes through the transactional provider the application already uses.
 - **Every wait on the database has a deadline, and each environment sets its own** (#172):
   the pool answers a caller it cannot give a connection to within five seconds instead of
   queueing them for ever, and the server cuts off a statement that runs past ten seconds or

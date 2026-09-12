@@ -134,9 +134,10 @@ if [ "$timer_status" -ne 0 ]; then
   echo "         the deployment continues — see docs/backup-and-restore.md"
 fi
 
-# Until #167 gives reports a way to reach a person, the deployment is the one
-# routine that a human already watches. It only warns: a stale copy is not a
-# reason to refuse to deploy, it is a reason to know.
+# The hourly check (#167) mails this when it is true; the deployment says it too,
+# because a deploy log is read at the moment someone is already paying
+# attention. It only warns: a stale copy is not a reason to refuse to deploy,
+# it is a reason to know.
 last_copy=/var/lib/platform-backup/last-success
 if [ ! -f "$last_copy" ]; then
   echo "WARNING: no database copy has ever succeeded on this instance (#168)"
@@ -144,6 +145,114 @@ elif [ $(($(date +%s) - $(stat -c %Y "$last_copy"))) -gt 172800 ]; then
   echo "WARNING: the newest database copy is over two days old (#168):"
   echo "         $(cat "$last_copy")"
   echo "         check: systemctl status platform-backup.timer"
+fi
+
+# #167: the hourly look at this instance, and the one place its findings are
+# turned into a message to a person — deploy/ops-check.sh, docs/operations.md.
+# Installed the same way as the copy above and for the same reasons, including
+# the subshell and the captured status; it must never stop a deployment.
+install_ops_timer() (
+  set -e
+  units=$(mktemp -d)
+  trap 'rm -rf "$units"' EXIT
+cat >"$units/platform-ops.service" <<'UNIT'
+[Unit]
+Description=Look at this instance and tell a person what needs a decision (#167)
+# Wants, not Requires: with Requires a failed Docker would stop this check from
+# starting at all — and "Docker is not answering" is one of the things it is
+# there to say.
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+# The application's log is in the journal (compose.yaml), and reading another
+# unit's entries takes this group. Granted to the service, not to the account.
+SupplementaryGroups=systemd-journal
+StateDirectory=platform-ops
+PrivateTmp=true
+# Every call in the script has its own limit; this is the sum of them with room
+# to spare, so a run is ended by its own time-outs, which report, and not by
+# systemd, which does not.
+TimeoutStartSec=600
+# One core, no swap: a check must never be the process the OOM killer weighs
+# against PostgreSQL.
+MemoryMax=128M
+# It reads, and writes only its own state. Nothing in it needs to become
+# anyone else — the account has passwordless sudo, and this closes that path.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateDevices=yes
+RestrictSUIDSGID=yes
+ExecStart=/bin/bash /opt/platform-lite/ops-check.sh
+UNIT
+cat >"$units/platform-ops.timer" <<'UNIT'
+[Unit]
+Description=Hourly look at this instance (#167)
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target
+UNIT
+# The journal is where the application's log now lives, so it is also what
+# could fill the disk being watched — and application log lines can carry an
+# address or a session token, so how long they stay is a data question as much
+# as a disk one. Capped at 300 MB and two weeks. MaxFileSec makes the two weeks
+# true: journald deletes whole files, and at dev's volume a file otherwise
+# covers a month. SystemKeepFree is set because the default is 15% of the disk,
+# which a disk at 92% already breaks, and journald would then keep almost
+# nothing.
+cat >"$units/platform-lite.conf" <<'UNIT'
+[Journal]
+SystemMaxUse=300M
+SystemKeepFree=500M
+MaxFileSec=1day
+MaxRetentionSec=14day
+UNIT
+# Ubuntu forwards the journal to rsyslog, which would keep a second copy of
+# every application line in /var/log/syslog — rotated weekly for a month and
+# capped by nothing. The containers log under a tag (compose.yaml), and lines
+# with that tag stop here. Only those: auth.log and the rest are untouched.
+cat >"$units/10-platform-lite.conf" <<'UNIT'
+if $programname startswith 'platform-lite-' then stop
+UNIT
+  units_changed=false
+  for unit in platform-ops.service platform-ops.timer; do
+    if ! cmp -s "$units/$unit" "/etc/systemd/system/$unit"; then
+      sudo install -m 644 "$units/$unit" "/etc/systemd/system/$unit"
+      units_changed=true
+    fi
+  done
+  if [ "$units_changed" = true ]; then
+    echo "ops timer: units installed"
+    sudo systemctl daemon-reload
+  fi
+  sudo systemctl enable --now platform-ops.timer >/dev/null
+  if ! cmp -s "$units/platform-lite.conf" /etc/systemd/journald.conf.d/platform-lite.conf; then
+    sudo install -d -m 755 /etc/systemd/journald.conf.d
+    sudo install -m 644 "$units/platform-lite.conf" /etc/systemd/journald.conf.d/platform-lite.conf
+    sudo systemctl restart systemd-journald
+    echo "journal: capped at 300M and two weeks"
+  fi
+  if [ -d /etc/rsyslog.d ] && ! cmp -s "$units/10-platform-lite.conf" /etc/rsyslog.d/10-platform-lite.conf; then
+    sudo install -m 644 "$units/10-platform-lite.conf" /etc/rsyslog.d/10-platform-lite.conf
+    sudo systemctl restart rsyslog
+    echo "syslog: application lines kept out of /var/log/syslog"
+  fi
+)
+set +e
+install_ops_timer
+ops_status=$?
+set -e
+if [ "$ops_status" -ne 0 ]; then
+  echo "WARNING: the hourly operations check could not be installed (#167);"
+  echo "         the deployment continues — see docs/operations.md"
 fi
 
 container=$(docker compose ps --quiet app)
