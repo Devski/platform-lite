@@ -6,6 +6,7 @@ import {
   nearestLoaded,
   pageStep,
   shortestTurn,
+  travelStop,
   wrapFrame,
   type OrbitParams,
 } from "./orbit";
@@ -84,6 +85,64 @@ describe("frameAfterKey", () => {
     expect(frameAfterKey(1, "ArrowRight", reversed)).toBe(9);
     expect(pageStep(9)).toBe(1);
     expect(frameAfterKey(1, "PageDown", reversed)).toBe(9);
+  });
+});
+
+describe("travelStop", () => {
+  const path = [4, 1];
+
+  it("gives every frame on the path an equal share of the time, and arrives at the end", () => {
+    expect(travelStop(path, 0, 250)).toEqual({ frame: 4, arrived: false });
+    expect(travelStop(path, 124, 250)).toEqual({ frame: 4, arrived: false });
+    expect(travelStop(path, 125, 250)).toEqual({ frame: 1, arrived: false });
+    // On the destination, not yet arrived: the last frame has its slice too.
+    expect(travelStop(path, 249, 250)).toEqual({ frame: 1, arrived: false });
+    expect(travelStop(path, 250, 250)).toEqual({ frame: 1, arrived: true });
+    // Long past its time — an animation frame that came late.
+    expect(travelStop(path, 9_000, 250)).toEqual({ frame: 1, arrived: true });
+  });
+
+  // #161: a clock that hands back less than it did before must not strand
+  // the orbit. The frame an animation gets is the time that frame began,
+  // which can precede the reading taken in the click that started the
+  // travel, and a virtual machine's monotonic clock steps back outright.
+  it("reads time that runs backwards as no time at all, never past the path", () => {
+    expect(travelStop(path, -1, 250)).toEqual({ frame: 4, arrived: false });
+    expect(travelStop(path, -9_000, 250)).toEqual({ frame: 4, arrived: false });
+  });
+
+  it("has arrived before it starts when there is no time to take", () => {
+    expect(travelStop(path, 0, 0)).toEqual({ frame: 1, arrived: true });
+  });
+
+  it("has nowhere to be with no path, and says so", () => {
+    const { frame, arrived } = travelStop([], 10, 250);
+    expect(Number.isNaN(frame)).toBe(true);
+    expect(arrived).toBe(true);
+  });
+
+  it("reads a time that is no number as none — the frame stays on the path", () => {
+    expect(travelStop(path, Number.NaN, 250)).toEqual({
+      frame: 4,
+      arrived: false,
+    });
+  });
+
+  // The everyday path: travelPath gives one frame for the next one round.
+  it("shows the one frame of a one-frame path until its time is up", () => {
+    expect(travelStop([9], 0, 250)).toEqual({ frame: 9, arrived: false });
+    expect(travelStop([9], 249, 250)).toEqual({ frame: 9, arrived: false });
+    expect(travelStop([9], 250, 250)).toEqual({ frame: 9, arrived: true });
+  });
+
+  it("walks a long path frame by frame, each in its own slice", () => {
+    const long = [5, 6, 7, 8];
+    expect(travelStop(long, 0, 400).frame).toBe(5);
+    expect(travelStop(long, 99, 400).frame).toBe(5);
+    expect(travelStop(long, 100, 400).frame).toBe(6);
+    expect(travelStop(long, 250, 400).frame).toBe(7);
+    expect(travelStop(long, 399, 400)).toEqual({ frame: 8, arrived: false });
+    expect(travelStop(long, 400, 400)).toEqual({ frame: 8, arrived: true });
   });
 });
 

@@ -234,6 +234,13 @@ trial, all on this milestone. In the order agreed with Dawid on 10.09.2026:
    trial. ~~[#156](https://github.com/Devski/platform-lite/issues/156), the design's last
    point on #126 — what no record names at all~~ — **done 12.09.2026** (#158), at his word, in
    the same run: counted, named in the log, never deleted.
+9. The tail the milestone's own CI run left behind, both found in one red
+   [e2e-full](https://github.com/Devski/platform-lite/actions/runs/34658624150):
+   ~~[#160](https://github.com/Devski/platform-lite/issues/160)~~ — a full run spent the whole
+   sign-up allowance of ten an hour, so any retry reddened the suite; each identity now signs
+   up from its own address. ~~[#161](https://github.com/Devski/platform-lite/issues/161)~~ — a
+   travel that lost its animation frames was left standing on a frame nobody asked for; it now
+   lands whatever the animation does. Both **done 12.09.2026**.
 
 ### Open decisions (§12)
 

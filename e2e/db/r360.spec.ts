@@ -260,6 +260,56 @@ test("cue points (#107): the buttons under the picture turn the orbit to their f
   await expectNoAxeViolations(visitor, test.info(), "public-r360-cues");
 });
 
+// #161: a travel steps frame by frame on animation frames, and a page that
+// is not being drawn is given none — a tab put aside mid-turn, a window
+// behind another, a clock that steps back under a virtual machine. Its own
+// context: the stub below outlives the click, and no later test wants a
+// page whose animation frames never come.
+test("a travel arrives where nothing is animating, and a hand on the way still wins (#161)", async () => {
+  // Motion spelled out rather than left to the default, because the whole
+  // test turns on it: a visitor who asks for none is sent straight to the
+  // destination and would pass this without any of it being exercised.
+  const unanimated = await visitor
+    .context()
+    .browser()!
+    .newContext({ locale: "pl-PL", reducedMotion: "no-preference" });
+  const page = await unanimated.newPage();
+  await page.goto(`/${identity.handle}`);
+  const card = page.getByRole("article").filter({ hasText: "Dom na skarpie" });
+  const viewer = card.getByTestId("orbit-viewer");
+  await expect(viewer).toHaveAttribute("data-frame", "3");
+
+  // What a page behind another one gets: the request is taken and
+  // answered with a handle, the frame never comes. This quiets the frame
+  // loader's own flush too (#117) — harmless here, where the seed has no
+  // objects behind its frames and the viewer's number comes from the
+  // orbit rather than from a picture.
+  await page.evaluate(() => {
+    let handle = 0;
+    window.requestAnimationFrame = () => ++handle;
+  });
+
+  const cues = card.getByRole("list", {
+    name: "Punkty widoku 360°: Dom na skarpie",
+  });
+  const entrance = cues.getByRole("button", { name: "Wejście główne" });
+  // Well inside the landing's own time (250 ms of travel, 200 ms of
+  // grace): arriving late enough to need a longer wait is the same bug.
+  await entrance.click();
+  await expect(viewer).toHaveAttribute("data-frame", "1", { timeout: 2_000 });
+
+  // The other half of it: a landing must not undo a hand. A key on the
+  // way ends the travel, and what the visitor turned to has to still be
+  // there once the landing's time has passed.
+  await cues.getByRole("button", { name: "Taras" }).click();
+  await viewer.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(viewer).toHaveAttribute("data-frame", "2");
+  await page.waitForTimeout(700);
+  await expect(viewer).toHaveAttribute("data-frame", "2");
+  await unanimated.close();
+});
+
 test("on touch there is no hover: a tap on a marker goes straight there, and no label is left on the ring (#107)", async () => {
   const touch = await visitor.context().browser()!.newContext({
     locale: "pl-PL",

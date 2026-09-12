@@ -15,10 +15,13 @@ export interface Identity {
   /** A5-valid: 3-30 chars, lowercase letters, digits and dashes. */
   handle: string;
   displayName: string;
+  /** The address this invented visitor arrives from — see registerAndVerify. */
+  ip: string;
 }
 
 export function newIdentity(): Identity {
-  const suffix = randomBytes(5).toString("hex");
+  const bytes = randomBytes(5);
+  const suffix = bytes.toString("hex");
   return {
     // .test is reserved for exactly this (RFC 2606) — it can never resolve to
     // a real mailbox, whatever transport a future environment configures.
@@ -26,6 +29,11 @@ export function newIdentity(): Identity {
     password: `e2e-passphrase-${suffix}`,
     handle: `e2e-${suffix}`,
     displayName: `E2E Studio ${suffix}`,
+    // 198.18.0.0/15 is reserved for benchmarking between two devices
+    // (RFC 2544) and routes nowhere on the internet, so it can never be a
+    // real visitor's address. Two octets of the same randomness the rest of
+    // the identity is built from: one invented visitor, one address.
+    ip: `198.18.${bytes[3]}.${bytes[4]}`,
   };
 }
 
@@ -39,6 +47,30 @@ export async function registerAndVerify(
   page: Page,
   identity: Identity,
 ): Promise<void> {
+  // Sign-up is capped at ten an hour per address (src/lib/auth.ts), and the
+  // whole run reaches the dev server from one. A full chromium-db run signed
+  // up ten times — the cap exactly, since two of the specs are not serial and
+  // so register once per worker — which left every retry to push some
+  // unrelated spec into a 429 that surfaces as a screen that simply never
+  // arrives (#160). The limit is deliberate product behaviour, and what holds
+  // it to account is src/lib/auth.test.ts, which spends ten sign-ups and
+  // asserts the eleventh is refused; so it stays as it is here, and each
+  // invented visitor arrives from its own address instead — the limiter still
+  // runs for real, it just stops counting eight strangers as one. Those tests
+  // invent an address each for the same reason.
+  //
+  // This one request, not the page: page.setExtraHTTPHeaders puts the header
+  // on every request the page makes, and a header the browser does not know
+  // turns the cross-origin PUT that uploads a photo into a preflighted one,
+  // which the bucket's CORS rules refuse. Measured here on 12.09.2026 — it
+  // cost the whole upload chain, three runs out of three.
+  const signUp = "**/api/auth/sign-up/email";
+  await page.route(signUp, (route) =>
+    route.continue({
+      headers: { ...route.request().headers(), "x-forwarded-for": identity.ip },
+    }),
+  );
+
   await page.goto("/register");
   await page.getByLabel("Adres e-mail").fill(identity.email);
   await page.getByLabel("Hasło").fill(identity.password);
@@ -49,6 +81,9 @@ export async function registerAndVerify(
   await expect(
     page.getByRole("heading", { name: "Sprawdź skrzynkę" }),
   ).toBeVisible();
+  // The address was for the sign-up; the rest of the journey is an ordinary
+  // visitor again.
+  await page.unroute(signUp);
 
   const verifyUrl = await waitForEmailLink({
     to: identity.email,
@@ -100,10 +135,11 @@ export async function registerAndVerify(
 }
 
 // Better Auth caps /sign-in/email at three attempts per ten seconds per IP,
-// and the specs in this directory run in parallel from one address. Three
-// logins already sat exactly on that cap; the fourth one — added with the
-// avatar spec — started pushing a random spec into a 429, which surfaces as a
-// screen that simply never arrives.
+// and the specs in this directory run in parallel from one address — #160 gave
+// each identity its own only for the sign-up it is created with. Three logins
+// already sat exactly on that cap; the fourth one — added with the avatar spec
+// — started pushing a random spec into a 429, which surfaces as a screen that
+// simply never arrives.
 //
 // The limit is deliberate product behaviour (A2), so the answer is to wait it
 // out rather than to loosen it. Only a 429 is retried, and only once: any

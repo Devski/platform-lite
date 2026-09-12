@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   frameAfterDrag,
   frameAfterKey,
+  travelStop,
   wrapFrame,
   type OrbitParams,
 } from "@/lib/r360/orbit";
@@ -21,6 +22,13 @@ const DRAG_SLOP_PX = 6;
 const TRAVEL_MS_PER_FRAME = 28;
 const TRAVEL_MIN_MS = 250;
 const TRAVEL_MAX_MS = 1200;
+/**
+ * How long after a travel's own time is up its landing waits for the
+ * animation to have done the job itself (#161). Wide enough that a busy
+ * frame does not land the orbit early, short enough that a visitor who
+ * comes back to the tab finds the orbit where they sent it.
+ */
+const TRAVEL_LANDING_AFTER_MS = 200;
 
 export interface Orbit {
   /** The frame in view, 1..N. */
@@ -68,13 +76,19 @@ export function useOrbit(
   useEffect(() => {
     onFrameChange.current = options.onFrameChange;
   }, [options.onFrameChange]);
-  // The travel in flight: one animation frame pending at a time.
+  // The travel in flight: one animation frame pending at a time, and the
+  // landing that does not depend on it (#161).
   const travel = useRef<number | undefined>(undefined);
+  const landing = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const cancelTravel = useCallback(() => {
     if (travel.current !== undefined) {
       window.cancelAnimationFrame(travel.current);
     }
     travel.current = undefined;
+    if (landing.current !== undefined) {
+      clearTimeout(landing.current);
+    }
+    landing.current = undefined;
   }, []);
 
   const place = useCallback(
@@ -113,20 +127,33 @@ export function useOrbit(
       );
       const started = performance.now();
       const step = (now: number) => {
-        const progress = Math.min(1, (now - started) / duration);
-        const at = Math.min(
-          path.length - 1,
-          Math.floor(progress * path.length),
+        const { frame: on, arrived } = travelStop(
+          path,
+          now - started,
+          duration,
         );
-        place(path[at]);
-        if (progress < 1) {
-          travel.current = window.requestAnimationFrame(step);
-        } else {
-          travel.current = undefined;
-          place(destination);
-        }
+        // Settled before the frame is placed, never after: placing tells the
+        // consumer where the orbit is, and a consumer that takes hold there
+        // must not find the travel scheduling itself again behind its back.
+        if (arrived) cancelTravel();
+        else travel.current = window.requestAnimationFrame(step);
+        place(on);
       };
       travel.current = window.requestAnimationFrame(step);
+      // Arriving is not the animation's job (#161). Animation frames stop
+      // coming to a page that is not being drawn — a tab put aside, a
+      // window behind another — and the travel would be left standing on
+      // whichever frame it had reached, one nobody asked for, with nothing
+      // to bring it the rest of the way. A timer still fires there, late
+      // and slowed though a background one is, and a page put to sleep
+      // outright is woken before it is shown again: so the destination is
+      // reached either way, and the animation only decides whether the
+      // visitor watches the turn or finds it already made. A hand that
+      // takes hold first cancels this with everything else.
+      landing.current = setTimeout(() => {
+        cancelTravel();
+        place(destination);
+      }, duration + TRAVEL_LANDING_AFTER_MS);
     },
     [cancelTravel, place],
   );
