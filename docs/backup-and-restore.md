@@ -46,9 +46,12 @@ that returned 200.
 - **The bucket objects.** If the bucket goes, the restored rows are a map to
   nothing. Accepted for dev; production decides in #24.
 - **Roles.** Everything here connects as the bootstrap superuser, which every
-  cluster is born with. The script _checks_ this on every run and refuses to
-  make a copy the day it stops being true, rather than leaving it as an
-  assumption someone breaks in a year.
+  cluster is born with. The script _checks_ that on every run — and the day it
+  stops being true it still makes the copy, then fails loudly naming the roles
+  it did not carry. A copy missing roles is two minutes of `CREATE ROLE` from
+  whole; no copy at all is the thing this file exists to prevent. When that
+  happens, the copy must grow: `pg_dumpall --roles-only`, with the line creating
+  the bootstrap superuser removed, prepended to the dump.
 - **The test databases** (`*_test_*`) — a test run recreates them from nothing.
 
 ### Who can read a copy, and what it is worth
@@ -75,17 +78,20 @@ ideally against a different bucket.
 The dump begins with `DROP DATABASE IF EXISTS`. Read that sentence twice before
 pointing it at a live cluster.
 
-Fetch the copy (from the instance, where the credentials already are). `umask`
-first: without it curl writes a world-readable file into a directory that
-survives reboots, and the last step of this section is the one people skip.
+Fetch the copy (from the instance, where the credentials already are). Two
+things in here are not ceremony: `umask` first, or curl writes a world-readable
+dump into a directory that survives reboots — and the credentials go in a file,
+because `/proc/<pid>/cmdline` is world-readable and `--user key:secret` would
+show the secret to every account on the host for the length of the transfer.
 
 ```bash
 while IFS= read -r l || [ -n "$l" ]; do case "$l" in S3_*=*) export "${l%%=*}=${l#*=}";; esac; done </opt/platform-lite/.env
 umask 077
-curl --fail-with-body -sS --aws-sigv4 "aws:amz:$S3_REGION:s3" --user "$S3_KEY:$S3_SECRET" \
-  "$S3_ENDPOINT/$S3_BUCKET/backups/${S3_PREFIX}pg/LATEST"
-curl --fail-with-body -sS --aws-sigv4 "aws:amz:$S3_REGION:s3" --user "$S3_KEY:$S3_SECRET" \
-  "$S3_ENDPOINT/$S3_BUCKET/backups/${S3_PREFIX}pg/sat.sql.gz" -o /var/tmp/dump.sql.gz
+printf 'user = "%s:%s"\n' "$S3_KEY" "$S3_SECRET" >/var/tmp/s3.curlrc
+s3() { curl --config /var/tmp/s3.curlrc --aws-sigv4 "aws:amz:$S3_REGION:s3" --fail-with-body -sS "$@"; }
+
+s3 "$S3_ENDPOINT/$S3_BUCKET/backups/${S3_PREFIX}pg/LATEST"
+s3 "$S3_ENDPOINT/$S3_BUCKET/backups/${S3_PREFIX}pg/sat.sql.gz" -o /var/tmp/dump.sql.gz
 ```
 
 `LATEST` names the newest slot, its timestamp and its size. Slots are named for
@@ -127,7 +133,7 @@ something. A restore that prints errors and keeps going has told you nothing.
 **When you are done**, in either case:
 
 ```bash
-rm -f /var/tmp/dump.sql.gz
+rm -f /var/tmp/dump.sql.gz /var/tmp/s3.curlrc
 ```
 
 ## Checking that it still works
