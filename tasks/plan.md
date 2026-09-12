@@ -94,12 +94,13 @@ in under 5 minutes (manual walkthrough); e2e green.
   `deploy-config`), and refuses a deleted or force-pushed branch. No bypass actors — every
   commit here is pushed with the owner's account, so "admins may bypass" would have read as
   "anyone may bypass". It costs nothing while the repository is public (since 10.09.2026).
-- [#168](https://github.com/Devski/platform-lite/issues/168) No copy of dev's database exists
-  anywhere (`deployment`, `infra`). **The urgent one.** Found 12.09.2026: the data lives in the
-  `pgdata` Docker volume on the instance's own disk and nothing ever copies it — there is no
-  `pg_dump` in the repository. Losing it would not merely cost the rows: object keys are content
-  hashes kept in those rows (G2), so the entire bucket would become unfindable bytes. G10's
-  written restore procedure has nothing to restore from.
+- ~~[#168](https://github.com/Devski/platform-lite/issues/168) No copy of dev's database exists
+  anywhere~~ — **done 12.09.2026**: every `platform_*` database is dumped to the bucket nightly
+  into one of seven weekday slots, read back and compared before the run counts as a success
+  (1.8 MB, ~3 s). The restore is in `docs/backup-and-restore.md` and was drilled the same day —
+  which is how the first version was caught: `pg_dumpall` produced a copy that looked perfect and
+  died on its first statement against an empty cluster. Not solved: the bucket objects have no
+  copy, and the staleness warning still depends on someone reading a deploy log (#167).
 - [#167](https://github.com/Devski/platform-lite/issues/167) The state of an environment, and the
   reports that reach nobody (`deployment`, `enhancement`). Found 12.09.2026 while reading the
   R360 collector's report over SSH: it warns into a container's stdout, and that is the whole of

@@ -57,6 +57,66 @@ else
 ' "APP_IMAGE=$APP_IMAGE" >> .env
 fi
 
+# #168: the daily copy of the database, installed by the deployment rather than
+# by hand, so it heals itself — a rebuilt instance has it after its first deploy
+# from `main`, and a change to the script or the schedule arrives the way the
+# application does. Written only when it differs: a deployment that changes
+# nothing reloads nothing. `bash <path>`, exactly as CI invokes this file, so
+# the copy never depends on an executable bit surviving a checkout and an scp.
+units=$(mktemp -d)
+cat >"$units/platform-backup.service" <<'UNIT'
+[Unit]
+Description=Copy the PostgreSQL cluster to the bucket (#168)
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+StateDirectory=platform-backup
+ExecStart=/bin/bash /opt/platform-lite/backup-db.sh
+UNIT
+cat >"$units/platform-backup.timer" <<'UNIT'
+[Unit]
+Description=Daily copy of the PostgreSQL cluster (#168)
+
+[Timer]
+# Quiet hours, and an odd minute so it shares the clock with nothing else.
+OnCalendar=*-*-* 03:17:00 UTC
+# An instance that was down at 03:17 copies at the next boot instead of
+# skipping the day.
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
+UNIT
+units_changed=false
+for unit in platform-backup.service platform-backup.timer; do
+  if ! cmp -s "$units/$unit" "/etc/systemd/system/$unit"; then
+    sudo install -m 644 "$units/$unit" "/etc/systemd/system/$unit"
+    units_changed=true
+  fi
+done
+rm -rf "$units"
+if [ "$units_changed" = true ]; then
+  echo "backup timer: units installed"
+  sudo systemctl daemon-reload
+fi
+sudo systemctl enable --now platform-backup.timer >/dev/null
+
+# Until #167 gives reports a way to reach a person, the deployment is the one
+# routine that a human already watches. It only warns: a stale copy is not a
+# reason to refuse to deploy, it is a reason to know.
+last_copy=/var/lib/platform-backup/last-success
+if [ ! -f "$last_copy" ]; then
+  echo "WARNING: no database copy has ever succeeded on this instance (#168)"
+elif [ $(($(date +%s) - $(stat -c %Y "$last_copy"))) -gt 172800 ]; then
+  echo "WARNING: the newest database copy is over two days old (#168):"
+  echo "         $(cat "$last_copy")"
+  echo "         check: systemctl status platform-backup.timer"
+fi
+
 container=$(docker compose ps --quiet app)
 for attempt in $(seq 1 60); do
   status=$(docker inspect --format '{{.State.Health.Status}}' "$container" 2>/dev/null || echo starting)

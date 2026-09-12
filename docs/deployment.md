@@ -37,6 +37,11 @@ address — a directly reachable port would let anyone set it themselves and
 guess passwords without limit (the #8 review's trust contract). CI greps for
 that one line, because losing it is silent.
 
+`postgres` is the one container here holding state nothing can rebuild, and it
+is copied to the bucket every night (#168). What that covers, how to see that it
+is still running, and exactly what to type to restore:
+[backup-and-restore.md](backup-and-restore.md).
+
 ## Wiring it up (one time)
 
 Seven steps, about twenty minutes of work plus one wait. Nothing here is done
@@ -289,7 +294,7 @@ this. Two other things are.
 With no swap, exhausting memory does not make the machine slow — it invokes the
 OOM killer, which picks its victim by size. The biggest process here is as
 likely to be PostgreSQL as the preview that caused the pressure, and that is
-*dev's* database, shared by every preview.
+_dev's_ database, shared by every preview.
 
 And there is one core. Avatar resizing is the CPU-heavy path in this
 application: measured on this instance, a 2.8 MB photo at 4000×3000 costs about
