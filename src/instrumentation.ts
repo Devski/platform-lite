@@ -50,3 +50,21 @@ export async function register() {
     console.error("[r360] collector: the schedule did not start", error);
   }
 }
+
+// #172: the one place every server-side failure passes through (the
+// `onRequestError` half of the instrumentation file convention). It exists
+// for one line of log — the database deadlines answer with an error now
+// instead of waiting for ever, and an operator reading the log has to be able
+// to tell that from a request that was merely slow. Everything else Next
+// already prints; this adds a name to the four bounds #172 introduced.
+export async function onRequestError(
+  error: unknown,
+  request: { path: string; method: string },
+) {
+  const { databaseStall } = await import("@/db/client");
+  const stall = databaseStall(error);
+  if (!stall) return;
+  console.error(
+    `[db] ${request.method} ${request.path} hit the ${stall} bound — the numbers are DB_* in .env.example (#172)`,
+  );
+}

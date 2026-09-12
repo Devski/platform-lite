@@ -38,7 +38,16 @@ const folder = path.join(
 const pending = readdirSync(folder).filter((name) => name.endsWith(".sql"));
 console.log(`${pending.length} migration file(s) in the image`);
 
-const pool = new Pool({ connectionString: url });
+// #172 deliberately does not reach this file: the web deadlines
+// (statement_timeout, lock_timeout) live in the pool src/db/client.ts opens,
+// not in DATABASE_URL, precisely so a migration is never cut off half-applied
+// by a bound meant for a page. The one bound worth having here is the
+// opposite one — a database that cannot be reached should fail the deploy
+// rather than hold it open for ever.
+const pool = new Pool({
+  connectionString: url,
+  connectionTimeoutMillis: 30_000,
+});
 try {
   // Drizzle records what it has applied in its own table and skips those, so
   // this is safe to run on every deploy — including one that changes nothing.
