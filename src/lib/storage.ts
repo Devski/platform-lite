@@ -123,6 +123,12 @@ export interface FileStorage {
     prefix: string,
     opts?: { maxKeys?: number },
   ): Promise<{ key: string; sizeBytes: number; etag: string }[]>;
+  /**
+   * The sub-prefixes one level under a prefix, `/`-delimited and each
+   * ending in `/` — not its keys. #156's report asks which frame sets a
+   * bucket holds without listing the 240 objects of every one of them.
+   */
+  listPrefixes(prefix: string): Promise<string[]>;
   /** Stable, unsigned address of a public object (G3). */
   publicUrl(key: string): string;
   /**
@@ -420,6 +426,26 @@ export function createS3Storage(config: {
       return found;
     },
 
+    async listPrefixes(prefix) {
+      const found: string[] = [];
+      let token: string | undefined;
+      do {
+        const page = await client.send(
+          new ListObjectsV2Command({
+            Bucket: bucket,
+            Prefix: prefix,
+            Delimiter: "/",
+            ContinuationToken: token,
+          }),
+        );
+        for (const common of page.CommonPrefixes ?? []) {
+          if (common.Prefix) found.push(common.Prefix);
+        }
+        token = page.IsTruncated ? page.NextContinuationToken : undefined;
+      } while (token);
+      return found;
+    },
+
     async presignDownload(key, opts) {
       return getSignedUrl(
         client,
@@ -511,6 +537,15 @@ export function createMemoryStorage(): {
             sizeBytes: stored.body.length,
             etag: createHash("md5").update(stored.body).digest("hex"),
           }));
+      },
+      async listPrefixes(prefix) {
+        const found = new Set<string>();
+        for (const key of objects.keys()) {
+          if (!key.startsWith(prefix)) continue;
+          const slash = key.indexOf("/", prefix.length);
+          if (slash !== -1) found.add(key.slice(0, slash + 1));
+        }
+        return [...found].sort();
       },
       publicUrl(key) {
         return `memory://${key}`;

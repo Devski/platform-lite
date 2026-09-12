@@ -22,17 +22,28 @@ export async function register() {
         const [
           { getDb },
           { getStorage, keyPrefix },
-          { collectAllUnfinishedFrameSets },
+          { collectAllUnfinishedFrameSets, unrecordedFrameSets },
         ] = await Promise.all([
           import("@/db/client"),
           import("@/lib/storage"),
           import("@/lib/r360/frame-set"),
         ]);
-        return collectAllUnfinishedFrameSets({
+        const deps = {
           db: getDb(),
           storage: getStorage(),
           prefix: keyPrefix(),
-        });
+        };
+        // Collect first: what a record names is dealt with before what
+        // nothing does is counted (#156). The report has its own net —
+        // what was deleted must reach the log even if the counting after
+        // it fails (#156 review).
+        const collected = await collectAllUnfinishedFrameSets(deps);
+        try {
+          return { collected, unrecorded: await unrecordedFrameSets(deps) };
+        } catch (error) {
+          console.error("[r360] collector: the report failed", error);
+          return { collected, unrecorded: [] };
+        }
       },
     });
   } catch (error) {

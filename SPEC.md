@@ -422,8 +422,8 @@ export function ownerKey(
   nobody finished. The collector removes such a set's objects, then its row — lazily on
   that owner's next presign, and on its own every 12 hours on dev and in production, never
   in a preview, which shares dev's database (#127, #113). It deletes only what a record
-  names and never a set a `files` row names; objects with no record at all are left for a
-  human. A set is never rewritten — a new zip is a new set — so G2's immutable caching holds,
+  names and never a set a `files` row names; a set no record names at all is counted and
+  named in the collector's log, and left where it is for a human (#156). A set is never rewritten — a new zip is a new set — so G2's immutable caching holds,
   and a work's set is deleted by prefix. The A9 limit and the #69 meter are one number: it
   counts the 1600 set.
   **An object has one owner** (decision of 08.09.2026): keys written since #72 are

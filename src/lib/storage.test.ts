@@ -136,6 +136,29 @@ describe("memory storage (the G1 fake for dependent code)", () => {
     ).toContain("maxBytes=any");
   });
 
+  // #156: the collector's report asks which frame sets exist without
+  // listing the 240 objects of each.
+  it("lists the sub-prefixes one level under a prefix, and no keys of its own", async () => {
+    const { storage } = createMemoryStorage();
+    for (const key of [
+      "u/a/r360/s1/1600/001.webp",
+      "u/a/r360/s1/800/001.webp",
+      "u/a/r360/s2/1600/001.webp",
+      "u/b/r360/s3/1600/001.webp",
+      "u/a/avatar.webp",
+      // A key lying directly under a listed prefix is not a prefix.
+      "u/a/r360/loose.webp",
+    ]) {
+      await storage.putObject(key, Buffer.from("x"), "image/webp");
+    }
+    expect(await storage.listPrefixes("u/")).toEqual(["u/a/", "u/b/"]);
+    expect(await storage.listPrefixes("u/a/r360/")).toEqual([
+      "u/a/r360/s1/",
+      "u/a/r360/s2/",
+    ]);
+    expect(await storage.listPrefixes("nothing/")).toEqual([]);
+  });
+
   it("signs a short-lived address to read a private object (#105)", async () => {
     const { storage } = createMemoryStorage();
     expect(
