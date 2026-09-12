@@ -574,6 +574,9 @@
         "paramGlide": "Ruch",
         "glideOn": "Płynny",
         "glideOff": "Jednostajny",
+        "paramEaseIn": "Rozbieg",
+        "paramEaseOut": "Dobieg",
+        "easePercent": "{percent}%",
         "glideHint": "Płynny: kliknięcie w pierścień nabiera tempa i wyhamowuje na klatce, a obrót rzucony ręką kręci się dalej i zwalnia do zatrzymania. Jednostajny to jedno tempo od początku do końca. Gość, którego system prosi o mniej ruchu, nie dostanie żadnego z nich — obrót po prostu staje na miejscu.",
         "flatteningCircle": "Okrąg",
         "refused": {

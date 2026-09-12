@@ -8,6 +8,7 @@ import {
   frameAfterKey,
   framesAlong,
   glides,
+  travelCurve,
   travelDuration,
   travelStop,
   wrapFrame,
@@ -71,6 +72,13 @@ export interface Orbit {
    * on one whose owner turned that off.
    */
   travelAlong: (path: readonly number[]) => void;
+  /**
+   * #175: the frame an aimed travel is on its way to, or null when the
+   * orbit is standing still, being dragged, or coasting. What the cue
+   * buttons light on — the frame that was ASKED for, not the one the orbit
+   * happens to be crossing.
+   */
+  aimedAt: number | null;
   cancelTravel: () => void;
   dragging: boolean;
   /** Spread onto the element that is the picture. */
@@ -98,6 +106,9 @@ export function useOrbit(
   // defaults inline), and a callback keyed on the object itself would be
   // rebuilt with every one of them.
   const glide = glides(params);
+  // #175: one curve for every travel, whichever hand started it — the ring,
+  // a marker on it, or a cue button all come through travelAlong.
+  const curve = travelCurve(params);
   const [frame, setFrameState] = useState(() =>
     wrapFrame(options.initialFrame ?? params.startFrame, frameCount),
   );
@@ -119,7 +130,10 @@ export function useOrbit(
   // landing that does not depend on it (#161).
   const travel = useRef<number | undefined>(undefined);
   const landing = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // #175: the frame an aimed travel is on its way to, or null.
+  const [aimedAt, setAimedAt] = useState<number | null>(null);
   const cancelTravel = useCallback(() => {
+    setAimedAt(null);
     if (travel.current !== undefined) {
       window.cancelAnimationFrame(travel.current);
     }
@@ -199,13 +213,27 @@ export function useOrbit(
     (path: readonly number[]) => {
       cancelTravel();
       if (path.length === 0) return;
+      const destination = path[path.length - 1];
       if (reducedMotion()) {
-        place(path[path.length - 1]);
+        place(destination);
         return;
       }
-      run(path, travelDuration(path.length), glide ? "eased" : "steady");
+      // #175: where this orbit is headed, for as long as it is headed
+      // there. A cue button lights on the press rather than on the arrival,
+      // and the cues the travel passes on the way stay unlit — the row was
+      // reading the CURRENT frame, so every cue crossed by a travel flashed
+      // for the 28 ms it stood on it.
+      //
+      // Only an aimed travel sets this. A coast has an end too, but nobody
+      // asked for that frame, so nothing should claim it was asked for.
+      // After `run`, not before: it begins by cancelling whatever travel was
+      // in flight, and cancelling is what drops the aim — set first, the
+      // press would light the button for as long as it takes the next line
+      // to run, which is no time at all.
+      run(path, travelDuration(path.length), curve);
+      setAimedAt(destination);
     },
-    [cancelTravel, glide, place, run],
+    [cancelTravel, curve, place, run],
   );
 
   // A frame count that changed under the hook (a new archive in the same
@@ -305,6 +333,7 @@ export function useOrbit(
 
   return {
     frame,
+    aimedAt,
     setFrame,
     travelAlong,
     cancelTravel,

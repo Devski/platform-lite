@@ -22,11 +22,42 @@ export interface OrbitParams {
    * turned it off.
    */
   glide?: boolean;
+  /**
+   * #175: how much a travel gathers pace at the start and settles at the
+   * end, each 0..1 and each absent meaning 1 — the full ease #153 shipped,
+   * so a work saved before these existed feels exactly as it did. 0 on a
+   * side is a straight line there: 1 in and 0 out gathers pace and then
+   * runs flat into its frame.
+   */
+  easeIn?: number;
+  easeOut?: number;
 }
 
 /** #153: whether this orbit glides. Absent is on; only `false` is off. */
 export function glides(params: Pick<OrbitParams, "glide">): boolean {
   return params.glide !== false;
+}
+
+/** Within 0..1, with anything that is not a number reading as `fallback`. */
+function amount(value: number | undefined, fallback: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return Math.min(1, Math.max(0, value));
+}
+
+/**
+ * #175: the curve this orbit's travels take — the two amounts its owner
+ * set, or "steady" where they turned the motion off. One function, so a
+ * travel started from the ring, from a marker on it, or from a cue button
+ * cannot end up with a feel of its own.
+ */
+export function travelCurve(
+  params: Pick<OrbitParams, "glide" | "easeIn" | "easeOut">,
+): TravelCurve {
+  if (!glides(params)) return "steady";
+  return {
+    easeIn: amount(params.easeIn, 1),
+    easeOut: amount(params.easeOut, 1),
+  };
 }
 
 /**
@@ -243,24 +274,40 @@ export function frameAfterKey(
 /**
  * #153: the shape a travel's progress takes. `steady` gives every frame
  * the same slice of the time — what a travel always did, and what an
- * orbit whose owner turned the glide off still does. `eased` starts from
- * rest, runs fastest halfway and settles onto its frame: a click on the
- * ring. `slowing` starts at the hand's speed and comes to a stop — and
- * that one is not chosen for the look of it, it is where constant
- * slowing puts a thing, the very motion `coastAfterDrag` measures out.
+ * orbit whose owner turned the motion off still does. `slowing` starts at
+ * the hand's speed and comes to a stop — and that one is not chosen for
+ * the look of it, it is where constant slowing puts a thing, the very
+ * motion `coastAfterDrag` measures out.
+ *
+ * #175: the eased shape is no longer one curve but the owner's two
+ * amounts. `{ easeIn: 1, easeOut: 1 }` is the smoothstep #153 shipped —
+ * still at both ends, fastest halfway — and each amount slides its own
+ * half of the travel towards a straight line, independently of the other.
  */
-export type TravelCurve = "steady" | "eased" | "slowing";
+export type TravelCurve =
+  "steady" | "slowing" | { easeIn: number; easeOut: number };
 
-// Every member named, and no `default`: a curve added to the union and
-// forgotten here is then a compile error, not a travel that quietly runs
-// at a flat pace.
+/** Smoothstep: still at both ends, fastest in the middle. */
+function smoothstep(progress: number): number {
+  return progress * progress * (3 - 2 * progress);
+}
+
+// Every named member handled, and no `default`: a curve added to the union
+// and forgotten here is then a compile error, not a travel that quietly
+// runs at a flat pace.
 function alongCurve(progress: number, curve: TravelCurve): number {
+  if (typeof curve === "object") {
+    // A blend, not a second formula: the eased shape and the straight line
+    // agree at the halfway point, so mixing each half towards the line by
+    // its own amount leaves the two halves meeting where they always did —
+    // no step in the middle, whatever the owner picked, and 1/1 IS the
+    // curve #153 shipped rather than an approximation of it.
+    const towards = progress <= 0.5 ? curve.easeIn : curve.easeOut;
+    return progress + towards * (smoothstep(progress) - progress);
+  }
   switch (curve) {
     case "steady":
       return progress;
-    case "eased":
-      // Smoothstep: still at both ends, fastest in the middle.
-      return progress * progress * (3 - 2 * progress);
     case "slowing":
       // 2t − t²: full speed at the start, none at the end.
       return progress * (2 - progress);

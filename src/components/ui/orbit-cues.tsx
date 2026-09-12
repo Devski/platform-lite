@@ -77,7 +77,17 @@ export function OrbitCueButtons({
       data-testid="orbit-cues"
     >
       {cues.map((cue) => {
-        const here = cue.frame === orbit.frame;
+        // #175: where the orbit was ASKED to be — the frame it is travelling
+        // to while it travels, the frame it stands on otherwise. Lighting
+        // the current frame instead meant a press did nothing until the
+        // orbit arrived, and that every cue a travel crossed on the way lit
+        // for the single frame it stood there: a blink, not a signal.
+        const here = cue.frame === (orbit.aimedAt ?? orbit.frame);
+        // Crossed on the way to somewhere else: a pulse says the orbit went
+        // by, and says it in a ring rather than in the tones, which cannot
+        // fade between each other without passing through colours that
+        // cannot be read (#107, caught by axe in the lightbox).
+        const passing = orbit.aimedAt !== null && cue.frame === orbit.frame;
         const state = here
           ? look.here
           : cue.frame === preview
@@ -112,7 +122,8 @@ export function OrbitCueButtons({
               // frame, a readout like the counter, and a fade between the
               // two tones passes through ones that cannot be read (axe
               // caught one mid-way in the lightbox).
-              className={`inline-flex min-h-8 items-center gap-(--sp-3) rounded-full border px-(--sp-4) type-label focus-visible:outline-none ${look.focus} ${state}`}
+              data-passing={passing ? "" : undefined}
+              className={`inline-flex min-h-8 cursor-pointer items-center gap-(--sp-3) rounded-full border px-(--sp-4) type-label focus-visible:outline-none data-passing:animate-cue-pulse motion-reduce:data-passing:animate-none ${look.focus} ${state}`}
             >
               {/* The ring's marker, in small: this button is that diamond. */}
               <span

@@ -284,6 +284,60 @@ test("cue points (#107): the buttons under the picture turn the orbit to their f
   await expectNoAxeViolations(visitor, test.info(), "public-r360-cues");
 });
 
+// #175: the cue buttons answer the press, not the arrival. Its own context
+// for the same reason as the #161 test below: the stub outlives the click.
+test("a cue button lights the moment it is pressed, and the cues on the way stay unlit (#175)", async () => {
+  const unanimated = await visitor
+    .context()
+    .browser()!
+    .newContext({ locale: "pl-PL", reducedMotion: "no-preference" });
+  const page = await unanimated.newPage();
+  await page.goto(`/${identity.handle}`);
+  const card = page.getByRole("article").filter({ hasText: "Dom na skarpie" });
+  const viewer = card.getByTestId("orbit-viewer");
+  await expect(viewer).toHaveAttribute("data-frame", "3");
+
+  // No animation frames, so the orbit cannot arrive on its own: whatever
+  // the button does now, it does on the strength of the press alone. The
+  // landing (#161) still ends the travel about 450 ms later, which is why
+  // the assertions below are the first thing after the click.
+  await page.evaluate(() => {
+    let handle = 0;
+    window.requestAnimationFrame = () => ++handle;
+  });
+
+  const cues = card.getByRole("list", {
+    name: "Punkty widoku 360°: Dom na skarpie",
+  });
+  const entrance = cues.getByRole("button", { name: "Wejście główne" });
+  const terrace = cues.getByRole("button", { name: "Taras" });
+
+  await entrance.click();
+  // Lit at once, while the orbit is demonstrably still elsewhere: before
+  // #175 the row read the CURRENT frame, so this said nothing until the
+  // travel finished.
+  await expect(entrance).toHaveAttribute("aria-current", "true", {
+    timeout: 300,
+  });
+  await expect(viewer).toHaveAttribute("data-frame", "3");
+  // And the cue the path crosses does not claim it was asked for. (It used
+  // to light for the 28 ms the orbit stood on it — a blink, not a signal.)
+  await expect(terrace).not.toHaveAttribute("aria-current");
+
+  // The landing still puts the orbit where it was sent.
+  await expect(viewer).toHaveAttribute("data-frame", "1", { timeout: 2_000 });
+  await expect(entrance).toHaveAttribute("aria-current", "true");
+
+  // A hand taking hold drops the claim: the orbit is no longer going there.
+  await terrace.click();
+  await viewer.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(terrace).not.toHaveAttribute("aria-current");
+  await expect(entrance).not.toHaveAttribute("aria-current");
+
+  await unanimated.close();
+});
+
 // #161: a travel steps frame by frame on animation frames, and a page that
 // is not being drawn is given none — a tab put aside mid-turn, a window
 // behind another, a clock that steps back under a virtual machine. Its own

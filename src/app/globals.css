@@ -26,10 +26,9 @@
   /* Overrides Tailwind's default font-sans/font-mono utilities (and the
      Preflight body font) so nothing renders in the system stack. */
   --font-sans: "Figtree", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  --font-mono:
-    "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --font-plaque: "Fira Sans Condensed", "Frutiger Condensed", "Segoe UI",
-    sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-plaque:
+    "Fira Sans Condensed", "Frutiger Condensed", "Segoe UI", sans-serif;
 
   /* colors.css — monochrome, cool-slate neutrals. The only saturated colors
      belong to the brand plaque and to state; never used for interface
@@ -154,6 +153,11 @@
   --ring-focus: 0 0 0 2px var(--surface-card), 0 0 0 4px var(--focus-ring);
   --ring-focus-inverse:
     0 0 0 2px rgba(12, 17, 22, 0.6), 0 0 0 4px var(--focus-ring-inverse);
+  /* #175: the ring a cue button grows for a moment as the orbit passes it.
+     The focus colour at half strength — it borrows the meaning ("this one,
+     just now") without being mistaken for focus itself, and it is a shadow,
+     so it never touches the text or fill the contrast was measured on. */
+  --ring-cue-pulse: color-mix(in oklab, var(--focus-ring) 50%, transparent);
   --blur-panel: saturate(120%) blur(14px);
 
   /* radius.css — semantic aliases onto the scale above. */
@@ -253,6 +257,37 @@
   --type-label: var(--fw-medium) var(--fs-sm) / 1.4 var(--font-sans);
   --type-mono: var(--fw-regular) var(--fs-sm) / 1.5 var(--font-mono);
   --type-eyebrow: var(--fw-semibold) var(--fs-micro) / 1.2 var(--font-sans);
+}
+
+@layer base {
+  /* #175: a button says it is pressable. Tailwind 4's preflight no longer
+     sets this (verified in node_modules/tailwindcss/preflight.css, 4.3.3),
+     so every button in this product showed the plain arrow — Dawid noticed
+     it on the cue row, and it was true of all of them. Here rather than in
+     the Button component, because half the buttons in the app are bare
+     elements, and a disabled one keeps the cursor that says so. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+}
+
+/* #175: an orbit passing a cue point on its way elsewhere. A ring that
+   grows and fades — never the tones, which cannot fade between each other
+   without passing through colours that cannot be read (#107). Short enough
+   to read as "went by", long enough to be seen at all: the orbit stands on
+   the crossed frame for about 28 ms. */
+@keyframes cue-pulse {
+  from {
+    box-shadow: 0 0 0 0 var(--ring-cue-pulse);
+  }
+  to {
+    box-shadow: 0 0 0 0.5rem transparent;
+  }
+}
+
+@theme {
+  --animate-cue-pulse: cue-pulse 450ms ease-out;
 }
 
 @layer components {

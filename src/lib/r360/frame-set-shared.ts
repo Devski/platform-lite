@@ -150,6 +150,11 @@ export const r360ParamsSchema = z
     flattening: z.number().min(0.15).max(1),
     cues: z.array(cueSchema).max(R360_CUES_MAX).optional(),
     glide: z.boolean().optional(),
+    // #175: how much a travel gathers pace and how much it settles, each
+    // absent meaning the full ease #153 shipped — so nothing saved before
+    // them changes its feel, and only an owner who tuned it is written down.
+    easeIn: z.number().min(0).max(1).optional(),
+    easeOut: z.number().min(0).max(1).optional(),
   })
   .refine(
     (p) => p.framesPerWidth <= p.frameCount && p.startFrame <= p.frameCount,
@@ -189,6 +194,10 @@ export function isDefaultR360Params(params: R360Params): boolean {
     params.startFrame === defaults.startFrame &&
     params.flattening === defaults.flattening &&
     params.glide !== false &&
+    // #175: an amount the owner tuned is theirs to keep, the same way a
+    // glide turned off is. Absent is the default and is not written down.
+    params.easeIn === undefined &&
+    params.easeOut === undefined &&
     !params.cues?.length
   );
 }

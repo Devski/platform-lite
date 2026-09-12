@@ -111,6 +111,36 @@ export function R360ParamControls({
           testId: `work-r360-glide-${on ? "on" : "off"}`,
         }))}
       />
+      {/* #175: how much it gathers pace and how much it settles, each its
+          own half of the travel. Only under the switch: with the motion off
+          there is no curve to shape. Absent means the full ease, so a work
+          saved before these existed reads as 100/100 and feels unchanged. */}
+      {glides(params) && (
+        <>
+          <RangeParam
+            name={t("paramEaseIn")}
+            shown={t("easePercent", { percent: easeAmount(params.easeIn) })}
+            min={0}
+            max={100}
+            step={10}
+            value={easeAmount(params.easeIn)}
+            onChange={(percent) => onChange({ easeIn: percent / 100 })}
+            disabled={disabled}
+            testId="work-r360-ease-in"
+          />
+          <RangeParam
+            name={t("paramEaseOut")}
+            shown={t("easePercent", { percent: easeAmount(params.easeOut) })}
+            min={0}
+            max={100}
+            step={10}
+            value={easeAmount(params.easeOut)}
+            onChange={(percent) => onChange({ easeOut: percent / 100 })}
+            disabled={disabled}
+            testId="work-r360-ease-out"
+          />
+        </>
+      )}
       <CueControls
         params={params}
         frameInView={frameInView}
@@ -329,6 +359,16 @@ function ParamLabel({
  * review). What comes as children sits below the slider, outside the
  * label.
  */
+/**
+ * #175: an amount as the slider shows it — whole percent, and absent
+ * reading as 100, which is the ease #153 shipped and what every work saved
+ * before these sliders existed still feels.
+ */
+function easeAmount(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 100;
+  return Math.round(Math.min(1, Math.max(0, value)) * 100);
+}
+
 function RangeParam({
   name,
   shown,

@@ -13,6 +13,7 @@ import {
   nearestLoaded,
   pageStep,
   shortestTurn,
+  travelCurve,
   travelStop,
   wrapFrame,
   type OrbitParams,
@@ -355,19 +356,63 @@ describe("travelStop", () => {
 
   // #153: the same path and the same time, the frames spread differently
   // along it. A ten-frame path over a second, read against the constant
-  // pace every travel had before.
+  // pace every travel had before. #175 made the eased shape two amounts;
+  // full both ways is the curve #153 shipped, so this test is unchanged
+  // except for how the curve is named.
+  const EASED = { easeIn: 1, easeOut: 1 };
   it("eased lingers at the start and settles onto its frame early", () => {
     const ten = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     // A tenth of the way through, an eased travel has not left its first
     // frame; a steady one is already on the second.
-    expect(travelStop(ten, 100, 1000, "eased").frame).toBe(1);
+    expect(travelStop(ten, 100, 1000, EASED).frame).toBe(1);
     expect(travelStop(ten, 100, 1000).frame).toBe(2);
     // Halfway is halfway either way — the curve is symmetric.
-    expect(travelStop(ten, 500, 1000, "eased").frame).toBe(6);
+    expect(travelStop(ten, 500, 1000, EASED).frame).toBe(6);
     expect(travelStop(ten, 500, 1000).frame).toBe(6);
     // And it is on its last frame with time left to settle there.
-    expect(travelStop(ten, 850, 1000, "eased").frame).toBe(10);
+    expect(travelStop(ten, 850, 1000, EASED).frame).toBe(10);
     expect(travelStop(ten, 850, 1000).frame).toBe(9);
+  });
+
+  // #175: each amount bends its own half of the travel, and nothing else.
+  it("eases each end by its own amount, and none at all at zero", () => {
+    const ten = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    const none = { easeIn: 0, easeOut: 0 };
+    // Nothing either way is the constant pace, frame for frame.
+    for (const at of [100, 200, 500, 850]) {
+      expect(travelStop(ten, at, 1000, none).frame, `at ${at}`).toBe(
+        travelStop(ten, at, 1000).frame,
+      );
+    }
+    // Gathering pace but not settling: slow away from the first frame,
+    // then straight on to the last — which it reaches no earlier than a
+    // travel at a constant pace does.
+    const inOnly = { easeIn: 1, easeOut: 0 };
+    expect(travelStop(ten, 100, 1000, inOnly).frame).toBe(1);
+    expect(travelStop(ten, 850, 1000, inOnly).frame).toBe(9);
+    // Settling but not gathering: off the mark at once, then easing in.
+    const outOnly = { easeIn: 0, easeOut: 1 };
+    expect(travelStop(ten, 100, 1000, outOnly).frame).toBe(2);
+    expect(travelStop(ten, 850, 1000, outOnly).frame).toBe(10);
+    // Halfway is halfway whatever the amounts: the two halves are bent
+    // around the point they share, so no mixture puts a step in the middle.
+    for (const curve of [none, inOnly, outOnly, EASED]) {
+      expect(travelStop(ten, 500, 1000, curve).frame).toBe(6);
+    }
+  });
+
+  it("reads an amount outside 0..1, or none at all, as the full ease", () => {
+    const ten = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    const full = travelStop(ten, 100, 1000, EASED).frame;
+    expect(travelStop(ten, 100, 1000, travelCurve({})).frame).toBe(full);
+    expect(
+      travelStop(ten, 100, 1000, travelCurve({ easeIn: Number.NaN })).frame,
+    ).toBe(full);
+    expect(travelStop(ten, 100, 1000, travelCurve({ easeIn: 9 })).frame).toBe(
+      full,
+    );
+    // And the switch still wins over both amounts.
+    expect(travelCurve({ glide: false, easeIn: 1, easeOut: 1 })).toBe("steady");
   });
 
   it("slowing spends its speed early: three quarters of the path in half the time", () => {
@@ -384,16 +429,21 @@ describe("travelStop", () => {
   // path — the orbit would walk backwards out of its destination.
   it("ends on the destination, on time, whatever curve it took", () => {
     const ten = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-    for (const curve of ["steady", "eased", "slowing"] as const) {
-      expect(travelStop(ten, 1000, 1000, curve), curve).toEqual({
+    for (const curve of [
+      "steady",
+      "slowing",
+      EASED,
+      { easeIn: 0, easeOut: 1 },
+    ] as const) {
+      expect(travelStop(ten, 1000, 1000, curve), String(curve)).toEqual({
         frame: 10,
         arrived: true,
       });
-      expect(travelStop(ten, 9_000, 1000, curve), curve).toEqual({
+      expect(travelStop(ten, 9_000, 1000, curve), String(curve)).toEqual({
         frame: 10,
         arrived: true,
       });
-      expect(travelStop(ten, -9_000, 1000, curve), curve).toEqual({
+      expect(travelStop(ten, -9_000, 1000, curve), String(curve)).toEqual({
         frame: 1,
         arrived: false,
       });
