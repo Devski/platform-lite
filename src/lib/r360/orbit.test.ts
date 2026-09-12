@@ -8,7 +8,6 @@ import {
   frameAfterDrag,
   frameAfterKey,
   framesAlong,
-  glides,
   loadingOrder,
   nearestLoaded,
   pageStep,
@@ -94,15 +93,6 @@ describe("frameAfterKey", () => {
     expect(frameAfterKey(1, "ArrowRight", reversed)).toBe(9);
     expect(pageStep(9)).toBe(1);
     expect(frameAfterKey(1, "PageDown", reversed)).toBe(9);
-  });
-});
-
-describe("glides (#153)", () => {
-  it("is on unless the owner said otherwise: only false turns it off", () => {
-    expect(glides({})).toBe(true);
-    expect(glides({ glide: undefined })).toBe(true);
-    expect(glides({ glide: true })).toBe(true);
-    expect(glides({ glide: false })).toBe(false);
   });
 });
 
@@ -253,7 +243,6 @@ describe("coastOnRelease (#153)", () => {
     lift: { x: 40, t: 1000 },
     width: 200,
     lifted: true,
-    glide: true,
     reducedMotion: false,
   };
   /** The same throw, the hand resting `rest` ms before it lets go. */
@@ -299,10 +288,6 @@ describe("coastOnRelease (#153)", () => {
 
   it("does not throw a pointer that was cancelled or taken away", () => {
     expect(coastOnRelease({ ...thrown, lifted: false }, p)).toBeNull();
-  });
-
-  it("does not throw an orbit whose owner turned the glide off", () => {
-    expect(coastOnRelease({ ...thrown, glide: false }, p)).toBeNull();
   });
 
   // Reduced motion wins over the owner: a jump is not a substitute for a
@@ -353,23 +338,6 @@ describe("travelStop", () => {
     expect(travelStop(path, 0, 0)).toEqual({ frame: 1, arrived: true });
   });
 
-  // #153: the same path and the same time, the frames spread differently
-  // along it. A ten-frame path over a second, read against the constant
-  // pace every travel had before.
-  it("eased lingers at the start and settles onto its frame early", () => {
-    const ten = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-    // A tenth of the way through, an eased travel has not left its first
-    // frame; a steady one is already on the second.
-    expect(travelStop(ten, 100, 1000, "eased").frame).toBe(1);
-    expect(travelStop(ten, 100, 1000).frame).toBe(2);
-    // Halfway is halfway either way — the curve is symmetric.
-    expect(travelStop(ten, 500, 1000, "eased").frame).toBe(6);
-    expect(travelStop(ten, 500, 1000).frame).toBe(6);
-    // And it is on its last frame with time left to settle there.
-    expect(travelStop(ten, 850, 1000, "eased").frame).toBe(10);
-    expect(travelStop(ten, 850, 1000).frame).toBe(9);
-  });
-
   it("slowing spends its speed early: three quarters of the path in half the time", () => {
     const ten = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     expect(travelStop(ten, 500, 1000, "slowing").frame).toBe(8);
@@ -384,7 +352,7 @@ describe("travelStop", () => {
   // path — the orbit would walk backwards out of its destination.
   it("ends on the destination, on time, whatever curve it took", () => {
     const ten = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-    for (const curve of ["steady", "eased", "slowing"] as const) {
+    for (const curve of ["steady", "slowing"] as const) {
       expect(travelStop(ten, 1000, 1000, curve), curve).toEqual({
         frame: 10,
         arrived: true,
