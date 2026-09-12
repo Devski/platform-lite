@@ -78,16 +78,19 @@ in under 5 minutes (manual walkthrough); e2e green.
 21. [#21](https://github.com/Devski/platform-lite/issues/21) Dockerfile (standalone) + deploy on push to the dev instance, G9 (`infra`)
 
 - ~~[#31](https://github.com/Devski/platform-lite/issues/31) PR preview deployments on the dev instance~~ — **done 05.09.2026**: `pr-<n>.dev.architektow3d.pl`, named sites over HTTP-01 (no wildcard certificate, so no DNS plugin), shared dev database and a `pr-<n>/` key prefix. Two at a time — the instance has one core and no swap. Previews never send e-mail.
-- [#113](https://github.com/Devski/platform-lite/issues/113) PR previews: a database cloned
-  from dev per preview, not the shared one (`deployment`). **Raised in priority 12.09.2026**
-  after it cost a second review cycle. Filed 09.09.2026 when the preview of #112 answered
-  with a server error: it runs the pull request's image against dev's database, and previews
-  never migrate. #170 hit it again — every page listing works answered 500 on that preview
-  because the migration adding `works.position` had not run there. It is not a flake but a
-  rule: **any pull request carrying a migration looks broken on its own preview**, exactly
-  when the preview exists to be looked at. The workaround both times was to apply the
-  migration to dev by hand first, which is only safe while migrations stay expand-only (G6)
-  and someone is there to reason about it.
+- ~~[#113](https://github.com/Devski/platform-lite/issues/113) PR previews: a database cloned
+  from dev per preview, not the shared one~~ — **done 12.09.2026**. Filed 09.09.2026 when the
+  preview of #112 answered with a server error: it ran the pull request's image against dev's
+  database, and previews never migrate. #170 hit it again — every page listing works answered
+  500 on that preview because the migration adding `works.position` had not run there. It was
+  not a flake but a rule: **any pull request carrying a migration looked broken on its own
+  preview**, exactly when the preview existed to be looked at. Now `preview-up.sh` copies dev
+  into `platform_pr_<n>` with `pg_dump`, runs the pull request's own migrator against the
+  copy, and points the container at it; `preview-down.sh` drops it. A preview is therefore
+  dev's data as of its start plus this pull request's schema, and what is created inside one
+  dies with it. The copy is taken with a dump rather than `create database ... template`,
+  which PostgreSQL refuses while anything is connected to the source — dev's own container
+  always is.
 - [#111](https://github.com/Devski/platform-lite/issues/111) Preview cleanup loses the race
   with a CI run still in flight, and the orphan blocks the two-preview cap (`bug`).
 - ~~[#172](https://github.com/Devski/platform-lite/issues/172) The database has no deadlines~~

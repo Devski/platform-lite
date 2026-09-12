@@ -264,6 +264,24 @@ jobs:
       - name: Previews reuse the one site definition
         run: grep -q 'import site' deploy/preview-up.sh
 
+      # #113: a preview runs on its own copy of dev, migrated by the pull
+      # request's own image. All three lines matter and each has a silent
+      # failure: without the copy the preview is back on dev's database and
+      # every migration-carrying pull request previews as a server error;
+      # without the migrate step the copy has main's schema, which is the same
+      # failure with more steps; without DATABASE_URL the container keeps the
+      # instance .env's value and never sees the copy at all.
+      - name: A preview gets its own database, migrated, and is pointed at it
+        run: |
+          grep -q 'create database' deploy/preview-up.sh
+          grep -q '/app/migrate.mjs' deploy/preview-up.sh
+          grep -q 'DATABASE_URL=$PREVIEW_DB_URL' deploy/preview-up.sh
+      # And it goes away again: a copy of dev's data left behind on a disk
+      # that has already filled once (#119) is the cost of getting this wrong
+      # in the other direction.
+      - name: Closing a preview drops its database
+        run: grep -q 'drop database if exists' deploy/preview-down.sh
+
   # Smoke on every push and PR (SPEC §6): the database-less project only. No
   # DATABASE_URL_TEST here on purpose — that is what makes this job prove the
   # fail-closed behaviour (401s, redirects to /login, 404s) with no database at

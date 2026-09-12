@@ -14,8 +14,8 @@ set -euo pipefail
 : "${GH_TOKEN:?GH_TOKEN must carry a registry pull for this run}"
 : "${GH_ACTOR:?GH_ACTOR must name the registry user}"
 
-# The number reaches a container name, a hostname, a file path and an S3 key
-# prefix. Anything but digits belongs in none of them.
+# The number reaches a container name, a hostname, a file path, an S3 key
+# prefix and now a database name. Anything but digits belongs in none of them.
 case "$PR" in
   '' | *[!0-9]*) echo "STOP: PR must be digits, got: $PR" >&2; exit 1 ;;
 esac
@@ -33,7 +33,7 @@ mkdir -p "$PREVIEWS"
 # Without swap, running out of memory does not slow the machine down, it
 # invokes the OOM killer, which picks a victim by size — and the biggest
 # process here is as likely to be PostgreSQL as the preview that caused it.
-# That is dev's database, shared by every preview.
+# That is dev's database, and since #113 the copies every preview runs on.
 #
 # And there is ONE core. Avatar resizing (sharp, #12) is the CPU-heavy path in
 # this application, and it spikes memory with it; two uploads at once already
@@ -59,18 +59,77 @@ if [ "$running" -ge "$MAX_PREVIEWS" ]; then
   exit 1
 fi
 
-# Every setting the preview shares with dev — the database, the signing key,
-# the bucket credentials — comes from the instance's own .env. Only what must
-# differ is overridden below.
+# Every setting the preview shares with dev — the signing key, the bucket
+# credentials — comes from the instance's own .env. Only what must differ is
+# overridden below.
 # `|| true` for the same reason: a missing key makes grep fail the pipeline,
 # and the explicit check below reports that far better than `set -e` does.
 SITE_ADDRESS=$(grep -E '^SITE_ADDRESS=' .env | tail -1 | cut -d= -f2- || true)
 : "${SITE_ADDRESS:?the instance .env has no SITE_ADDRESS}"
 HOSTNAME_="$NAME.$SITE_ADDRESS"
 
+# A preview needs a database of its own (#113). It used to run the pull
+# request's image against DEV's database, and previews never migrate: every
+# pull request adding a column its pages read previewed as a server error —
+# #112 first, #170 again five days later. The preview's schema has to be the
+# pull request's, and dev's has to stay `main`'s, so the only honest answer is
+# a copy.
+#
+# The copy is taken when the preview starts and dropped with it, which also
+# settles what a preview IS: dev's data as of a minute ago, plus this pull
+# request's migrations. Accounts made in a preview, and the rows recording
+# what was uploaded there, do not outlive it.
+DB_URL=$(grep -E '^DATABASE_URL=' .env | tail -1 | cut -d= -f2- || true)
+: "${DB_URL:?the instance .env has no DATABASE_URL}"
+# The query string is split off before the path is touched, so a future
+# ?sslmode=... survives the swap of the database name instead of becoming part
+# of it.
+DB_BASE=${DB_URL%%\?*}
+DB_QUERY=${DB_URL#"$DB_BASE"}
+SOURCE_DB=${DB_BASE##*/}
+CLONE="platform_pr_$PR"
+PREVIEW_DB_URL="${DB_BASE%/*}/$CLONE$DB_QUERY"
+DUMP="/tmp/$CLONE.sql"
+
+# That name reaches a `create database` statement.
+case "$SOURCE_DB" in
+  '' | *[!a-z0-9_]*)
+    echo "STOP: DATABASE_URL names no plain database: $SOURCE_DB" >&2
+    exit 1
+    ;;
+esac
+
 echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_ACTOR" --password-stdin
-trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
+trap 'docker logout ghcr.io >/dev/null 2>&1 || true; docker exec postgres rm -f "${DUMP:-/tmp/nothing}" >/dev/null 2>&1 || true' EXIT
 docker pull "$APP_IMAGE"
+
+# WITH (FORCE) disconnects whatever is still on the old copy — on a replace
+# that is the previous preview's own container, which is about to be removed.
+echo "copying $SOURCE_DB into $CLONE"
+docker exec -i postgres psql -U postgres -v ON_ERROR_STOP=1 -q -d postgres \
+  -c "drop database if exists \"$CLONE\" with (force)"
+docker exec -i postgres psql -U postgres -v ON_ERROR_STOP=1 -q -d postgres \
+  -c "create database \"$CLONE\""
+# Dump to a file and restore from the file, rather than `pg_dump | psql`: a
+# pipeline reports only its LAST command's status, so a failed dump would pass
+# for a successful restore of nothing — and the preview would look like a
+# working one with an empty database. (`create database ... template` is the
+# other way to copy and is refused while anything is connected to the source;
+# dev's own container is.)
+docker exec postgres pg_dump -U postgres --no-owner --no-privileges \
+  -f "$DUMP" "$SOURCE_DB"
+docker exec -i postgres psql -U postgres -v ON_ERROR_STOP=1 -q \
+  -d "$CLONE" -f "$DUMP"
+docker exec postgres rm -f "$DUMP"
+
+# The pull request's own migrator, against the pull request's own database.
+# `set -e` ends the preview here if it fails, rather than starting a container
+# whose every page will answer 500 — which is the whole of #113.
+echo "applying this pull request's migrations to $CLONE"
+docker run --rm --network platform \
+  --env-file /opt/platform-lite/.env \
+  --env "DATABASE_URL=$PREVIEW_DB_URL" \
+  --entrypoint node "$APP_IMAGE" /app/migrate.mjs
 
 docker rm --force "$NAME" >/dev/null 2>&1 || true
 docker run --detach --name "$NAME" \
@@ -78,6 +137,7 @@ docker run --detach --name "$NAME" \
   --network platform \
   --memory 512m \
   --env-file /opt/platform-lite/.env \
+  --env "DATABASE_URL=$PREVIEW_DB_URL" \
   --env "APP_URL=https://$HOSTNAME_" \
   --env "S3_PREFIX=$NAME/" \
   --env "APP_ENV=preview" \
@@ -98,7 +158,7 @@ docker exec platform-lite-caddy-1 caddy reload --config /etc/caddy/Caddyfile
 for attempt in $(seq 1 60); do
   status=$(docker inspect --format '{{.State.Health.Status}}' "$NAME" 2>/dev/null || echo starting)
   if [ "$status" = "healthy" ]; then
-    echo "preview ready: https://$HOSTNAME_ (healthy after ${attempt}s)"
+    echo "preview ready: https://$HOSTNAME_ (healthy after ${attempt}s) — on its own copy of $SOURCE_DB, so accounts and uploads made here die with the preview"
     exit 0
   fi
   if [ "$status" = "unhealthy" ]; then

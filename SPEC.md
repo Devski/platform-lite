@@ -305,7 +305,7 @@ export function ownerKey(
 | Environment | Where                                             | Database                                                                                                 | Deployment                                                                |
 | ----------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | Local       | developer machine                                 | remote `waw` over an SSH tunnel (per developer: `platform_<github-handle>`, for Dawid `platform_devski`) | —                                                                         |
-| PR preview  | dev instance, `*.dev.architektow3d.pl`            | shared dev                                                                                               | automatic on PR open, deleted after merge; `*.dev.architektow3d.pl` (#31) |
+| PR preview  | dev instance, `*.dev.architektow3d.pl`            | a copy of dev, taken when the preview starts and dropped with it (#113)                                  | automatic on PR open, deleted after merge; `*.dev.architektow3d.pl` (#31) |
 | Dev         | OVH `waw`, d2-2 (€7), `dev.architektow3d.pl`      | Postgres in a container                                                                                  | automatic from `main`                                                     |
 | Prod        | OVH `eu-west-par`, b3-8 (€35), `architektow3d.pl` | Managed PostgreSQL (€59)                                                                                 | **manual**: an approval gate in the deploy workflow, or a `vX.Y.Z` tag    |
 
@@ -337,6 +337,18 @@ export function ownerKey(
   plain Docker image). The one line worth paying from day one is the managed database, and
   not for performance: prod holds real accounts and photos, so someone else's backups and
   patching is the product being bought. To settle with #24.
+- **A preview runs on a copy of dev, not on dev** (#113, decided 09.09.2026): when a preview
+  starts, `deploy/preview-up.sh` copies dev's database into `platform_pr_<n>` with `pg_dump`,
+  runs the pull request's own migrator against the copy, and points the container at it;
+  closing the pull request drops it. Previews never migrated, so before this every pull
+  request that added a column its pages read previewed as a server error — twice in five days
+  (#112, #170), each time exactly when the preview existed to be looked at. Not "the preview
+  migrates the shared database": a pull request revised after its preview ran would leave a
+  migration in dev's journal whose hash no longer matched the file, and the next deployment of
+  `main` would fail on it. What a preview therefore is: dev's data as of its start, plus this
+  pull request's schema. Accounts created in a preview, and the rows recording what was
+  uploaded there, die with it. Everything else stays shared — the bucket (under `pr-<n>/`),
+  the signing key, the instance.
 - **Every wait on the database has a deadline, and each environment sets its own** (#172):
   the pool answers a caller it cannot give a connection to within five seconds instead of
   queueing them for ever, and the server cuts off a statement that runs past ten seconds or
