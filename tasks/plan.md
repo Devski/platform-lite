@@ -142,16 +142,17 @@ in under 5 minutes (manual walkthrough); e2e green.
   which is how the first version was caught: `pg_dumpall` produced a copy that looked perfect and
   died on its first statement against an empty cluster. Not solved: the bucket objects have no
   copy, and the staleness warning still depends on someone reading a deploy log (#167).
-- [#167](https://github.com/Devski/platform-lite/issues/167) The state of an environment, and the
-  reports that reach nobody (`deployment`, `enhancement`). Found 12.09.2026 while reading the
-  R360 collector's report over SSH: it warned into a container's stdout, and that was the whole
-  of the path from "a human decides" (#156) to the human. **Built 12.09.2026**
-  (`docs/operations.md`): an hourly check on the instance that mails what needs a decision and
-  a report every morning either way, an outside check on GitHub that opens and closes an
-  `outage` issue, and application logs moved to the host journal so a deploy no longer deletes
-  them. Its first dry run on dev found two real things at once: the disk at 92% (#119) and a
-  preview copy of dev's database nobody owned. **Open until `OPS_EMAIL` is set on the instance
-  and the first daily report has arrived** — the recipient is Dawid's to choose.
+- ~~[#167](https://github.com/Devski/platform-lite/issues/167) The state of an environment, and
+  the reports that reach nobody~~ — **done 12.09.2026** (`docs/operations.md`). Found while
+  reading the R360 collector's report over SSH: it warned into a container's stdout, and that
+  was the whole of the path from "a human decides" (#156) to the human. Now an hourly check on
+  the instance mails `ops@architektow3d.pl` what needs a decision and a report every morning
+  either way; an outside check on GitHub opens and closes an `outage` issue; application logs
+  live in the host journal, so a deploy no longer deletes them. Its first run on dev found two
+  real things at once — the disk at 97% (#119) and two frame sets no record names — and the
+  first daily report was accepted by the recipient's mail server at 21:40 UTC the same day.
+  The review found the check's own failure path broken: a refused mail was recorded as sent,
+  because bash switches `set -e` off inside a function called as a condition. Follow-up: #186.
 - [#163](https://github.com/Devski/platform-lite/issues/163) Take the repository private again
   (`decision`, `infra`). Measured 12.09.2026: ~30 CI runs a day at ~11.9 billable minutes each,
   ~11,000 a month. Free would leave `main` unguarded again, so it means Pro — about $52 a month
