@@ -457,6 +457,7 @@ jobs:
         run: |
           scp -i ~/.ssh/id_deploy \
             deploy/compose.yaml deploy/Caddyfile deploy/remote-deploy.sh \
+            deploy/backup-db.sh \
             "$HOST:/opt/platform-lite/"
       - name: Pull the image and restart the container
         if: steps.wired.outputs.wired == 'true'
