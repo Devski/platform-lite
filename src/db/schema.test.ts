@@ -58,6 +58,8 @@ describe("schema tables (SPEC §9)", () => {
         "r360_params",
         // #140: where the set's frames are, recorded at save.
         "r360_key_prefix",
+        // #66: where the owner put this work among their own.
+        "position",
         "updated_at",
         "user_id",
       ].sort(),
@@ -386,6 +388,9 @@ describe("generated migration SQL (G6 — migrations are the source of truth)", 
       'DROP CONSTRAINT "works_r360_file_id_files_id_fk"',
       'DROP INDEX "works_r360_file_id_idx"',
       'DROP INDEX "files_original_user_sha256_unique"',
+      // 0019 (#66): the works index re-created with the owner's own order in
+      // front of the adding order it used to carry alone; guarded above.
+      'DROP INDEX "works_user_id_created_at_idx"',
       ...schema.fileKind.enumValues
         .slice(3)
         .map((value) => `ALTER TYPE "public"."file_kind" ADD VALUE '${value}'`),

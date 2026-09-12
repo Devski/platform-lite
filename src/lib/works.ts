@@ -44,6 +44,8 @@ export class WorksError extends Error {
       | "invalid_archive"
       /** #102: a frame set kept while its archive changed. */
       | "invalid_set"
+      /** #66: an order about a list of works that is not the one there now. */
+      | "stale_order"
       | "not_found",
   ) {
     super(`work rejected: ${code}`);
@@ -91,7 +93,12 @@ export interface WorkView {
 
 const WORK_VARIANTS = IMAGE_PROFILES.work.variants;
 
-/** A user's works in adding order, with their photos' public URLs. */
+/**
+ * A user's works in the order the owner put them in, with their photos'
+ * public URLs. Adding order breaks a tie (#66): positions are rewritten
+ * wholesale, so they are neither unique nor dense, and two works that have
+ * never been reordered both sit at 0.
+ */
 export async function listWorks(deps: ProfileReadDeps): Promise<WorkView[]> {
   const { db, storage, prefix, userId } = deps;
   const rows = await db
@@ -106,7 +113,7 @@ export async function listWorks(deps: ProfileReadDeps): Promise<WorkView[]> {
     })
     .from(works)
     .where(eq(works.userId, userId))
-    .orderBy(asc(works.createdAt), asc(works.id));
+    .orderBy(asc(works.position), asc(works.createdAt), asc(works.id));
   if (rows.length === 0) return [];
 
   const workIds = rows.map((row) => row.id);
@@ -331,8 +338,14 @@ export async function createWork(
   return withFrameSet(deps, parsed, (verified) =>
     db.transaction(async (tx) => {
       await lockUser(tx, userId);
-      const [{ count }] = await tx
-        .select({ count: sql<number>`count(*)::int` })
+      // #66: the count and the last position in one pass, under the lock
+      // that already serialises adds — a new work goes after the ones there,
+      // wherever the owner has since dragged them.
+      const [{ count, lastPosition }] = await tx
+        .select({
+          count: sql<number>`count(*)::int`,
+          lastPosition: sql<number>`coalesce(max(${works.position}), -1)::int`,
+        })
         .from(works)
         .where(eq(works.userId, userId));
       if (count >= WORKS_MAX) throw new WorksError("limit");
@@ -344,6 +357,7 @@ export async function createWork(
           userId,
           ...workColumnsOf(parsed),
           r360KeyPrefix: verified?.keyPrefix ?? null,
+          position: lastPosition + 1,
         })
         .returning({ id: works.id });
       await insertImageRows(tx, created.id, parsed);
@@ -351,6 +365,51 @@ export async function createWork(
       return { id: created.id };
     }),
   );
+}
+
+/**
+ * #66: the owner's order for their own works, first to last.
+ *
+ * The request names every work the owner has, and this refuses anything else
+ * — an order written while another tab was adding or deleting one would
+ * otherwise be applied to a list it was never about, quietly moving works
+ * the owner never touched. The client refreshes and the owner drags again,
+ * which is the honest outcome of two tabs disagreeing.
+ *
+ * Positions are rewritten wholesale rather than shuffled, so they stay dense
+ * and gap-free; under the same per-user lock as every other works write.
+ */
+export async function reorderWorks(
+  deps: Pick<ProfileDeps, "db" | "userId">,
+  workIds: string[],
+): Promise<void> {
+  const { db, userId } = deps;
+  await db.transaction(async (tx) => {
+    await lockUser(tx, userId);
+    const own = await tx
+      .select({ id: works.id })
+      .from(works)
+      .where(eq(works.userId, userId));
+    const mine = new Set(own.map((row) => row.id));
+    const asked = new Set(workIds);
+    if (mine.size !== asked.size || workIds.some((id) => !mine.has(id))) {
+      throw new WorksError("stale_order");
+    }
+    // One statement rather than ten: the lock and the pooled connection are
+    // held for a round trip instead of a dozen. The owner is still in the
+    // WHERE — the set comparison above is the first answer to "are these
+    // yours", this is the second, and neither is a comment about the other.
+    const pairs = sql.join(
+      workIds.map((id, position) => sql`(${id}::uuid, ${position}::int)`),
+      sql`, `,
+    );
+    await tx.execute(sql`
+      update "works" as w
+      set "position" = v."position"
+      from (values ${pairs}) as v("id", "position")
+      where w."id" = v."id" and w."user_id" = ${userId}::uuid
+    `);
+  });
 }
 
 /**

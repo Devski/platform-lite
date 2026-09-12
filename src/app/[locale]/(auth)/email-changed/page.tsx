@@ -45,7 +45,7 @@ export default async function EmailChangedPage({
   return (
     <main className={AUTH_MAIN}>
       <div className={AUTH_COLUMN}>
-        <Logo href="/" size="compact" />
+        <Logo size="compact" />
         <Card padding="lg" className="w-full">
           <h1 className={AUTH_HEADING}>{t(`${state}Heading`)}</h1>
           <p className="mt-(--sp-3) type-sm text-(--text-muted)">

@@ -15,7 +15,9 @@ import { Plaque } from "@/components/ui/plaque";
 import { Textarea } from "@/components/ui/textarea";
 import { TopBar } from "@/components/ui/top-bar";
 import { UploadProgress } from "@/components/ui/upload-progress";
+import { useReorder } from "@/components/ui/use-reorder";
 import { postJson } from "@/lib/api-client";
+import { moveItem } from "@/lib/reorder";
 import { IMAGE_CONTENT_TYPES } from "@/lib/image-upload-shared";
 import {
   BIO_MAX,
@@ -71,6 +73,9 @@ function fieldsOf(profile: OwnerProfile): Fields {
     locations: profile.locations,
   };
 }
+
+/** #66: how long the order waits for the moving to stop before it is sent. */
+const ORDER_SAVE_AFTER_MS = 300;
 
 type SectionsErrorKey = "invalid" | "rateLimited" | "generic";
 
@@ -157,6 +162,36 @@ export function OwnerProfileView({
   const [headlineError, setHeadlineError] = useState<string | null>(null);
   const [bioError, setBioError] = useState<string | null>(null);
   const [locationsError, setLocationsError] = useState<string | null>(null);
+  /** What a screen reader is told about the place list, out loud (#66). */
+  const [locationsNotice, setLocationsNotice] = useState("");
+  /** #66: the places are dragged into order, and answer the arrow keys. */
+  const placeOrder = useReorder({
+    count: fields.locations.length,
+    onMove: (from, to) => movePlace(from, to),
+  });
+  // #66: the works in the order on screen. The prop is the truth until a drag
+  // moves one — the order shows at once and a refused save puts it back, the
+  // same bargain the fields on this page make.
+  const [orderedWorks, setOrderedWorks] = useState(works);
+  const [syncedWorks, setSyncedWorks] = useState(works);
+  // An order the server has not acknowledged yet. While one stands, a
+  // refresh from somewhere else on this page (an avatar landing, a work
+  // saved) must not re-seed the list under it and throw the move away.
+  const [orderDirty, setOrderDirty] = useState(false);
+  if (works !== syncedWorks && !orderDirty) {
+    setSyncedWorks(works);
+    setOrderedWorks(works);
+  }
+  const [worksNotice, setWorksNotice] = useState("");
+  const [worksOrderError, setWorksOrderError] = useState<string | null>(null);
+  const pendingOrder = useRef<GalleryWork[] | null>(null);
+  const orderTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  const workOrder = useReorder({
+    count: orderedWorks.length,
+    onMove: (from, to) => moveWork(from, to),
+  });
 
   const [avatarBusy, setAvatarBusy] = useState(false);
   // #80: the bytes on their way, 0..1, then 1 while the server processes;
@@ -176,6 +211,8 @@ export function OwnerProfileView({
   const headlineId = useId();
   const bioId = useId();
   const locationsId = useId();
+  /** #66: the one line telling a keyboard which keys move a thing. */
+  const moveHintId = useId();
 
   // Saves still in flight, each resolving to whether it succeeded, so
   // "Zapisz" can wait for them and stay open if one failed.
@@ -291,13 +328,102 @@ export function OwnerProfileView({
       setLocationsError(tSections("locations.tooMany", { max: LOCATIONS_MAX }));
       return;
     }
+    // #66: a chip appearing is the whole of the feedback, and a chip is not
+    // announced. The field empties itself the moment a place is taken, which
+    // to a screen reader is indistinguishable from the text being thrown away.
+    setLocationsNotice(tSections("locations.added", { place }));
     void saveLocations([...fields.locations, place]);
   }
 
   function removePlace(place: string) {
+    setLocationsNotice(tSections("locations.removed", { place }));
     void saveLocations(
       fields.locations.filter((existing) => existing !== place),
     );
+  }
+
+  // #66: a work moved. The whole order goes to the server, which refuses one
+  // about a list that is not the owner's current works — so a second tab
+  // adding or deleting a work makes this fail rather than shuffle something
+  // nobody touched.
+  //
+  // Sent once the moving stops, not once per move: an arrow key repeats
+  // about twenty-five times a second, and each press would otherwise be its
+  // own request — several in flight at once, committed in whatever order
+  // they reach the lock, with the rate limit refusing the tail of them.
+  function moveWork(from: number, to: number) {
+    const work = orderedWorks[from];
+    if (work === undefined) return;
+    const next = moveItem(orderedWorks, from, to);
+    setOrderedWorks(next);
+    setWorksOrderError(null);
+    setWorksNotice(tWorks("card.moved", { name: work.name, position: to + 1 }));
+    queueOrderSave(next);
+  }
+
+  function queueOrderSave(next: GalleryWork[]) {
+    pendingOrder.current = next;
+    setOrderDirty(true);
+    if (orderTimer.current !== undefined) clearTimeout(orderTimer.current);
+    orderTimer.current = setTimeout(() => {
+      void saveWorkOrder();
+    }, ORDER_SAVE_AFTER_MS);
+  }
+
+  /**
+   * Sends the newest order, if one is waiting. Resolves to whether the list
+   * on screen is what the server holds, so "Zapisz" can wait for it.
+   *
+   * Nothing is reverted from a snapshot on failure: by the time a refused
+   * save comes back, the list may have changed for a reason — a work deleted
+   * in another tab is exactly why `stale_order` exists — and putting an old
+   * copy back would resurrect it on screen, with its buttons, until a full
+   * page load. The server's own answer is the way back.
+   */
+  function saveWorkOrder(): Promise<boolean> {
+    if (orderTimer.current !== undefined) {
+      clearTimeout(orderTimer.current);
+      orderTimer.current = undefined;
+    }
+    const next = pendingOrder.current;
+    if (next === null) return Promise.resolve(true);
+    pendingOrder.current = null;
+    return track(
+      (async () => {
+        try {
+          const response = await postJson("/api/works/order", {
+            workIds: next.map((one) => one.id),
+          });
+          if (response.ok) {
+            setOrderDirty(false);
+            return true;
+          }
+          setWorksOrderError(
+            tWorks(
+              response.status === 429
+                ? "card.moveRateLimited"
+                : "card.moveStale",
+            ),
+          );
+        } catch {
+          setWorksOrderError(tWorks("card.moveFailed"));
+        }
+        setOrderDirty(false);
+        router.refresh();
+        return false;
+      })(),
+    );
+  }
+
+  // #66: the order of the places IS the array, so putting them in order is
+  // the same save as adding one — no column, no endpoint of its own.
+  function movePlace(from: number, to: number) {
+    const place = fields.locations[from];
+    if (place === undefined) return;
+    setLocationsNotice(
+      tSections("locations.moved", { place, position: to + 1 }),
+    );
+    void saveLocations(moveItem(fields.locations, from, to));
   }
 
   // The words for a failed upload are shared by the avatar and the cover
@@ -425,6 +551,9 @@ export function OwnerProfileView({
         if (outcome === "kept") return;
         if (outcome === "closed") setWorkForm(null);
       }
+      // A waiting order goes now rather than on its timer, or "Zapisano"
+      // would be claimed over a save that has not left the page (#66).
+      await saveWorkOrder();
       const outcomes = await Promise.all([...pending.current]);
       if (outcomes.some((ok) => !ok)) return;
       setEditing(false);
@@ -444,6 +573,7 @@ export function OwnerProfileView({
     setHeadlineError(null);
     setBioError(null);
     setLocationsError(null);
+    setWorksOrderError(null);
   }
 
   return (
@@ -707,12 +837,25 @@ export function OwnerProfileView({
                       {tSections("locations.empty")}
                     </li>
                   )}
-                  {fields.locations.map((place) => (
-                    <li key={place} className="flex">
+                  {fields.locations.map((place, index) => (
+                    <li
+                      key={place}
+                      className="flex"
+                      {...placeOrder.itemProps(index)}
+                    >
                       <PlaceChip
                         place={place}
                         onRemove={() => removePlace(place)}
                         removeLabel={tSections("locations.remove", { place })}
+                        grip={placeOrder.handleProps(index)}
+                        gripLabel={tSections("locations.grip", {
+                          place,
+                          position: index + 1,
+                          count: fields.locations.length,
+                        })}
+                        gripHint={moveHintId}
+                        held={placeOrder.dragging === index}
+                        landing={placeOrder.over === index}
                       />
                     </li>
                   ))}
@@ -724,6 +867,9 @@ export function OwnerProfileView({
                   onAdd={addPlace}
                   error={locationsError}
                 />
+                <p role="status" className="sr-only">
+                  {locationsNotice}
+                </p>
               </section>
             ) : (
               <LocationsView locations={fields.locations} />
@@ -800,8 +946,22 @@ export function OwnerProfileView({
           )}
           {works.length > 0 ? (
             <WorksGallery
-              works={works}
+              works={orderedWorks}
               owner={{ editing }}
+              order={
+                editing
+                  ? {
+                      reorder: workOrder,
+                      label: (work, at, of) =>
+                        tWorks("card.move", {
+                          name: work.name,
+                          position: at + 1,
+                          count: of,
+                        }),
+                      describedBy: moveHintId,
+                    }
+                  : undefined
+              }
               // #86: the edited work's form stands where its card was.
               inPlace={
                 editing && workForm?.kind === "edit"
@@ -844,6 +1004,20 @@ export function OwnerProfileView({
               />
             )
           )}
+          {editing && worksOrderError && (
+            <p className="type-sm text-(--state-danger)" role="alert">
+              {worksOrderError}
+            </p>
+          )}
+          <p role="status" className="sr-only">
+            {worksNotice}
+          </p>
+          {/* Named by every grip on the page (#66). A grip is a button, and
+              a button's keys are Enter and Space — neither of which moves
+              anything here, so the arrows have to be said out loud. */}
+          <p id={moveHintId} className="sr-only">
+            {tWorks("card.moveHint")}
+          </p>
         </section>
       </main>
       <div className="mx-auto flex max-w-(--measure-page) justify-center px-(--sp-5) py-(--sp-7) sm:px-(--sp-7) sm:py-(--sp-8)">
@@ -1041,6 +1215,10 @@ function PlaceCombobox({
           placeholder={tSections("locations.placeholder")}
           autoComplete="off"
           maxLength={LOCATION_MAX}
+          // The field is not inside a form, so a phone has nothing to infer
+          // the key's job from and shows a bare return. "done" makes it say
+          // so — the hint under the field names both keys (#66).
+          enterKeyHint="done"
           role="combobox"
           aria-expanded={hits.length > 0}
           aria-controls={listId}
@@ -1071,6 +1249,15 @@ function PlaceCombobox({
               );
             } else if (event.key === "Enter") {
               event.preventDefault();
+              const chosen = activeIndex >= 0 ? hits[activeIndex] : undefined;
+              choose(chosen ? chosen.name : query);
+            } else if (event.key === "Tab" && query.trim()) {
+              // #66: a phone's keyboard offers "next" where a desktop offers
+              // Enter, and next is Tab — so a place typed on a phone could not
+              // be added at all: the key moved focus and the text went with
+              // it. Tab adds what Enter would and then goes on its way (no
+              // preventDefault), which on a desktop only rescues text that
+              // tabbing away was about to discard anyway.
               const chosen = activeIndex >= 0 ? hits[activeIndex] : undefined;
               choose(chosen ? chosen.name : query);
             } else if (event.key === "Escape") {

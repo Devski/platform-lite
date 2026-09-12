@@ -74,12 +74,18 @@ export async function seedWorks(
          values ($1, $2, 1, 'work-original', 'png') returning id`,
         [userId, randomBytes(32).toString("hex")],
       );
+    // #66: the position is written here rather than left to the default,
+    // because the order these are seeded in is the order the tests expect to
+    // read back — and with every row sharing a default, the tie would be
+    // broken by a random uuid.
+    let position = 0;
     const photoWork = async (name: string, secondChannel: boolean) => {
       const fileId = await placeholder();
       const secondaryId = secondChannel ? await placeholder() : null;
       const workId = await insertId(
-        `insert into works (user_id, name) values ($1, $2) returning id`,
-        [userId, name],
+        `insert into works (user_id, name, position)
+         values ($1, $2, $3) returning id`,
+        [userId, name, position++],
       );
       await client.query(
         `insert into work_images (work_id, file_id, secondary_file_id, position)
@@ -95,9 +101,9 @@ export async function seedWorks(
         ...(r360.cues ? { cues: r360.cues } : {}),
       };
       return insertId(
-        `insert into works (user_id, name, r360_set_id, r360_params)
-         values ($1, $2, $3, $4) returning id`,
-        [userId, name, randomBytes(16).toString("hex"), params],
+        `insert into works (user_id, name, r360_set_id, r360_params, position)
+         values ($1, $2, $3, $4, $5) returning id`,
+        [userId, name, randomBytes(16).toString("hex"), params, position++],
       );
     };
     const seeded: SeededWork[] = [];

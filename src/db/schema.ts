@@ -260,8 +260,8 @@ export const profiles = pgTable(
 
 // #72: a work (realizacja) on a profile. At most 10 per profile — counted
 // by the application under the same per-user advisory lock the quota uses,
-// because a CHECK cannot count rows. Order on the page is the order of
-// adding (created_at); a position column arrives with reordering, if ever.
+// because a CHECK cannot count rows. Order on the page was the order of
+// adding until #66; it is now the owner's, and `position` carries it.
 // Cascade from users on purpose: a work is nothing but profile content, and
 // the files it points at are what actually blocks a user's deletion (their
 // rows restrict), which forces the object cleanup through code (G2).
@@ -297,12 +297,23 @@ export const works = pgTable(
     // catching up. Null on a row the backfill could not place — the reader
     // falls back to the rebuilt prefix, which is what it did before.
     r360KeyPrefix: text("r360_key_prefix"),
+    // #66: where the owner put this work among their own. Not unique and not
+    // dense on purpose — the order is rewritten wholesale whenever it
+    // changes, so a gap or a repeat costs nothing but a tie, and created_at
+    // breaks that. Backfilled from created_at, so nothing shuffled the day
+    // the column arrived; a new work takes the next number after the last.
+    position: integer("position").notNull().default(0),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (table) => [
-    // The profile page lists a user's works in adding order.
-    index("works_user_id_created_at_idx").on(table.userId, table.createdAt),
+    // The profile page lists a user's works in the order the owner chose,
+    // adding order behind it (#66).
+    index("works_user_id_position_idx").on(
+      table.userId,
+      table.position,
+      table.createdAt,
+    ),
     // #102 review: a set belongs to one work — the second save of one set
     // is refused by the code and, should it slip past, by the database.
     uniqueIndex("works_r360_set_id_unique").on(table.r360SetId),
