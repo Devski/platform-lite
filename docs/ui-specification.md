@@ -1,6 +1,6 @@
 # UI specification — the interface as it stands
 
-Tracked in #185. Describes `main` at `ae55b6c` (12.09.2026).
+Tracked in #185; the redesign it feeds is #195. Describes `main` at `ae55b6c` (12.09.2026), updated for the 13.09.2026 fixes of `F-ACCOUNT-11` and the unmatched-address half of `F-SHELL-3`.
 
 ## 0. Read this first
 
@@ -18,8 +18,8 @@ Tracked in #185. Describes `main` at `ae55b6c` (12.09.2026).
   - _Decision_ `D-AREA-n` — a deliberate design choice with its source. Keep it, or overturn
     it knowingly and record why (a SPEC.md change or an issue).
   - _Finding_ `F-AREA-n` — an inconsistency or gap in today's UI. The redesign should resolve
-    it. Nothing listed was fixed, except where the entry says so (`F-WORKS-1`: a sentence
-    in SPEC.md).
+    it. Nothing listed was fixed, except where the entry says so: `F-WORKS-1` (a sentence in
+    SPEC.md), and on 13.09.2026 `F-ACCOUNT-11` and the unmatched-address half of `F-SHELL-3`.
 - **IDs.** Views `V-NAME`, shared components `C-NAME`, elements `VIEW.region.element`
   (e.g. `PROFILE-EDIT.cover.remove`). Grep for an ID to find its block.
 - **Copy.** Every visible string is a dictionary key (A8), quoted as `Namespace.key` —
@@ -94,7 +94,7 @@ exactly these words.
 
 ## 2. Site map
 
-- **Locales (A8):** `pl` (default, unprefixed) and `en` (prefix `/en`) — `src/i18n/routing.ts` `routing` (`localePrefix: "as-needed"`). Every page lives under `src/app/[locale]`; `[locale]/layout.tsx` `LocaleLayout` is the root layout (`<html lang={locale}>`, `NextIntlClientProvider`, `globals.css`). There is no `src/app/layout.tsx`, no `error.tsx`, `global-error.tsx`, `loading.tsx`, catch-all route or `global-not-found`.
+- **Locales (A8):** `pl` (default, unprefixed) and `en` (prefix `/en`) — `src/i18n/routing.ts` `routing` (`localePrefix: "as-needed"`). Every page lives under `src/app/[locale]`; `[locale]/layout.tsx` `LocaleLayout` is the root layout (`<html lang={locale}>`, `NextIntlClientProvider`, `globals.css`). There is no `src/app/layout.tsx`, no `error.tsx`, `global-error.tsx`, `loading.tsx` or `global-not-found`; one catch-all page, `[locale]/[...rest]/page.tsx`, sends every address under `pl`/`en` that no other route claims to the 404 body (pipeline step 9).
 - **Navigation helpers:** `src/i18n/navigation.ts` exports next-intl `Link`, `redirect`, `usePathname`, `useRouter`, `getPathname`. Every in-app href is written unprefixed (`/login`) and receives the current locale's form (`/en/login`).
 - **Request config:** `src/i18n/request.ts` — locale from the `[locale]` segment (or an explicit one); unsupported value → `notFound()`; loads `messages/<locale>.json`; `timeZone: "Europe/Warsaw"`.
 - **Requests the middleware never sees** (`/api`, Better Auth callbacks, e-mail language): `src/i18n/request-locale.ts` `localeFromRequest` — `NEXT_LOCALE` cookie → `Accept-Language` (base language, highest q, q=0 ignored) → `pl`.
@@ -117,7 +117,7 @@ exactly these words.
 | Onboarding | `/onboarding` · `/en/onboarding` | `(app)/onboarding/page.tsx` | no-handle | signed-out → 307 `/login`; with handle → 307 `/{handle}` | `Onboarding.title` „Adres profilu” · "Profile address" |
 | Account settings | `/settings/account` · `/en/settings/account` | `(app)/settings/account/page.tsx` | signed-in (with or without handle) | signed-out → 307 `/login` | `Settings.account.title` „Ustawienia konta” · "Account settings" |
 | Former profile settings | `/settings/profile` · `/en/settings/profile` | `(app)/settings/profile/page.tsx` | nobody (redirect only) | signed-out → 307 `/login`; signed-in → 307 `/settings/account` | — |
-| V-404 | the requested URL of any `[locale]` page that calls `notFound()` | `[locale]/not-found.tsx` | anyone | status 404 | `NotFound.title` „Nie znaleziono strony” · "Page not found" |
+| V-404 | the requested URL of any `[locale]` page that calls `notFound()`, and of any address under `pl`/`en` that no route claims | `[locale]/not-found.tsx`; `[locale]/[...rest]/page.tsx` `UnmatchedAddress` | anyone | status 404 | `NotFound.title` „Nie znaleziono strony” · "Page not found" |
 
 Every redirect answers in the request's locale form (`/en/...` for English). "The seven auth screens" = the rows Login … E-mail change landing.
 
@@ -132,7 +132,7 @@ Every redirect answers in the request's locale form (`/en/...` for English). "Th
    - document requests only: sets `NEXT_LOCALE=<resolved>` when the cookie differs, or when absent and the resolved locale differs from the `Accept-Language` match. Attributes `SameSite=Lax`, no `Max-Age` (session cookie).
    - non-redirect responses carry a `Link` header with `hreflang` alternates.
 4. **noindex** (A7, §8) — `proxy`: unless `APP_ENV` (trimmed) is exactly `production` (`isProduction`), every response of steps 2–3 gets `X-Robots-Tag: noindex`. `/api` and matcher-excluded paths never get it.
-5. **Locale layout 404** — `LocaleLayout`: a `[locale]` value other than `pl`/`en` → `notFound()`. Reachable only by paths the middleware skipped (dotted paths such as `/robots.txt`). Observed on dev (12.09.2026): `/robots.txt` answers 404 with an empty body — no page renders.
+5. **Locale layout 404** — `LocaleLayout`: a `[locale]` value other than `pl`/`en` → `notFound()`. Reachable only by paths the middleware skipped (dotted paths such as `/robots.txt`). Observed on dev (13.09.2026): `/robots.txt` and `/foo/bar.png` answer 404 with Next's default page ("This page could not be found."), not the localized 404 body (no „Zgubiliśmy się?” heading, no `NotFound.title`); so does `/api/unknown`, which the matcher skips too.
 6. **Session gate** — `(app)/layout.tsx` `AppLayout`: `getAuth().api.getSession`; `null` or a thrown error → `307` `/login` (fail closed). Covers `/onboarding`, `/settings/account`, `/settings/profile`; the two real pages repeat the check.
 7. **Page redirects** (`307`, Next `redirect` via next-intl):
    - `/settings/profile` → `/settings/account` (`ProfileSettingsRedirect`, #58).
@@ -146,7 +146,7 @@ Every redirect answers in the request's locale form (`/en/...` for English). "Th
    - redirect row whose target has no handle, no row, profile deleted between reads, or no `DATABASE_URL` → 404 body.
    - any other database or storage error → thrown (500; no error page — F-SHELL-3).
    - `force-dynamic`; `generateMetadata` and the render share one lookup (`cache`).
-9. **404 body** — `[locale]/not-found.tsx` renders for `notFound()` thrown by a page under `[locale]`, HTTP 404 (e2e `profile.spec.ts`). An address matching no route at all never reaches it: observed on dev (12.09.2026), `/foo/bar` and `/en/settings/x` answer 404 with Next's default, unlocalized page (`<title>404: This page could not be found.</title>`) — F-SHELL-3.
+9. **404 body** — `[locale]/not-found.tsx` renders for `notFound()` thrown by a page under `[locale]`, HTTP 404 (e2e `profile.spec.ts`). Since 13.09.2026 that includes every address of two or more segments that no route claims: `[locale]/[...rest]/page.tsx` `UnmatchedAddress` throws `notFound()` (e2e `not-found.spec.ts`: `/some-profile/works`, `/en/settings/unknown`; checked by hand on 13.09.2026: `/pl/foo/bar` first gets step 3's `307` to `/foo/bar`). A single segment never reaches the catch-all: `[handle]` is the more specific route and answers in step 8. Before the fix, `/foo/bar` and `/en/settings/x` answered with Next's default, unlocalized page (`<title>404: This page could not be found.</title>`, observed on dev 12.09.2026) — F-SHELL-3. A path the matcher skips reaches the router unrewritten, so its first segment is read as the locale: `/foo/bar.png` and `/api/unknown` keep that default page (step 5), while `/en/foo/bar.png` gets the localized body, and `/pl/a/b.png` gets it without step 3's 307.
 
 Example chain: signed-out visitor with `NEXT_LOCALE=en` opens `/settings/account` → 307 `/en/settings/account` → 307 `/en/login`.
 
@@ -171,7 +171,7 @@ Example chain: signed-out visitor with `NEXT_LOCALE=en` opens `/settings/account
 
 - `F-SHELL-1` — The seven auth screens render the same for signed-in viewers; nothing sends a signed-in person away from `/login` or `/register`, while `/` and the 404 link do route them (D-SHELL-5). Evidence: no session read in any `(auth)` page or form; the only navigation is `router.push` after success (`login-form.tsx`, `two-factor-challenge.tsx`). May be deliberate (switching accounts); no reason recorded.
 - `F-SHELL-2` — Page titles follow no single pattern: `/register/verified` has no `generateMetadata`, so its tab shows only „Architektów 3d” (same as the homepage), the other auth screens name themselves („Logowanie”) without the brand, profile pages use „{name} · Architektów 3d”. Evidence: `register/verified/page.tsx`; `LocaleLayout` (title, no template); `profileMetadata`.
-- `F-SHELL-3` — No screen for failure or for unmatched multi-segment addresses: no `error.tsx`/`global-error.tsx` although the profile page deliberately throws database/storage errors ("Everything else must surface as a 500", `[handle]/page.tsx` `lookup`); no catch-all route or `global-not-found`, so `/foo/bar` cannot reach `[locale]/not-found.tsx` (Next docs `not-found.md`: only a root `app/not-found.js` or `app/global-not-found.js` handles unmatched URLs, and `global-not-found` is the documented option when the root layout sits under a top-level dynamic segment). Unmatched multi-segment addresses get Next's default, unlocalized 404 page with no way back (§1 "never lost"). Observed on dev, §2 step 9. UNVERIFIED: the screen shown when the profile page throws.
+- `F-SHELL-3` — No screen for failure; the unmatched-address half was fixed on 13.09.2026. Still open: no `error.tsx`/`global-error.tsx` although the profile page deliberately throws database/storage errors ("Everything else must surface as a 500", `[handle]/page.tsx` `lookup`). UNVERIFIED: the screen shown when the profile page throws. Fixed: an address of two or more segments that no route claims (`/foo/bar`, `/en/settings/x`) got Next's default, unlocalized 404 page with no way back (§1 "never lost"), because Next hands an unmatched URL only to a root `app/not-found.js` or `app/global-not-found.js` (Next docs `not-found.md`) and this app's root layout sits under `[locale]`. `[locale]/[...rest]/page.tsx` now throws `notFound()` for such an address, so it gets the localized 404 body (§2 step 9, `e2e/not-found.spec.ts`); `global-not-found` was not used — it is experimental and renders outside the locale layout.
 
 ## 3. Shared elements
 
@@ -681,8 +681,8 @@ Bar elements: `TOPBAR.home.logo`, `TOPBAR.home.language`, `TOPBAR.home.log-in`, 
 ### V-404 — not found
 
 - **Screenshots:** `v-404--desktop`, `v-404--phone` (Appendix A)
-- **Route:** the requested URL is kept (e.g. `/some-profile`, `/en/some-profile`, `/admin`) — `src/app/[locale]/not-found.tsx` `NotFoundPage`
-- **Reached by:** anyone requesting a single-segment address that is unknown, reserved or not handle-shaped; an old handle whose target has no handle; a profile deleted mid-request; any profile address when `DATABASE_URL` is missing. HTTP 404. (Unmatched multi-segment URLs: F-SHELL-3.)
+- **Route:** the requested URL is kept (e.g. `/some-profile`, `/en/some-profile`, `/admin`, `/some-profile/works`) — `src/app/[locale]/not-found.tsx` `NotFoundPage`
+- **Reached by:** anyone requesting a single-segment address that is unknown, reserved or not handle-shaped; an old handle whose target has no handle; a profile deleted mid-request; any profile address when `DATABASE_URL` is missing; any address of two or more segments that no route claims, once its locale is `pl` or `en` (§2 step 9; `src/app/[locale]/[...rest]/page.tsx` `UnmatchedAddress`, since 13.09.2026 — F-SHELL-3). HTTP 404.
 - **Purpose:** say the address leads nowhere and offer one way back.
 - **Arrives from → leaves to:** typed or shared addresses → `404.panel.home`.
 - **Layout (top → bottom):**
@@ -703,8 +703,8 @@ Bar elements: `TOPBAR.home.logo`, `TOPBAR.home.language`, `TOPBAR.home.log-in`, 
 - **Shown:** every viewer, desktop and phone
 - **Does:** signed-out (or unverifiable) → `/` (en `/en`); signed-in with handle → `/{handle}`; no-handle → `/onboarding` (`signedInDestination() ?? "/"`)
 - **A11y:** link; `ButtonLink` `quiet` md (40 px)
-- **Tests:** `e2e/profile.spec.ts` — status 404, `getByRole("heading", { level: 1, name: "Zgubiliśmy się?" })`, `getByRole("link", { name: "Wróć do domu" })` href `/`; en heading "Lost?", `getByRole("link", { name: "Back home" })` href `/en`; `e2e/a11y.spec.ts` axe `not-found-pl`, `not-found-en`; `e2e/handle.spec.ts` 404 status of `/admin`, `/some-old-address`
-- **Source:** `not-found.tsx` — `NotFoundPage`
+- **Tests:** `e2e/profile.spec.ts` — status 404, `getByRole("heading", { level: 1, name: "Zgubiliśmy się?" })`, `getByRole("link", { name: "Wróć do domu" })` href `/`; en heading "Lost?", `getByRole("link", { name: "Back home" })` href `/en`; `e2e/a11y.spec.ts` axe `not-found-pl`, `not-found-en`; `e2e/handle.spec.ts` 404 status of `/admin`, `/some-old-address`; `e2e/not-found.spec.ts` — the same heading and link at `/some-profile/works` (href `/`) and `/en/settings/unknown` (href `/en`)
+- **Source:** `not-found.tsx` — `NotFoundPage`; `[...rest]/page.tsx` — `UnmatchedAddress`
 
 #### Decisions
 
@@ -2122,7 +2122,7 @@ Bar elements: `TOPBAR.home.logo`, `TOPBAR.home.language`, `TOPBAR.home.log-in`, 
 - **Tests:** `toHaveTitle("Zmiana adresu")`; h1 „Zmiana zatwierdzona” at `/email-changed`; h1 „Adres zmieniony”
   at `?status=done`; h1 „Link wygasł” at `?error=TOKEN_EXPIRED`; h1 „Nieprawidłowy link” and
   `getByText("został unieważniony", { exact: false })` at `?error=INVALID_TOKEN`; h1 "Invalid link" at
-  `/en/email-changed?error=USER_NOT_FOUND` — `e2e/settings.spec.ts`
+  `/en/email-changed?error=USER_NOT_FOUND` — `e2e/settings.spec.ts`; h1 „Zmiana zatwierdzona” after the real approval link and „Adres zmieniony” after the new-address link — `e2e/db/email-change.spec.ts`
 - **Source:** `email-changed/page.tsx` — `EmailChangedPage`, `changeState`
 
 ##### `EMAIL-CHANGED.card.settings` — link
@@ -2526,14 +2526,14 @@ Bar elements: `TOPBAR.home.logo`, `TOPBAR.home.language`, `TOPBAR.home.log-in`, 
 ##### `SETTINGS-ACCOUNT.email.new` — e-mail field
 
 - **Label:** `Settings.account.email.newLabel` — pl „Nowy adres e-mail” · en "New e-mail address". Errors: `…email.errors.emailInvalid` pl „Podaj poprawny adres e-mail.” · en "Enter a valid e-mail address."; `…email.errors.sameEmail` pl „To jest obecny adres tego konta.” · en "This is already the account's address."
-- **Where:** first element of the e-mail section. The current account address is not shown anywhere on the page (F-ACCOUNT-12).
+- **Where:** first element of the e-mail section. The current account address is not shown beside the form; only the sent block names it (F-ACCOUNT-12).
 - **Shown:** until a request is accepted (then replaced by the sent block).
 - **Enabled:** always.
 - **Does:** holds the new address; validated on submit with `emailSchema` (trim, lowercase, e-mail format) and compared with the session's address (lowercased).
 - **States:** field error until the next submit that passes validation.
 - **Input:** typing (e-mail keyboard on touch); Enter submits.
 - **A11y:** `input#new-email` `name="newEmail"` `type="email"` `autocomplete="email"` `required` (form `noValidate`); with an error `aria-invalid="true"`, `aria-describedby="new-email-error"` → `p#new-email-error` (no live role).
-- **Tests:** e2e none. Server: `src/lib/auth-account.test.ts` ("rejects the unchanged address and a missing session").
+- **Tests:** `getByLabel("Nowy adres e-mail")` — `e2e/db/email-change.spec.ts`. Server: `src/lib/auth-account.test.ts` ("rejects the unchanged address and a missing session").
 - **Source:** `settings/account/change-email-form.tsx` — `ChangeEmailForm`; `src/lib/auth-schemas.ts` — `emailSchema`
 
 ##### `SETTINGS-ACCOUNT.email.form-error` — alert
@@ -2554,18 +2554,18 @@ Bar elements: `TOPBAR.home.logo`, `TOPBAR.home.language`, `TOPBAR.home.log-in`, 
 - **States:** idle / busy.
 - **Input:** click, tap, Enter in the field.
 - **A11y:** native `<button type="submit">`; unmounts on success, focus is not moved.
-- **Tests:** e2e none. Server: `src/lib/auth-account.test.ts` (whole "change e-mail (A10)" block).
+- **Tests:** `getByRole("button", { name: "Wyślij link potwierdzający" })` — `e2e/db/email-change.spec.ts`. Server: `src/lib/auth-account.test.ts` (whole "change e-mail (A10)" block).
 - **Source:** `change-email-form.tsx` — `handleSubmit`; `src/lib/auth.ts` — `user.changeEmail`, `hooks.before`
 
 ##### `SETTINGS-ACCOUNT.email.sent` — status block
 
-- **Label:** h3 `Settings.account.email.sent.heading` — pl „Sprawdź nową skrzynkę” · en "Check the new inbox"; body `…email.sent.body` — pl „Jeśli adres {email} jest dostępny, wysłaliśmy na niego link potwierdzający (ważny 24 godziny), a na obecny adres — powiadomienie. Do czasu potwierdzenia nic się nie zmienia.” · en "If {email} is available, we sent it a confirmation link (valid for 24 hours) and a notice to your current address. Nothing changes until it is confirmed."; {email} = the normalized new address. The wording does not match the real flow (F-ACCOUNT-11).
+- **Label:** h3 `Settings.account.email.sent.heading` — pl „Sprawdź obecną skrzynkę” · en "Check your current inbox"; body `…email.sent.body` — pl „Jeśli adres {newEmail} jest dostępny, wysłaliśmy na Twój obecny adres {currentEmail} link zatwierdzający zmianę (ważny 24 godziny). Po zatwierdzeniu wyślemy link na nowy adres — adres konta zmieni się dopiero po kliknięciu tego linku.” · en "If {newEmail} is available, we sent your current address, {currentEmail}, a link, valid for 24 hours, to approve the change. Once you approve it, we will send a link to the new address — your account address changes only when that link is clicked."; {newEmail} = the normalized new address, {currentEmail} = the session's address. The order is the real one since 13.09.2026 (F-ACCOUNT-11); the condition stays because a taken address also gets a 200, and no mail at all.
 - **Where:** replaces the e-mail form.
 - **Shown:** after any 200 — free and taken addresses alike — for the rest of the visit; a reload brings the empty form back.
 - **Does:** nothing interactive: no resend, no "use another address", no cancel.
-- **A11y:** plain `<h3>` and `<p>`, no live role; the address wraps anywhere (`wrap-break-word`).
-- **Tests:** none.
-- **Source:** `change-email-form.tsx` — `ChangeEmailForm` (`sentTo`)
+- **A11y:** plain `<h3>` and `<p>`, no live role; both addresses wrap anywhere (`wrap-break-word`).
+- **Tests:** `e2e/db/email-change.spec.ts` — `getByRole("heading", { name: "Sprawdź obecną skrzynkę" })`; `getByText(/wysłaliśmy na Twój obecny adres/)` contains both addresses; the approval mail then reaches the current address and the next link the new one.
+- **Source:** `change-email-form.tsx` — `ChangeEmailForm` (`sentTo`, the `currentEmail` prop)
 
 ##### `SETTINGS-ACCOUNT.two-factor.status` — badge and status line
 
@@ -2784,14 +2784,14 @@ Bar elements: `TOPBAR.home.logo`, `TOPBAR.home.language`, `TOPBAR.home.log-in`, 
 #### Findings
 
 - `F-ACCOUNT-10` — For an account without a handle the address form cannot save and shows copy that is false for a first assignment. Evidence: settings mode sends no `displayName`; with no profile row (the normal case before onboarding: rows are created only by the onboarding claim or a direct `POST /api/profile`) `setHandle` throws `displayNameRequired` → route 400 → `applyServerError` → `HandleForm.errors.generic`; the form has no name field. Meanwhile the button reads „Zmień adres” and `cooldownAhead` says the next change will wait 30 days, but `setHandle` starts no lock on a first assignment. The page comment presents this path as the fallback for "an account from before #15, or onboarding left early".
-- `F-ACCOUNT-11` — The e-mail "sent" copy contradicts the two-step flow. Evidence: `Settings.account.email.sent.heading` „Sprawdź nową skrzynkę” and `sent.body` say the link went to the NEW address and only a notice to the current one; `auth.ts` `sendChangeEmailConfirmation` mails the approval link to the CURRENT address, and the new address gets its link only after approval (`src/lib/auth-account.test.ts` "step one sends only the approval, to the CURRENT address"); `EmailChanged.approvedBody` and `Email.emailChangeConfirmation` describe the real order.
-- `F-ACCOUNT-12` — E-mail section gaps. Evidence: `currentEmail` is used only for the `sameEmail` check, so the page never shows the account's current address; the sent block has no resend, correction or cancel (only a reload restores the form); on success the focused button unmounts and the block has no live role.
+- `F-ACCOUNT-11` — Fixed on 13.09.2026: the e-mail "sent" note contradicted the two-step flow. It read „Sprawdź nową skrzynkę” and said the link went to the NEW address with only a notice to the current one, while `auth.ts` `sendChangeEmailConfirmation` mails the approval link to the CURRENT address and the new address gets its link only after approval (`src/lib/auth-account.test.ts` "step one sends only the approval, to the CURRENT address"; `EmailChanged.approvedBody` and `Email.emailChangeConfirmation` already told the real order). The note now reads „Sprawdź obecną skrzynkę”, names both addresses and describes the two steps in their real order (`SETTINGS-ACCOUNT.email.sent`); `e2e/db/email-change.spec.ts` walks the flow and checks the note against the inboxes the links reach. Kept so the ID stays stable.
+- `F-ACCOUNT-12` — E-mail section gaps. Evidence: `currentEmail` serves the `sameEmail` check and, since 13.09.2026, the sent note, so the page shows the account's current address only after a request, never beside the form; the sent block has no resend, correction or cancel (only a reload restores the form); on success the focused button unmounts and the block has no live role.
 - `F-ACCOUNT-13` — Two-factor views go stale across `router.refresh()`. Evidence: `router.refresh()` preserves `useState` (`node_modules/next/dist/docs/01-app/03-api-reference/04-functions/use-router.md`); render order is `enabled` → `activated && setup` → off. After „Skonfiguruj” → „Aktywuj” → „Gotowe” → disable in one visit, the section falls back to the activated view (the note says the app is on, dead backup codes, and „Gotowe” cannot leave it) instead of the off view. A setup started, then e-mail codes enabled and disabled, leaves the old key on screen and „Aktywuj” fails with `errors.generic` (the disable deleted the secret). Typed passwords stay in the hidden forms (`emailPassword`, `offPassword` never cleared). The activated view's badge reads „wył.” next to „Aplikacja włączona”.
 - `F-ACCOUNT-14` — Two-factor accessibility and error handling differ from the rest of the page. Evidence: its inputs have no `aria-invalid` / `aria-describedby` (the password and e-mail forms have both); the off view shows two inputs with the same accessible name „Potwierdź hasłem”; view swaps (setup, activation, enable, disable) move no focus and announce nothing; `confirmApp` maps only 401, so a 429 shows `errors.generic` while `mapError` shows `errors.rateLimited` elsewhere; the code is checked trimmed but sent untrimmed (`verifyTotp({ code: appCode })`, exact comparison in `@better-auth/utils` `verifyTOTP`).
 - `F-ACCOUNT-15` — Authenticator management is minimal. Evidence: no QR code — only the manual key (`package.json` has no QR library; a new dependency is §7 "ask first"); no copy or download for the key or the codes; the on view does not say which method is active and offers no switch; no way to view or regenerate backup codes although better-auth 1.7.2 exposes `/two-factor/generate-backup-codes`; no cancel during setup. The component comment names "manual key + backup codes" as the intended scope (#29) without a reason.
 - `F-ACCOUNT-16` — Duplicate of `F-AUTH-7` (no return destination after the `(app)` gate sends a signed-out visitor to `/login`, including from the `/email-changed` settings link after either change-e-mail click, both of which work signed out).
 - `F-ACCOUNT-17` — The page's forms give feedback in different ways. Evidence: `HandleForm` clears its submit error and saved lines on every keystroke and uses `role="alert"`/`"status"`; the password and e-mail field errors are plain `<p>` (announced only via `aria-describedby` on focus) and persist until the next submit; the password `done` line stays while new values are typed; 2FA errors persist until the next attempt.
-- `F-ACCOUNT-18` — No browser test covers the settings forms or runs axe on these screens. Evidence: in `e2e/` no spec interacts with the address, password, e-mail or 2FA sections — `/settings/account` is only a history stop (`e2e/db/leave-guard.spec.ts`, `e2e/db/lightbox.spec.ts`) or a gate check (`e2e/settings.spec.ts`); `e2e/a11y.spec.ts` covers neither `/onboarding` nor `/settings/account`; onboarding is exercised only along its happy path.
+- `F-ACCOUNT-18` — Browser tests barely cover the settings forms and never run axe on these screens. Evidence: in `e2e/` only `db/email-change.spec.ts` (since 13.09.2026) drives a settings section, the e-mail one; none interacts with the address, password or 2FA sections — `/settings/account` is only a history stop (`e2e/db/leave-guard.spec.ts`, `e2e/db/lightbox.spec.ts`) or a gate check (`e2e/settings.spec.ts`); `e2e/a11y.spec.ts` covers neither `/onboarding` nor `/settings/account`; onboarding is exercised only along its happy path.
 
 ### V-SETTINGS-PROFILE-REDIRECT — former profile settings
 
@@ -5354,13 +5354,13 @@ Every decision in one list; the full statement and its source are in the section
 
 ## 11. Findings — index
 
-Every finding in one list; the evidence is in the section named. None of them is fixed, except `F-WORKS-1` (a sentence in SPEC.md). A "Duplicate of" entry points at the finding that carries the evidence.
+Every finding in one list; the evidence is in the section named. None of them is fixed, except `F-WORKS-1` (a sentence in SPEC.md), and on 13.09.2026 `F-ACCOUNT-11` and the unmatched-address half of `F-SHELL-3`. A "Duplicate of" entry points at the finding that carries the evidence.
 
 | ID | Finding | Section |
 | --- | --- | --- |
 | `F-SHELL-1` | The seven auth screens render the same for signed-in viewers; nothing sends a signed-in person away from `/login` or `/register`, while `/` and the 404 link do route them (D-SHELL-5). | §2 |
 | `F-SHELL-2` | Page titles follow no single pattern: `/register/verified` has no `generateMetadata`, so its tab shows only „Architektów 3d” (same as the homepage), the other auth screens name themselves („Logowanie”) without the brand, profile pages use „{name} · Architektów 3d”. | §2 |
-| `F-SHELL-3` | No screen for failure or for unmatched multi-segment addresses: no `error.tsx`/`global-error.tsx` although the profile page deliberately throws database/storage errors ("Everything else must surface as a 500", `[handle]/page.tsx` `lookup`); no catch-all route or `global-not-found`, so `/foo/bar` cannot reach `[locale]/not-found.tsx` (Next docs `not-found.md`: only a root `app/not-found.js` or `app/global-not-found.js` handles unmatched URLs, and `global-not-found` is the documented option when the root layout sits under a top-level dynamic segment). | §2 |
+| `F-SHELL-3` | No screen for failure; the unmatched-address half was fixed on 13.09.2026. | §2 |
 | `F-SHELL-4` | The language switcher exists only on the homepage and the visitor view of a profile. | §3 |
 | `F-SHELL-5` | The visitor bar is the signed-out bar for every non-owner: a signed-in `other` or `no-handle` viewer is offered „Załóż konto” and has no account menu (way back only via the logo's `/` redirect); and nobody is offered „Zaloguj się” on a profile — an owner whose session ended lands on their own profile with a sign-up button only, while the homepage bar offers both. | §3 |
 | `F-SHELL-6` | Onboarding has no bar, logo or account menu: a no-handle user cannot sign out or reach settings from the UI (the handle step offers only „Wstecz”); `/settings/account` is reachable only by typing it or from the `/email-changed` link. | §3 |
@@ -5412,14 +5412,14 @@ Every finding in one list; the evidence is in the section named. None of them is
 | `F-ACCOUNT-8` | A failed availability check is silent, and a rate-limited one sends mixed signals. | §6 |
 | `F-ACCOUNT-9` | The cooldown date omits the time, so on the named day the address can still be locked under a date that reads as "today". | §6 |
 | `F-ACCOUNT-10` | For an account without a handle the address form cannot save and shows copy that is false for a first assignment. | §6 |
-| `F-ACCOUNT-11` | The e-mail "sent" copy contradicts the two-step flow. | §6 |
+| `F-ACCOUNT-11` | Fixed on 13.09.2026: the e-mail "sent" note contradicted the two-step flow. | §6 |
 | `F-ACCOUNT-12` | E-mail section gaps. | §6 |
 | `F-ACCOUNT-13` | Two-factor views go stale across `router.refresh()`. | §6 |
 | `F-ACCOUNT-14` | Two-factor accessibility and error handling differ from the rest of the page. | §6 |
 | `F-ACCOUNT-15` | Authenticator management is minimal. | §6 |
 | `F-ACCOUNT-16` | Duplicate of `F-AUTH-7` (no return destination after the `(app)` gate sends a signed-out visitor to `/login`, including from the `/email-changed` settings link after either change-e-mail click, both of which work signed out). | §6 |
 | `F-ACCOUNT-17` | The page's forms give feedback in different ways. | §6 |
-| `F-ACCOUNT-18` | No browser test covers the settings forms or runs axe on these screens. | §6 |
+| `F-ACCOUNT-18` | Browser tests barely cover the settings forms and never run axe on these screens. | §6 |
 | `F-PROFILE-1` | Duplicate of `F-SHELL-5` (a signed-in non-owner gets the signed-out bar; no „Zaloguj się” on any profile bar). | §7 |
 | `F-PROFILE-2` | Stale share-image statements: `page.tsx` still describes "The committed 1200×630 share image … (public/og-placeholder.png)" (the file does not exist) and `public-profile.ts` calls the monogram card "1200×630", and `monogram.ts`'s header speaks of "the 1200×630 card a chat client shows", while `MONOGRAM_CARD` there is 512×512; SPEC §12 still lists "Choice of the specific OG image for profile pages without an avatar" as open although #27 shipped the monogram card. | §7 |
 | `F-PROFILE-3` | Duplicate of `F-WORKS-1` (fixed with this document: SPEC §9 now orders works by `position`). | §7 |
@@ -5633,6 +5633,7 @@ Every Playwright spec and the sections whose elements it drives. A new UI that r
 | `e2e/a11y.spec.ts` | §4, §6 |
 | `e2e/avatar.spec.ts` | no UI: the avatar routes answer 401 to a signed-out caller |
 | `e2e/db/avatar-upload.spec.ts` | §3, §7 |
+| `e2e/db/email-change.spec.ts` | §5, §6 |
 | `e2e/db/happy-path.spec.ts` | §2, §3, §4, §5, §6, §8 |
 | `e2e/db/leave-guard.spec.ts` | §3, §6, §8 |
 | `e2e/db/lightbox.spec.ts` | §3, §6, §8 |
@@ -5644,6 +5645,7 @@ Every Playwright spec and the sections whose elements it drives. A new UI that r
 | `e2e/handle.spec.ts` | §4, §5 |
 | `e2e/i18n.spec.ts` | §3, §4 |
 | `e2e/login.spec.ts` | §3, §4, §5 |
+| `e2e/not-found.spec.ts` | §2, §4 |
 | `e2e/profile.spec.ts` | §2, §4, §5 |
 | `e2e/register.spec.ts` | §5 |
 | `e2e/reset-password.spec.ts` | §5 |
