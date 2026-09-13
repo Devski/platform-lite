@@ -143,8 +143,8 @@
         "submit": "Send the confirmation link",
         "submitting": "Sending…",
         "sent": {
-          "heading": "Check the new inbox",
-          "body": "If {email} is available, we sent it a confirmation link (valid for 24 hours) and a notice to your current address. Nothing changes until it is confirmed."
+          "heading": "Check your current inbox",
+          "body": "If {newEmail} is available, we sent your current address, {currentEmail}, a link, valid for 24 hours, to approve the change. Once you approve it, we will send a link to the new address — your account address changes only when that link is clicked."
         },
         "errors": {
           "emailInvalid": "Enter a valid e-mail address.",

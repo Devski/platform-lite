@@ -279,9 +279,13 @@ export function createAuth(options: {
           // /verify-email gate below refuses both steps' links unless a live
           // marker matches, so a newer request or a password reset kills the
           // older link. Only reached for a FREE newEmail (a taken one returns
-          // early inside the endpoint), so — like the reset send — this awaited
-          // delivery is a known timing channel for address existence, deferred
-          // to #22's off-path delivery.
+          // early inside the endpoint). Like the reset send, delivery runs off
+          // the response path (advanced.backgroundTasks above), so the answer's
+          // timing no longer tells the two apart — closed in #22. The mail
+          // itself still does: it reaches the requester's own inbox only when
+          // the address is free, so a signed-in account can learn whether
+          // another address is registered, three tries an hour per IP
+          // (rateLimit below).
           await recordPendingEmailChange(db, user.id, newEmail);
           await sendEmail({
             to: user.email,

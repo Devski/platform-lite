@@ -63,14 +63,17 @@ export function ChangeEmailForm({ currentEmail }: { currentEmail: string }) {
     return (
       <div className="mt-(--sp-5) flex flex-col gap-(--sp-2)">
         <h3 className="type-h4 text-(--text-strong)">{t("sent.heading")}</h3>
-        {/* The address is whatever was just typed, and an e-mail with no
-            hyphen in it offers no break opportunity: measured 27px past the
-            card at 360px for a plausible one, 155px for a long one, which
-            drags the document sideways. The register and reset screens carry
-            the same line and the same rule (AUTH_SENT_BODY). Every other
-            paragraph here is translated prose and wraps on its own spaces. */}
+        {/* Both addresses ride in this line, and an e-mail with no hyphen in
+            it offers no break opportunity: measured 27px past the card at
+            360px for a plausible one, 155px for a long one, which drags the
+            document sideways. The register and reset screens carry the same
+            line and the same rule (AUTH_SENT_BODY). Every other paragraph here
+            is translated prose and wraps on its own spaces.
+
+            The current address is named because the first link goes there,
+            not to the new one (src/lib/auth.ts, user.changeEmail). */}
         <p className="type-sm wrap-break-word text-(--text-muted)">
-          {t("sent.body", { email: sentTo })}
+          {t("sent.body", { newEmail: sentTo, currentEmail })}
         </p>
       </div>
     );
