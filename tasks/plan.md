@@ -204,6 +204,12 @@ from Phase 4 once its code half was split off.
   resizer (imgproxy) instead of upload-time variants (`blocked` — waits on a need).
 - [#64](https://github.com/Devski/platform-lite/issues/64) Educational materials for renders
   export — the frame contract #68 builds on.
+- [#185](https://github.com/Devski/platform-lite/issues/185) UI specification before the
+  redesign (`ux`, `documentation`). Filed 12.09.2026, when Dawid decided to turn the interface
+  upside down: every view in every mode, every control, the top bar, for the agent that will
+  implement the new UI — `docs/ui-specification.md`, with screenshots of dev on a private page
+  it links. Decisions and inconsistencies are kept apart; of the inconsistencies, only a stale sentence
+  in SPEC §9 (the order of works) was corrected with it.
 
 Verified for this milestone (08.09.2026): no OVHcloud CDN product transforms images, so every
 size a page needs is produced at upload (G5); a bucket per user is ruled out by the

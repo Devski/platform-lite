@@ -11,6 +11,11 @@ Source documents with the full rationale behind the decisions (in Polish):
 - File storage and transfer costs (14 providers): https://claude.ai/code/artifact/931d4f6c-1676-44dc-8076-023883402d74
 - Transactional e-mail costs (8 providers): https://claude.ai/code/artifact/70cbb3dd-5d94-42a4-90b1-2bc7f34b637a
 
+The interface as it stands on 12.09.2026, written for the agent that implements the redesign
+(#185): [docs/ui-specification.md](docs/ui-specification.md) — every view in every mode, its
+controls, the design decisions behind them and the inconsistencies found; its screenshots are
+on https://claude.ai/code/artifact/37a17f91-9bd7-4641-8108-448f20987ac3.
+
 Lineage: the MVP corresponds to the `foundation → identity → profiles` modules of the approved
 capability map in the `platform` repository (CAPABILITY-MAP.md). Deliberately merged here
 into a single application and a single spec — that is the essence of "lite".
@@ -411,7 +416,8 @@ export function ownerKey(
 - `works` (#72): `id`, `user_id` (cascade — a work is profile content), `name`,
   `investor`, `developer`, timestamps. At most 10 per user, counted by the
   application under the per-user advisory lock the quota uses; a `CHECK` cannot count
-  rows. Order on the page = `created_at`. Since #68 (A13) also `r360_set_id` — the prefix
+  rows. Order on the page = `position`, which the owner sets by dragging (#66); `created_at`
+  and `id` only break ties. Since #68 (A13) also `r360_set_id` — the prefix
   of the frame set — and `r360_params` (`jsonb`: frame count, direction, frames per picture
   width, start frame, ring flattening, and since #107 the optional cue points — up to 12
   `{ frame, label }`, one a frame, a label of 1–40 characters), Zod and `CHECK` pinned to
