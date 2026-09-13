@@ -19,6 +19,8 @@ const WARMUP_PATHS = [
   "/en/login",
   // The public profile page (#18) and, through it, the localized 404 body.
   "/some-profile",
+  // An address no route claims: the [...rest] catch-all and the same body.
+  "/some-profile/works",
   // Route handlers compile on first hit too, and the #20 journey waits on
   // their answers inside a five-second assertion. The method does not matter
   // — the module is compiled before the handler is dispatched — so a GET
