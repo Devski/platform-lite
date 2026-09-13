@@ -464,6 +464,48 @@ describe("setAvatar + getProfile (A4, G2)", () => {
   // scripts/backfill-file-keys.ts has run in an environment they have to keep
   // working there — read from the environment that wrote them, which is the
   // only place the old derivation was ever right.
+  // #65: the natural way to get the new encoding is to upload the same photo
+  // again. Its re-encoded original hashes as before, so the original row is
+  // the one already there — and its variant rows, written under the old names,
+  // used to stay put: the page kept the old picture, and the new objects were
+  // named by no row, so no replacement could ever free them.
+  it("re-uploading a photo whose set predates the encoding in the name moves the set to the new objects", async () => {
+    const d = makeDeps();
+    const first = await uploadAvatar(d, 21);
+    await setAvatar(d.deps, first.original.fileId);
+    // Park the set as it was written before #65: size-only names.
+    const variantRows = await testDb.db
+      .select()
+      .from(files)
+      .where(eq(files.parentFileId, first.original.fileId));
+    const oldKeys: string[] = [];
+    for (const row of variantRows) {
+      const oldKey = row.objectKey!.replace(/q95s[.]webp$/, ".webp");
+      d.objects.set(oldKey, d.objects.get(row.objectKey!)!);
+      d.objects.delete(row.objectKey!);
+      await testDb.db
+        .update(files)
+        .set({ objectKey: oldKey })
+        .where(eq(files.id, row.id));
+      oldKeys.push(oldKey);
+    }
+
+    const again = await uploadAvatar(d, 21);
+    expect(again.original.fileId).toBe(first.original.fileId);
+    await setAvatar(d.deps, again.original.fileId);
+
+    const view = await getProfile(d.deps);
+    expect([view.avatar?.url512, view.avatar?.url128]).toEqual(
+      again.variants.map((variant) => variant.url),
+    );
+    // The old objects went with their names; every object left is a row's.
+    for (const key of oldKeys) expect(d.objects.has(key)).toBe(false);
+    const named = new Set(
+      (await testDb.db.select().from(files)).map((row) => row.objectKey),
+    );
+    for (const key of d.objects.keys()) expect(named.has(key)).toBe(true);
+  });
+
   // #65 moved the encoding into the variant's name, and the fallback derives
   // that name on its own: it has to agree with the pipeline, or a set that
   // lost a variant row points at nothing.

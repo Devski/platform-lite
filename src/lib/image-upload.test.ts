@@ -189,13 +189,19 @@ describe("confirmImageUpload by purpose", () => {
       },
     })
       .jpeg()
+      .withIccProfile("p3")
       .withMetadata({ orientation: 6, density: 300 })
       .toBuffer();
+    expect((await sharp(sideways).metadata()).icc).toBeDefined();
     const result = await upload(d, sideways, "cover");
     for (const variant of result.variants) {
       const meta = await sharp(d.objects.get(variant.key)!.body).metadata();
       expect([meta.width, meta.height]).toEqual([200, 300]);
-      expect([meta.orientation, meta.exif]).toEqual([undefined, undefined]);
+      expect([meta.orientation, meta.exif, meta.icc]).toEqual([
+        undefined,
+        undefined,
+        undefined,
+      ]);
     }
   });
 

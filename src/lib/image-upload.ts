@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { and, eq, inArray, like, lte, sql } from "drizzle-orm";
 import sharp from "sharp";
 import type { Database } from "@/db/client";
-import { files, pendingUploads } from "@/db/schema";
+import { files, pendingUploads, type fileKind } from "@/db/schema";
 import { frameSetOwnerPrefix } from "@/lib/r360/frame-set-shared";
 import { quotaAllows, reservePendingUpload } from "@/lib/quota";
 import { ObjectNotFoundError, ownerKey, type FileStorage } from "@/lib/storage";
@@ -36,6 +36,8 @@ export {
   type ImagePurpose,
   type ImageVariantSpec,
 } from "@/lib/image-upload-shared";
+
+type FileKind = (typeof fileKind.enumValues)[number];
 
 // Decode ceiling on top of the byte cap: a mostly-flat 250-megapixel PNG fits
 // in 10 MB yet decodes to gigabytes. 64 MP comfortably covers every real
@@ -444,7 +446,8 @@ export async function confirmImageUpload(
   // A9 belt at confirm, against the REAL bytes about to be stored, charging
   // only what is not already recorded — so replaying (or re-uploading) an
   // already-published image passes even at the cap: nothing new would be
-  // stored. Checked before any putObject, so a rejection publishes and
+  // stored. (A set published under an older encoding is the exception: its
+  // new variants are charged before the old ones are freed, #65.) Checked before any putObject, so a rejection publishes and
   // records nothing. Parallel confirms of DIFFERENT files can still overshoot
   // once — bounded by the per-user confirm rate limit to a handful of sets;
   // the next check sees the committed SUM and refuses. Accepted for the A9
@@ -525,6 +528,7 @@ export async function confirmImageUpload(
       })),
     )
     .onConflictDoNothing();
+  await moveOutdatedVariants(deps, originalRow.id, variantPlans);
 
   // Settled only now that the bytes exist as `files` rows: until this line
   // the reservation is what keeps them accounted, so a throw anywhere above
@@ -554,6 +558,65 @@ export async function confirmImageUpload(
       url: storage.publicUrl(variant.key),
     })),
   };
+}
+
+/**
+ * #65: a photo uploaded again after the variant encoding changed re-encodes
+ * to the same original, so the conflict above keeps that set's variant rows
+ * — still naming the objects of the older encoding. Left there, the page
+ * shows the old picture and the objects this confirm just wrote are named by
+ * no row, so no replacement would ever free them. The rows move to what was
+ * written; an old object goes once no row names it (the same cover bytes as
+ * a work photo may still), and only under its owner: a key in the pre-#72
+ * `a/` layout can be another account's as well (lib/profile).
+ */
+async function moveOutdatedVariants(
+  deps: ImageUploadDeps,
+  originalId: string,
+  written: {
+    kind: FileKind;
+    objectKey: string;
+    sha256: string;
+    sizeBytes: number;
+  }[],
+): Promise<void> {
+  const { db, storage, prefix, userId } = deps;
+  const rows = await db
+    .select({ id: files.id, kind: files.kind, objectKey: files.objectKey })
+    .from(files)
+    .where(and(eq(files.userId, userId), eq(files.parentFileId, originalId)));
+  const replaced: string[] = [];
+  for (const row of rows) {
+    const plan = written.find((variant) => variant.kind === row.kind);
+    if (!plan || row.objectKey === plan.objectKey) continue;
+    await db
+      .update(files)
+      .set({
+        objectKey: plan.objectKey,
+        sha256: plan.sha256,
+        sizeBytes: plan.sizeBytes,
+      })
+      .where(eq(files.id, row.id));
+    if (row.objectKey?.startsWith(`${prefix}u/${userId}/`)) {
+      replaced.push(row.objectKey);
+    }
+  }
+  const unnamed: string[] = [];
+  for (const key of new Set(replaced)) {
+    const [named] = await db
+      .select({ id: files.id })
+      .from(files)
+      .where(eq(files.objectKey, key))
+      .limit(1);
+    if (!named) unnamed.push(key);
+  }
+  if (unnamed.length === 0) return;
+  try {
+    await storage.deleteObjects(unnamed);
+  } catch (error) {
+    // An orphan object, uncharged — the residue family lib/profile accepts.
+    console.error("[image-upload] outdated variant cleanup failed:", error);
+  }
 }
 
 function escapeRegExp(value: string): string {
