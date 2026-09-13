@@ -1,6 +1,6 @@
 # UI specification — the interface as it stands
 
-Tracked in #185; the redesign it feeds is #195. Describes `main` at `ae55b6c` (12.09.2026), updated for the 13.09.2026 fixes of `F-ACCOUNT-11` and the unmatched-address half of `F-SHELL-3`.
+Tracked in #185; the redesign it feeds is #195. Describes `main` at `ae55b6c` (12.09.2026), updated for the 13.09.2026 fixes of `F-ACCOUNT-11`, the unmatched-address half of `F-SHELL-3` and most of `F-AUTH-24`.
 
 ## 0. Read this first
 
@@ -19,7 +19,8 @@ Tracked in #185; the redesign it feeds is #195. Describes `main` at `ae55b6c` (1
     it knowingly and record why (a SPEC.md change or an issue).
   - _Finding_ `F-AREA-n` — an inconsistency or gap in today's UI. The redesign should resolve
     it. Nothing listed was fixed, except where the entry says so: `F-WORKS-1` (a sentence in
-    SPEC.md), and on 13.09.2026 `F-ACCOUNT-11` and the unmatched-address half of `F-SHELL-3`.
+    SPEC.md), and on 13.09.2026 `F-ACCOUNT-11`, the unmatched-address half of `F-SHELL-3` and most of
+    `F-AUTH-24`.
 - **IDs.** Views `V-NAME`, shared components `C-NAME`, elements `VIEW.region.element`
   (e.g. `PROFILE-EDIT.cover.remove`). Grep for an ID to find its block.
 - **Copy.** Every visible string is a dictionary key (A8), quoted as `Namespace.key` —
@@ -2086,10 +2087,10 @@ Bar elements: `TOPBAR.home.logo`, `TOPBAR.home.language`, `TOPBAR.home.log-in`, 
   address" messages. Leaves to `/settings/account` (a signed-out visitor goes through V-LOGIN; the step-2 click
   signs the browser in when it had no session).
 - **States (`changeState(error, status)`, first match wins):** `expired` — `error=TOKEN_EXPIRED` · `invalid` —
-  any other `error` (`INVALID_TOKEN` from the pending-change gate: a newer request, a password reset, an
-  expired pending-change record, a forged or legacy link; `USER_NOT_FOUND`: no account holds the link's address
-  any more — the change was completed, or the account was deleted; `INVALID_USER` when the browser is signed in
-  as a different account; a bad signature) · `changed` — no `error` and `status=done` · `approved` — everything
+  any other `error` (`INVALID_TOKEN` from the pending-change gate for a correctly signed, unexpired link that no
+  live pending change matches — a newer request, a password reset, a lapsed record — or that is of a legacy or
+  foreign type (refused outright), and from the endpoint for a bad signature; `USER_NOT_FOUND`: no account holds the link's address any more — the change was
+  completed, or the account was deleted; `INVALID_USER` when the browser is signed in as a different account) · `changed` — no `error` and `status=done` · `approved` — everything
   else, including a direct visit (F-AUTH-14).
 - **Layout (top → bottom):** C-AUTH-SHELL; card: h1, muted body, link. No medallion, no footer line
   (F-AUTH-1). No `phone` difference beyond the shell.
@@ -2148,8 +2149,9 @@ Bar elements: `TOPBAR.home.logo`, `TOPBAR.home.language`, `TOPBAR.home.log-in`, 
 - Step 2 switches the address, marks it verified, clears the pending-change record and signs the browser in if
   it had no session.
 - Links are honoured only while the account's single pending-change record matches them (24 h from the
-  request); a newer request or a password reset (V-RESET-NEW) sends every older link to `invalid`, and so does
-  the completed change within 24 h (after that: `expired`, F-AUTH-24).
+  request); a newer request for a different free address or a password reset (V-RESET-NEW) sends every older link
+  to `invalid` (asking again for the same address, or for a taken one, leaves older links working), and so does
+  the completed change within 24 h; a link past its own 24 hours reads `expired` (F-AUTH-24).
 - Tab order: the settings link only.
 
 #### Decisions
@@ -2163,17 +2165,17 @@ Bar elements: `TOPBAR.home.logo`, `TOPBAR.home.language`, `TOPBAR.home.log-in`, 
 
 #### Findings
 
-- `F-AUTH-24` — For a change that is still pending, an aged-out link lands on „Nieprawidłowy link”, not „Link
-  wygasł”: the `/verify-email` gate in `auth.ts` runs before the endpoint's own expiry check and answers
-  `INVALID_TOKEN` once the pending-change record has expired, and that record — same 24-hour lifetime — is
-  written a moment after the step-1 token is signed and before the step-2 token exists, so the gate answers
-  first (except within that moment). „Link wygasł” then appears only when a link of an already completed change
-  is opened more than 24 h later (where „Zaloguj się i poproś o zmianę ponownie” is the wrong advice) or on a
-  direct visit, and the invalid body never mentions expiry. No test ages a link (`auth-account.test.ts` covers
-  revoked and forged links). UNVERIFIED: settle with an integration test that moves past 24 h. Evidence:
-  `auth.ts` `hooks.before` (`marker.expiresAt < new Date()` → `reject()` → `error=INVALID_TOKEN`) and
-  `recordPendingEmailChange`; better-auth 1.7.2 `api/routes/update-user.mjs` (token signed before
-  `sendChangeEmailConfirmation`), `api/routes/email-verification.mjs` (`JWTExpired` → `TOKEN_EXPIRED`).
+- `F-AUTH-24` — Fixed on 13.09.2026 for the common case: an aged-out link of a change still pending landed on
+  „Nieprawidłowy link”, not „Link wygasł”, because the `/verify-email` gate in `auth.ts` answered `INVALID_TOKEN`
+  from the lapsed pending-change record before the endpoint checked the token's expiry (both last 24 hours, the
+  record written a moment after the step-1 token). The gate now verifies the token's signature and expiry first
+  (`verifyJWT`) and leaves an aged-out token to the endpoint's `TOKEN_EXPIRED` (`auth-account.test.ts` "an aged-out
+  link says it expired, even once its pending change has lapsed too"). Still open: a step-2 link is signed at
+  approval, so it outlives the record by as long as the approval took, and clicked in that gap it reads
+  „Nieprawidłowy link”; and „Zaloguj się i poproś o zmianę ponownie” is the wrong advice for a link of a change
+  already completed, opened after its 24 hours. Evidence: `auth.ts` `hooks.before`, `recordPendingEmailChange`; better-auth 1.7.2
+  `api/routes/update-user.mjs` (token signed before `sendChangeEmailConfirmation`),
+  `api/routes/email-verification.mjs` (`JWTExpired` → `TOKEN_EXPIRED`).
 - `F-AUTH-25` — A person whose browser is signed in as a different account gets `INVALID_USER`, shown as the
   generic invalid copy that blames a link which is in fact fine (signing out or another browser would work);
   the page has no copy for that case. Evidence: better-auth `api/routes/email-verification.mjs`
@@ -5354,7 +5356,7 @@ Every decision in one list; the full statement and its source are in the section
 
 ## 11. Findings — index
 
-Every finding in one list; the evidence is in the section named. None of them is fixed, except `F-WORKS-1` (a sentence in SPEC.md), and on 13.09.2026 `F-ACCOUNT-11` and the unmatched-address half of `F-SHELL-3`. A "Duplicate of" entry points at the finding that carries the evidence.
+Every finding in one list; the evidence is in the section named. None of them is fixed, except `F-WORKS-1` (a sentence in SPEC.md), and on 13.09.2026 `F-ACCOUNT-11`, the unmatched-address half of `F-SHELL-3` and most of `F-AUTH-24`. A "Duplicate of" entry points at the finding that carries the evidence.
 
 | ID | Finding | Section |
 | --- | --- | --- |
@@ -5399,7 +5401,7 @@ Every finding in one list; the evidence is in the section named. None of them is
 | `F-AUTH-21` | Switching the method forgets what was done: going to „Aplikacja” and back to „Kod e-mail” disables the field again and forces another send (a new e-mail replacing the code already in the inbox, counted toward 20 per hour); clicking the already-selected option also wipes the typed code and the error. | §5 |
 | `F-AUTH-22` | The code is sent exactly as typed and compared exactly: a pasted code with a surrounding space is "invalid" (only the emptiness check trims), and a backup code altered by keyboard auto-capitalisation fails because backup codes are case-sensitive; the field sets no `autoCapitalize`, `autoCorrect`, `spellCheck` or `maxLength`. | §5 |
 | `F-AUTH-23` | A failed resend leaves „Kod wysłany — sprawdź skrzynkę.” next to the new error, and any send error marks the code field `aria-invalid` and describes it, although the typed code was not at fault. | §5 |
-| `F-AUTH-24` | For a change that is still pending, an aged-out link lands on „Nieprawidłowy link”, not „Link wygasł”: the `/verify-email` gate in `auth.ts` runs before the endpoint's own expiry check and answers `INVALID_TOKEN` once the pending-change record has expired, and that record — same 24-hour lifetime — is written a moment after the step-1 token is signed and before the step-2 token exists, so the gate answers first (except within that moment). | §5 |
+| `F-AUTH-24` | Fixed on 13.09.2026 for the common case: an aged-out link of a change still pending landed on „Nieprawidłowy link”, not „Link wygasł”, because the `/verify-email` gate in `auth.ts` answered `INVALID_TOKEN` from the lapsed pending-change record before the endpoint checked the token's expiry (both last 24 hours, the record written a moment after the step-1 token). | §5 |
 | `F-AUTH-25` | A person whose browser is signed in as a different account gets `INVALID_USER`, shown as the generic invalid copy that blames a link which is in fact fine (signing out or another browser would work); the page has no copy for that case. | §5 |
 | `F-AUTH-26` | A signed-in visitor on `/two-factor` can turn e-mail two-factor on with only a code mailed to the account, no password, while V-SETTINGS-ACCOUNT re-asks the password before turning a method on. | §5 |
 | `F-ACCOUNT-1` | The address is re-derived on every pass through step one and „Wstecz” discards address edits, contrary to the code's own stated rule. | §6 |

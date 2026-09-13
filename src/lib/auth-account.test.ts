@@ -504,25 +504,145 @@ describe("change e-mail (A10)", () => {
   }, 30_000);
 
   it("never redirects the rejection to an untrusted callbackURL (open-redirect defense)", async () => {
-    // A crafted link on the real origin: the payload alone (unsigned) is
-    // enough to reach the gate's reject path, and callbackURL points off-site.
-    const payload = Buffer.from(
-      JSON.stringify({
-        email: "x@example.com",
-        updateTo: "y@example.com",
-        requestType: "not-our-type",
-      }),
-    ).toString("base64url");
-    const forged = `e30.${payload}.sig`;
+    // Origin checks auto-skip under NODE_ENV=test — force them on, so the
+    // endpoint answers the unsigned case below as it does in production.
+    auth = createAuth({
+      db: testDb.db,
+      baseURL: BASE_URL,
+      secret: SECRET,
+      enforceOriginChecks: true,
+    });
+    // A real link with its callbackURL swapped: the token is signed, the query
+    // is not, and the gate rejects this token's type before the endpoint's
+    // own origin check would run.
+    const { createEmailVerificationToken } = await import("better-auth/api");
+    const offSite = encodeURIComponent("https://evil.example/phish");
+    const signed = await createEmailVerificationToken(
+      SECRET,
+      "x@example.com",
+      "y@example.com",
+      3600,
+      { requestType: "not-our-type" },
+    );
     const response = await auth.handler(
       new Request(
-        `${BASE_URL}/api/auth/verify-email?token=${forged}&callbackURL=${encodeURIComponent("https://evil.example/phish")}`,
+        `${BASE_URL}/api/auth/verify-email?token=${signed}&callbackURL=${offSite}`,
       ),
     );
     // The gate refuses to bounce anywhere off-origin: a bare 401, no Location.
     expect(response.status).toBe(401);
     expect(response.headers.get("location")).toBeNull();
+
+    // An unsigned one never reaches the gate's reject path; the endpoint's
+    // origin check turns it away without a redirect as well.
+    const payload = Buffer.from(
+      JSON.stringify({ email: "x@example.com", updateTo: "y@example.com" }),
+    ).toString("base64url");
+    const unsigned = await auth.handler(
+      new Request(
+        `${BASE_URL}/api/auth/verify-email?token=e30.${payload}.sig&callbackURL=${offSite}`,
+      ),
+    );
+    expect(unsigned.status).toBe(403);
+    expect(unsigned.headers.get("location")).toBeNull();
   });
+
+  it("answers a forged link alike whether or not its address has an account (no enumeration)", async () => {
+    // A signature nobody checked used to be enough to reach the address
+    // lookup: a registered address then got the gate's absolute redirect, an
+    // unknown one the library's relative one — so anyone, signed in or not,
+    // could tell the two apart (security review of #197). Every token shape an
+    // outsider can make, with every kind of callback, under production origin
+    // checks (they auto-skip under NODE_ENV=test).
+    auth = createAuth({
+      db: testDb.db,
+      baseURL: BASE_URL,
+      secret: SECRET,
+      enforceOriginChecks: true,
+    });
+    const { signJWT } = await import("better-auth/crypto");
+    await registerVerified("known@example.com");
+    const segment = (value: object) =>
+      Buffer.from(JSON.stringify(value)).toString("base64url");
+    const claims = (email: string) => ({
+      email,
+      updateTo: "y@example.com",
+      requestType: "change-email-confirmation",
+    });
+    const wrongKey = "another-secret-at-least-32-characters-long";
+    const tokens: Record<string, (email: string) => Promise<string>> = {
+      "a bad signature": async (email) =>
+        `${segment({ alg: "HS256" })}.${segment(claims(email))}.c2lnbmF0dXJl`,
+      "no algorithm": async (email) =>
+        `${segment({ alg: "none" })}.${segment(claims(email))}.`,
+      "two segments": async (email) =>
+        `${segment({ alg: "HS256" })}.${segment(claims(email))}`,
+      "another key": (email) => signJWT(claims(email), wrongKey),
+      "another key, expired": (email) => signJWT(claims(email), wrongKey, -10),
+    };
+    const callbacks = ["", "/email-changed", `${BASE_URL}/email-changed`];
+    const click = async (token: string, callbackURL: string) => {
+      const query = callbackURL
+        ? `&callbackURL=${encodeURIComponent(callbackURL)}`
+        : "";
+      const response = await auth.handler(
+        new Request(
+          `${BASE_URL}/api/auth/verify-email?token=${token}${query}`,
+          {
+            headers: { "x-forwarded-for": testIp },
+          },
+        ),
+      );
+      return {
+        status: response.status,
+        location: response.headers.get("location"),
+        body: await response.text(),
+      };
+    };
+    for (const [shape, make] of Object.entries(tokens)) {
+      for (const callbackURL of callbacks) {
+        const known = await click(await make("known@example.com"), callbackURL);
+        const unknown = await click(
+          await make("nobody@example.com"),
+          callbackURL,
+        );
+        expect(known, `${shape}, callback "${callbackURL}"`).toEqual(unknown);
+      }
+    }
+    // And the answer is the refusal, not something that merely matches.
+    const sample = await click(
+      await tokens["a bad signature"]("known@example.com"),
+      "/email-changed",
+    );
+    expect(sample.location).toBe("/email-changed?error=INVALID_TOKEN");
+  }, 30_000);
+
+  it("an aged-out link says it expired, even once its pending change has lapsed too", async () => {
+    // Both last 24 hours, so a day ages them out together. The gate used to
+    // answer first, from the lapsed record, and the page said "invalid link"
+    // where "the link has expired" was true (F-AUTH-24 in
+    // docs/ui-specification.md).
+    const { createEmailVerificationToken } = await import("better-auth/api");
+    const cookie = await signedInUser("old@example.com");
+    expect((await requestChange(cookie, "new@example.com")).status).toBe(200);
+    await testDb.db
+      .update(verifications)
+      .set({ expiresAt: new Date(Date.now() - 1000) })
+      .where(like(verifications.identifier, "email-change-pending:%"));
+    const agedOut = await createEmailVerificationToken(
+      SECRET,
+      "old@example.com",
+      "new@example.com",
+      -10,
+      { requestType: "change-email-confirmation" },
+    );
+    const click = await auth.handler(
+      new Request(
+        `${BASE_URL}/api/auth/verify-email?token=${agedOut}&callbackURL=/email-changed`,
+      ),
+    );
+    expect(click.headers.get("location")).toContain("error=TOKEN_EXPIRED");
+  }, 30_000);
 
   it("ignores an updateTo token minted outside the change flow (defense in depth)", async () => {
     // No flow of ours mints an updateTo token without the

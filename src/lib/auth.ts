@@ -1,6 +1,7 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware } from "better-auth/api";
+import { verifyJWT } from "better-auth/crypto";
 import { twoFactor } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
 import { getDb, type Database } from "@/db/client";
@@ -66,9 +67,9 @@ function withCallbackStatus(verifyUrl: string, status: string): string {
   return link.href;
 }
 
-// Payload-only decode, no signature check: the gate merely decides whether to
-// consult the marker, and the endpoint behind it verifies the signature — a
-// forged payload can only make the gate reject sooner.
+// Payload-only decode, no signature check — for the token the library has just
+// minted and handed to sendVerificationEmail, never for one that arrives in a
+// request: the /verify-email gate below verifies those first.
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
   const parts = token.split(".");
   if (parts.length !== 3) return null;
@@ -285,7 +286,7 @@ export function createAuth(options: {
           // itself still does: it reaches the requester's own inbox only when
           // the address is free, so a signed-in account can learn whether
           // another address is registered, three tries an hour per IP
-          // (rateLimit below).
+          // (rateLimit below) — a risk accepted in SPEC.md §10.
           await recordPendingEmailChange(db, user.id, newEmail);
           await sendEmail({
             to: user.email,
@@ -308,7 +309,15 @@ export function createAuth(options: {
         if (ctx.path !== "/verify-email" || !ctx.request) return;
         const requestUrl = new URL(ctx.request.url);
         const token = requestUrl.searchParams.get("token");
-        const payload = token ? decodeJwtPayload(token) : null;
+        // Signature and expiry first, as the endpoint checks them. A forged,
+        // tampered or aged-out token goes on to the endpoint, which answers
+        // it the same way for every address. Deciding from an unchecked
+        // payload told a registered address from an unknown one by the
+        // redirect it drew (security review of #197), and called an aged-out
+        // link invalid rather than expired (F-AUTH-24).
+        const payload = token
+          ? await verifyJWT<Record<string, unknown>>(token, ctx.context.secret)
+          : null;
         const updateTo = payload?.updateTo;
         if (typeof updateTo !== "string") return;
         const isChangeEmailStep =
@@ -317,9 +326,9 @@ export function createAuth(options: {
 
         const reject = () => {
           // This gate runs before the endpoint's own originCheck middleware,
-          // so it must validate callbackURL itself — otherwise a crafted link
-          // on the real origin (unsigned payload is enough to reach here)
-          // would bounce the victim to any external site. Trust the same list
+          // so it must validate callbackURL itself — otherwise a real link
+          // with its callbackURL swapped (the token is signed, the query is
+          // not) would bounce the victim to any external site. Trust the same list
           // the library does; anything else falls back to a bare 401.
           const callbackURL = requestUrl.searchParams.get("callbackURL");
           if (
