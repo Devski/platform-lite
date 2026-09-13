@@ -87,7 +87,12 @@ describe("confirmImageUpload by purpose", () => {
       [result.variants[1], 480, 160],
     ] as const) {
       expect(variant.key).toBe(
-        ownerKey(userId, `${result.original.sha256}-${width}`, "webp", PREFIX),
+        ownerKey(
+          userId,
+          `${result.original.sha256}-${width}q80`,
+          "webp",
+          PREFIX,
+        ),
       );
       const meta = await sharp(d.objects.get(variant.key)!.body).metadata();
       expect([meta.format, meta.width, meta.height]).toEqual([
@@ -130,6 +135,68 @@ describe("confirmImageUpload by purpose", () => {
       d.objects.get(result.variants[0].key)!.body,
     ).metadata();
     expect([meta.width, meta.height]).toEqual([512, 512]);
+  });
+
+  // #65: the variants used to be cut from the pipeline's own quality-80
+  // re-encode of the original — a second loss under every published picture.
+  // A JPEG with fine detail tells the two routes apart.
+  it("an avatar is the uploaded pixels encoded once, as its table entry says", async () => {
+    const d = deps();
+    const photo = await sharp({
+      create: {
+        width: 900,
+        height: 600,
+        channels: 3,
+        background: { r: 0, g: 0, b: 0 },
+        noise: { type: "gaussian", mean: 128, sigma: 40 },
+      },
+    })
+      .jpeg({ quality: 95 })
+      .toBuffer();
+    const result = await upload(d, photo, "avatar");
+    const cut = (from: Buffer, index: number) => {
+      const spec = IMAGE_PROFILES.avatar.variants[index];
+      return sharp(from, { autoOrient: true })
+        .resize(spec.size, spec.size, { fit: "cover", position: "centre" })
+        .webp({ quality: spec.quality, smartSubsample: spec.smartSubsample })
+        .toBuffer();
+    };
+    for (const index of [0, 1]) {
+      const stored = d.objects.get(result.variants[index].key)!.body;
+      expect(stored.equals(await cut(photo, index))).toBe(true);
+      // Proof the comparison can fail: the same cut from the re-encode.
+      const reencoded = d.objects.get(result.original.key)!.body;
+      expect(stored.equals(await cut(reencoded, index))).toBe(false);
+    }
+    expect(result.variants.map((v) => v.key)).toEqual([
+      ownerKey(userId, `${result.original.sha256}-512q95s`, "webp", PREFIX),
+      ownerKey(userId, `${result.original.sha256}-128q95s`, "webp", PREFIX),
+    ]);
+  });
+
+  // #65 cut the variants from the upload itself, which still carries its
+  // EXIF — the scrubbed re-encode no longer stands between them. A cover shows
+  // what a square avatar cannot: whether the pixels were turned upright.
+  it("a variant cut from the upload is turned upright and carries none of its metadata", async () => {
+    const d = deps();
+    // 300x200 marked Orientation 6: displayed, it is 200x300.
+    const sideways = await sharp({
+      create: {
+        width: 300,
+        height: 200,
+        channels: 3,
+        background: { r: 10, g: 200, b: 10 },
+      },
+    })
+      .jpeg()
+      .withMetadata({ orientation: 6, density: 300 })
+      .toBuffer();
+    const result = await upload(d, sideways, "cover");
+    for (const variant of result.variants) {
+      const meta = await sharp(d.objects.get(variant.key)!.body).metadata();
+      expect([meta.width, meta.height]).toEqual([200, 300]);
+      expect([meta.orientation, meta.exif]).toEqual([undefined, undefined]);
+    }
   });
 
   it("the same bytes as a cover and as a work photo share the 1600 object and keep two originals", async () => {

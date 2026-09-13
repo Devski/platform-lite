@@ -100,10 +100,10 @@ describe("createWork + listWorks", () => {
       c.original.fileId,
     ]);
     expect(list[0].images[0].url1600).toBe(
-      `memory://${PREFIX}u/${userId}/${b.original.sha256}-1600.webp`,
+      `memory://${PREFIX}u/${userId}/${b.original.sha256}-1600q80.webp`,
     );
     expect(list[0].images[0].url480).toBe(
-      `memory://${PREFIX}u/${userId}/${b.original.sha256}-480.webp`,
+      `memory://${PREFIX}u/${userId}/${b.original.sha256}-480q80.webp`,
     );
     // Positions are 0..n-1 in the order given.
     const positions = await testDb.db
@@ -187,8 +187,8 @@ describe("a photo's second channel (#99)", () => {
     const [work] = await listWorks(d.deps);
     expect(work.images[0].secondary).toEqual({
       fileId: c.original.fileId,
-      url1600: `memory://${PREFIX}u/${userId}/${c.original.sha256}-1600.webp`,
-      url480: `memory://${PREFIX}u/${userId}/${c.original.sha256}-480.webp`,
+      url1600: `memory://${PREFIX}u/${userId}/${c.original.sha256}-1600q80.webp`,
+      url480: `memory://${PREFIX}u/${userId}/${c.original.sha256}-480q80.webp`,
     });
     expect(work.images[1].secondary).toBeUndefined();
 

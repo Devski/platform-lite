@@ -201,8 +201,8 @@ describe("setCover (#72 / A12)", () => {
     const view = await getProfile(d.deps);
     expect(view.cover).toEqual({
       fileId: uploaded.original.fileId,
-      url1600: `memory://${PREFIX}u/${userId}/${uploaded.original.sha256}-1600.webp`,
-      url480: `memory://${PREFIX}u/${userId}/${uploaded.original.sha256}-480.webp`,
+      url1600: `memory://${PREFIX}u/${userId}/${uploaded.original.sha256}-1600q80.webp`,
+      url480: `memory://${PREFIX}u/${userId}/${uploaded.original.sha256}-480q80.webp`,
     });
     // The avatar slot is untouched by the cover.
     expect(view.avatar).toBeNull();
@@ -355,16 +355,16 @@ describe("setAvatar + getProfile (A4, G2)", () => {
     const view = await getProfile(preview);
 
     expect(view.avatar?.url512).toBe(
-      `memory://${PREFIX}u/${userId}/${uploaded.original.sha256}-512.webp`,
+      `memory://${PREFIX}u/${userId}/${uploaded.original.sha256}-512q95s.webp`,
     );
     expect(view.avatar?.url128).toBe(
-      `memory://${PREFIX}u/${userId}/${uploaded.original.sha256}-128.webp`,
+      `memory://${PREFIX}u/${userId}/${uploaded.original.sha256}-128q95s.webp`,
     );
     // And the object really is there under that address, so this is not two
     // derivations agreeing with each other.
     expect(
       d.objects.has(
-        `${PREFIX}u/${userId}/${uploaded.original.sha256}-512.webp`,
+        `${PREFIX}u/${userId}/${uploaded.original.sha256}-512q95s.webp`,
       ),
     ).toBe(true);
   });
@@ -380,10 +380,10 @@ describe("setAvatar + getProfile (A4, G2)", () => {
     expect(view.displayName).toBe("Pracownia Testowa");
     expect(view.avatar?.fileId).toBe(uploaded.original.fileId);
     expect(view.avatar?.url512).toBe(
-      `memory://${PREFIX}u/${userId}/${uploaded.original.sha256}-512.webp`,
+      `memory://${PREFIX}u/${userId}/${uploaded.original.sha256}-512q95s.webp`,
     );
     expect(view.avatar?.url128).toBe(
-      `memory://${PREFIX}u/${userId}/${uploaded.original.sha256}-128.webp`,
+      `memory://${PREFIX}u/${userId}/${uploaded.original.sha256}-128q95s.webp`,
     );
   });
 
@@ -428,7 +428,9 @@ describe("setAvatar + getProfile (A4, G2)", () => {
     // The first set's objects are gone; the second's remain.
     expect(d.objects.has(first.original.key)).toBe(false);
     expect(
-      d.objects.has(`${PREFIX}u/${userId}/${first.original.sha256}-512.webp`),
+      d.objects.has(
+        `${PREFIX}u/${userId}/${first.original.sha256}-512q95s.webp`,
+      ),
     ).toBe(false);
     expect(d.objects.has(second.original.key)).toBe(true);
   });
@@ -447,10 +449,14 @@ describe("setAvatar + getProfile (A4, G2)", () => {
 
     expect(d.objects.has(first.original.key)).toBe(false);
     expect(
-      d.objects.has(`${PREFIX}u/${userId}/${first.original.sha256}-512.webp`),
+      d.objects.has(
+        `${PREFIX}u/${userId}/${first.original.sha256}-512q95s.webp`,
+      ),
     ).toBe(false);
     expect(
-      d.objects.has(`${PREFIX}u/${userId}/${first.original.sha256}-128.webp`),
+      d.objects.has(
+        `${PREFIX}u/${userId}/${first.original.sha256}-128q95s.webp`,
+      ),
     ).toBe(false);
   });
 
@@ -458,6 +464,26 @@ describe("setAvatar + getProfile (A4, G2)", () => {
   // scripts/backfill-file-keys.ts has run in an environment they have to keep
   // working there — read from the environment that wrote them, which is the
   // only place the old derivation was ever right.
+  // #65 moved the encoding into the variant's name, and the fallback derives
+  // that name on its own: it has to agree with the pipeline, or a set that
+  // lost a variant row points at nothing.
+  it("addresses a set whose variant rows never landed at the objects the upload wrote", async () => {
+    const d = makeDeps();
+    const uploaded = await uploadAvatar(d, 13);
+    await setAvatar(d.deps, uploaded.original.fileId);
+    await testDb.db
+      .delete(files)
+      .where(eq(files.parentFileId, uploaded.original.fileId));
+
+    const view = await getProfile(d.deps);
+    expect([view.avatar?.url512, view.avatar?.url128]).toEqual(
+      uploaded.variants.map((variant) => variant.url),
+    );
+    for (const variant of uploaded.variants) {
+      expect(d.objects.has(variant.key)).toBe(true);
+    }
+  });
+
   it("falls back to the derived address for rows written before the column", async () => {
     const d = makeDeps();
     const uploaded = await uploadAvatar(d, 12);
@@ -518,7 +544,9 @@ describe("setAvatar + getProfile (A4, G2)", () => {
     // variants, which nothing else names, are gone.
     expect(d.objects.has(mine.original.key)).toBe(true);
     expect(
-      d.objects.has(`${PREFIX}u/${userId}/${mine.original.sha256}-512.webp`),
+      d.objects.has(
+        `${PREFIX}u/${userId}/${mine.original.sha256}-512q95s.webp`,
+      ),
     ).toBe(false);
     const remaining = await testDb.db.select().from(files);
     expect(remaining.map((row) => row.kind).sort()).toEqual([
@@ -652,7 +680,9 @@ describe("setAvatar + getProfile (A4, G2)", () => {
     );
     expect(d.objects.has(second.original.key)).toBe(true);
     expect(
-      d.objects.has(`${PREFIX}u/${userId}/${second.original.sha256}-512.webp`),
+      d.objects.has(
+        `${PREFIX}u/${userId}/${second.original.sha256}-512q95s.webp`,
+      ),
     ).toBe(true);
   });
 

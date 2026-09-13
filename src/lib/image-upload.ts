@@ -10,6 +10,7 @@ import {
   IMAGE_MAX_BYTES,
   IMAGE_PROFILES,
   presignImageSchema,
+  variantSuffix,
   type ImagePurpose,
 } from "@/lib/image-upload-shared";
 
@@ -364,28 +365,35 @@ export async function confirmImageUpload(
   // portrait phone photo would publish sideways variants under immutable
   // names). A small re-encode loss on JPEG is the accepted price. The G2
   // hash is therefore the hash of the PUBLISHED bytes.
+  //
+  // #65: the variants are made from the UPLOADED pixels, not from that
+  // re-encode — resizing a JPEG that had just been saved at quality 80 put a
+  // second loss under every published picture. Nothing else changes: sharp
+  // writes no metadata into a WebP it encodes, and every clone keeps the
+  // autoOrient of the pipeline it was cloned from.
   let scrubbed: Buffer;
   let variantBodies: Buffer[];
   try {
     scrubbed = await sharp(original, { autoOrient: true })
       .toFormat(format as "jpeg" | "png" | "webp")
       .toBuffer();
+    const uploaded = sharp(original, { autoOrient: true });
     variantBodies = await Promise.all(
-      profile.variants.map(({ size, fit }) =>
+      profile.variants.map(({ size, fit, quality, smartSubsample }) =>
         (fit === "cover"
-          ? sharp(scrubbed).resize(size, size, {
+          ? uploaded.clone().resize(size, size, {
               fit: "cover",
               position: "centre",
             })
           : // The width bound alone: height follows the aspect ratio, and a
             // smaller photo is never blown up (A12).
-            sharp(scrubbed).resize({
+            uploaded.clone().resize({
               width: size,
               fit: "inside",
               withoutEnlargement: true,
             })
         )
-          .webp()
+          .webp({ quality, smartSubsample })
           .toBuffer(),
       ),
     );
@@ -395,17 +403,22 @@ export async function confirmImageUpload(
   }
 
   // G2: the original is named by its published bytes; the variants are named
-  // by the ORIGINAL's hash + size suffix, so every URL is derivable from the
-  // one sha256 stored on the original's files row. The variant rows still
-  // record their own real sha256/size. Regenerating variants in place (a
+  // by the ORIGINAL's hash + size and encoding (`variantSuffix`), so every
+  // URL is derivable from the one sha256 stored on the original's files row.
+  // The variant rows still record their own real sha256/size. Regenerating variants in place (a
   // sharp upgrade) would need new names — accepted; a migration task would
   // bump the suffix. #72: all of them under the owner (SPEC §9).
   const originalHash = sha256(scrubbed);
   const originalKey = ownerKey(userId, originalHash, known.ext, prefix);
-  const variants = profile.variants.map(({ kind, size }, index) => ({
-    kind,
+  const variants = profile.variants.map((spec, index) => ({
+    kind: spec.kind,
     body: variantBodies[index],
-    key: ownerKey(userId, `${originalHash}-${size}`, "webp", prefix),
+    key: ownerKey(
+      userId,
+      `${originalHash}-${variantSuffix(spec)}`,
+      "webp",
+      prefix,
+    ),
   }));
 
   // #49: each row records the key its own object is written under, prefix

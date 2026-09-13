@@ -261,11 +261,13 @@ export default async function PublicProfilePage({
             >
               {/* Pre-optimized WebP served from storage (G2/G5) — next/image
                 would only re-proxy an already-final asset from a runtime-
-                configured host, as the settings page notes. */}
+                configured host, as the settings page notes. The 512 variant
+                (#65): at 96–128 px the 128 one was upscaled two or three
+                times on a phone's or a laptop's dense screen. */}
               {/* With a cover the avatar straddles its lower edge, half of it
                 over the photo, ringed by the card so it reads on any photo. */}
               <Avatar
-                src={profile.avatar?.url128 ?? null}
+                src={profile.avatar?.url512 ?? null}
                 name={profile.displayName}
                 size={128}
                 alt={t("avatarAlt", { name: profile.displayName })}
