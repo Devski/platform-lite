@@ -6,7 +6,12 @@ import {
   profileSectionsSchema,
   type ProfileSectionsInput,
 } from "@/lib/profile-schemas";
-import { IMAGE_PROFILES, type ImagePurpose } from "@/lib/image-upload-shared";
+import {
+  IMAGE_PROFILES,
+  variantSuffix,
+  type ImagePurpose,
+  type ImageVariantSpec,
+} from "@/lib/image-upload-shared";
 import { contentKey, type FileStorage } from "@/lib/storage";
 
 // The #14 profile layer: display name, the two image pointers (avatar,
@@ -72,19 +77,22 @@ type ImageSlot = keyof typeof IMAGE_SLOTS;
 // #49: the address comes from the row that owns the object. A variant row
 // that is missing (an insert that never landed) is addressed next to its
 // original: the pipeline names variants by the original's key with the
-// size suffix, in whichever layout the original sits. Rows written before
-// the column existed carry no key at all — until
-// `scripts/backfill-file-keys.ts` has run in an environment, those fall
-// back to the pre-#72 `a/` derivation, which is correct for exactly the
-// environment that wrote them and is the bug everywhere else.
+// size and encoding suffix, in whichever layout the original sits — the
+// suffix of today's encoding (#65), so a set written before it that also
+// lost a variant row resolves to a name it never had (none on dev when the
+// names changed, 13.09.2026). Rows written before the column existed carry
+// no key at all — until `scripts/backfill-file-keys.ts` has run in an
+// environment, those fall back to the pre-#72 `a/` derivation, which is
+// correct for exactly the environment that wrote them and is the bug
+// everywhere else; they predate #65, so their names carry the size alone.
 export function variantKeyOf(
   original: { objectKey: string | null; sha256: string },
-  size: number,
+  spec: ImageVariantSpec,
   prefix: string,
 ): string {
   return original.objectKey
-    ? original.objectKey.replace(/\.\w+$/, `-${size}.webp`)
-    : contentKey(`${original.sha256}-${size}`, "webp", prefix);
+    ? original.objectKey.replace(/\.\w+$/, `-${variantSuffix(spec)}.webp`)
+    : contentKey(`${original.sha256}-${spec.size}`, "webp", prefix);
 }
 
 export async function getProfile(deps: ProfileReadDeps): Promise<ProfileView> {
@@ -143,11 +151,12 @@ export async function getProfile(deps: ProfileReadDeps): Promise<ProfileView> {
     const original = imageRows.find((image) => image.id === originalId);
     if (!original) return null;
     const { variants } = IMAGE_SLOTS[slot];
-    const urls = variants.map(({ kind, size }) =>
+    const urls = variants.map((spec) =>
       storage.publicUrl(
         imageRows.find(
-          (image) => image.parentFileId === originalId && image.kind === kind,
-        )?.objectKey ?? variantKeyOf(original, size, prefix),
+          (image) =>
+            image.parentFileId === originalId && image.kind === spec.kind,
+        )?.objectKey ?? variantKeyOf(original, spec, prefix),
       ),
     );
     return { fileId: originalId, urls };
@@ -364,9 +373,9 @@ export async function removeImageSetRows(
     const setKeys = [
       original.objectKey ?? contentKey(original.sha256, original.ext, prefix),
       ...variants.map(
-        ({ kind, size }) =>
-          variantRows.find((variant) => variant.kind === kind)?.objectKey ??
-          variantKeyOf(original, size, prefix),
+        (spec) =>
+          variantRows.find((variant) => variant.kind === spec.kind)
+            ?.objectKey ?? variantKeyOf(original, spec, prefix),
       ),
     ];
     // The set's own rows (the original and its variants) go now, so they

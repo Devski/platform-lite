@@ -115,8 +115,8 @@ describe("loadPublicProfile (§9 for the public page)", () => {
         handle: "studio-x",
         displayName: "Studio X",
         avatar: {
-          url512: `memory://${PREFIX}u/${userId}/${sha256}-512.webp`,
-          url128: `memory://${PREFIX}u/${userId}/${sha256}-128.webp`,
+          url512: `memory://${PREFIX}u/${userId}/${sha256}-512q95s.webp`,
+          url128: `memory://${PREFIX}u/${userId}/${sha256}-128q95s.webp`,
         },
         cover: null,
         headline: null,

@@ -180,7 +180,7 @@ describe("confirmAvatarUpload (A4, G2, G5)", () => {
     for (const variant of result.variants) {
       const px = variant.kind === "avatar-512" ? 512 : 128;
       expect(variant.key).toBe(
-        `${PREFIX}u/${userId}/${originalHash}-${px}.webp`,
+        `${PREFIX}u/${userId}/${originalHash}-${px}q95s.webp`,
       );
       const stored = d.objects.get(variant.key);
       expect(stored?.contentType).toBe("image/webp");
@@ -195,7 +195,7 @@ describe("confirmAvatarUpload (A4, G2, G5)", () => {
     for (const [key, stored] of d.objects) {
       expect({ key, publicRead: stored.publicRead }).toEqual({
         key,
-        publicRead: /-(?:512|128)[.]webp$/.test(key),
+        publicRead: /-(?:512|128)q95s[.]webp$/.test(key),
       });
     }
 
@@ -218,7 +218,7 @@ describe("confirmAvatarUpload (A4, G2, G5)", () => {
     expect(result.original.fileId).toBe(originalRow.id);
     for (const row of rows.filter((r) => r.kind !== "avatar-original")) {
       const stored = d.objects.get(
-        `${PREFIX}u/${userId}/${originalHash}-${row.kind === "avatar-512" ? 512 : 128}.webp`,
+        `${PREFIX}u/${userId}/${originalHash}-${row.kind === "avatar-512" ? 512 : 128}q95s.webp`,
       )!;
       expect(row.sha256).toBe(sha256(stored.body));
       expect(row.sizeBytes).toBe(stored.body.length);

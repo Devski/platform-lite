@@ -167,10 +167,11 @@ export async function listWorks(deps: ProfileReadDeps): Promise<WorkView[]> {
   const urlsOf = (fileId: string): WorkChannelView | null => {
     const original = fileRows.find((row) => row.id === fileId);
     if (!original) return null;
-    const [url1600, url480] = WORK_VARIANTS.map(({ kind, size }) =>
+    const [url1600, url480] = WORK_VARIANTS.map((spec) =>
       storage.publicUrl(
-        fileRows.find((row) => row.parentFileId === fileId && row.kind === kind)
-          ?.objectKey ?? variantKeyOf(original, size, prefix),
+        fileRows.find(
+          (row) => row.parentFileId === fileId && row.kind === spec.kind,
+        )?.objectKey ?? variantKeyOf(original, spec, prefix),
       ),
     );
     return { fileId, url1600, url480 };

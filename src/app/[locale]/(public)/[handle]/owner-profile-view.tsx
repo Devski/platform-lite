@@ -50,7 +50,7 @@ import {
 interface OwnerProfile {
   handle: string;
   displayName: string;
-  avatar: { url128: string } | null;
+  avatar: { url512: string; url128: string } | null;
   cover: { url1600: string; url480: string } | null;
   headline: string | null;
   locations: string[];
@@ -693,8 +693,11 @@ export function OwnerProfileView({
                     : ""
                 }`}
               >
+                {/* The 512 variant at 96–128 px (#65): the face of the
+                  page stays sharp on a phone's or a laptop's dense screen,
+                  where the 128 one was upscaled two or three times. */}
                 <Avatar
-                  src={profile.avatar?.url128 ?? null}
+                  src={profile.avatar?.url512 ?? null}
                   name={profile.displayName}
                   size={128}
                   alt={t("avatarAlt", { name: profile.displayName })}

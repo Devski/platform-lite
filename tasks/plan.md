@@ -194,6 +194,10 @@ from Phase 4 once its code half was split off.
   the quota went to 10 GB the same day as a stopgap (A9, §10). Sequenced after #71 and
   #69, which change what a gigabyte buys — which is why it sits here and not in Phase 4,
   where it was filed by mistake.
+- ~~[#65](https://github.com/Devski/platform-lite/issues/65) Avatar resolution is too low
+  (`ux`)~~ — **done 13.09.2026**: the profile header shows the 512 px variant, the avatar is
+  encoded once from the uploaded pixels at quality 95, and every variant's name carries its
+  encoding (§9). Covers and work photos keep quality 80, now also cut from the upload itself.
 - [#70](https://github.com/Devski/platform-lite/issues/70) Deliver user photos to fit the
   visitor's connection: `srcset`, hints, and evaluate probing.
 - [#67](https://github.com/Devski/platform-lite/issues/67) Prepare our own images for

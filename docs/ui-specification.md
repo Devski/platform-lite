@@ -2855,7 +2855,7 @@ Bar elements: `TOPBAR.home.logo`, `TOPBAR.home.language`, `TOPBAR.home.log-in`, 
 - **Shown:** always
 - **Enabled:** —
 - **Does:** nothing
-- **States:** photo — the 128 px variant, displayed 96 px (`phone`) / 128 px (`sm`+), round, cover-cropped · no photo — monogram disc: background `#e7e5e4`, letters `#57534e`, font 34 % of the side, up to two initials (`initialsFrom`: split on spaces, `.`, `_`, `+`, `-`; first letter of each part, a leading digit/symbol skipped; uppercased `pl-PL`; diacritics kept); no letters → plain disc
+- **States:** photo — the 512 px variant (since #65; the 128 px one looked soft on dense screens), displayed 96 px (`phone`) / 128 px (`sm`+), round, cover-cropped · no photo — monogram disc: background `#e7e5e4`, letters `#57534e`, font 34 % of the side, up to two initials (`initialsFrom`: split on spaces, `.`, `_`, `+`, `-`; first letter of each part, a leading digit/symbol skipped; uppercased `pl-PL`; diacritics kept); no letters → plain disc
 - **Input:** —
 - **A11y:** photo = `img` with alt; monogram = `div aria-hidden="true"`
 - **Tests:** happy-path — `locator("article img")` alt „Zdjęcie profilowe {name}”, `naturalWidth > 0`; without storage `locator('article div[aria-hidden="true"]')` count 1

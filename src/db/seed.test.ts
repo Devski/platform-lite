@@ -222,7 +222,7 @@ describe("seedProfiles", () => {
         expect(profile?.coverFileId).toBe(cover.id);
         expect(
           memory.objects.has(
-            `${PREFIX}u/${user!.id}/${cover.sha256}-1600.webp`,
+            `${PREFIX}u/${user!.id}/${cover.sha256}-1600q80.webp`,
           ),
         ).toBe(true);
       } else {
@@ -237,12 +237,12 @@ describe("seedProfiles", () => {
       ).toBe(true);
       expect(
         memory.objects.has(
-          `${PREFIX}u/${user!.id}/${original.sha256}-512.webp`,
+          `${PREFIX}u/${user!.id}/${original.sha256}-512q95s.webp`,
         ),
       ).toBe(true);
       expect(
         memory.objects.has(
-          `${PREFIX}u/${user!.id}/${original.sha256}-128.webp`,
+          `${PREFIX}u/${user!.id}/${original.sha256}-128q95s.webp`,
         ),
       ).toBe(true);
     }
