@@ -204,12 +204,19 @@ from Phase 4 once its code half was split off.
   resizer (imgproxy) instead of upload-time variants (`blocked` — waits on a need).
 - [#64](https://github.com/Devski/platform-lite/issues/64) Educational materials for renders
   export — the frame contract #68 builds on.
-- [#185](https://github.com/Devski/platform-lite/issues/185) UI specification before the
-  redesign (`ux`, `documentation`). Filed 12.09.2026, when Dawid decided to turn the interface
-  upside down: every view in every mode, every control, the top bar, for the agent that will
-  implement the new UI — `docs/ui-specification.md`, with screenshots of dev on a private page
-  it links. Decisions and inconsistencies are kept apart; of the inconsistencies, only a stale sentence
-  in SPEC §9 (the order of works) was corrected with it.
+- ~~[#185](https://github.com/Devski/platform-lite/issues/185) UI specification before the
+  redesign (`ux`, `documentation`).~~ — **done 13.09.2026** (#194). Filed 12.09.2026, when
+  Dawid decided to turn the interface upside down: every view in every mode, every control,
+  the top bar, for the agent that will implement the new UI — `docs/ui-specification.md`, with
+  screenshots of dev on a private page it links. Decisions and inconsistencies are kept apart.
+  A stale sentence in SPEC §9 (the order of works) was corrected with it; having read the
+  list, Dawid had two more inconsistencies fixed before the redesign — the e-mail change note
+  that named the wrong inbox, and the 404 for addresses no route claims — and sent `F-AUTH-26`
+  (two-factor turned on without a password) to #59.
+- [#195](https://github.com/Devski/platform-lite/issues/195) The final UI: every view rebuilt
+  from the UI specification (`ux`). Filed 13.09.2026 at Dawid's request, with #185's document
+  as its input: a direction approved by Dawid first, then every view in every mode, and every
+  element of the specification kept, moved or dropped on purpose.
 
 Verified for this milestone (08.09.2026): no OVHcloud CDN product transforms images, so every
 size a page needs is produced at upload (G5); a bucket per user is ruled out by the

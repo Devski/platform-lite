@@ -143,8 +143,8 @@
         "submit": "Wyślij link potwierdzający",
         "submitting": "Wysyłanie…",
         "sent": {
-          "heading": "Sprawdź nową skrzynkę",
-          "body": "Jeśli adres {email} jest dostępny, wysłaliśmy na niego link potwierdzający (ważny 24 godziny), a na obecny adres — powiadomienie. Do czasu potwierdzenia nic się nie zmienia."
+          "heading": "Sprawdź obecną skrzynkę",
+          "body": "Jeśli adres {newEmail} jest dostępny, wysłaliśmy na Twój obecny adres {currentEmail} link zatwierdzający zmianę (ważny 24 godziny). Po zatwierdzeniu wyślemy link na nowy adres — adres konta zmieni się dopiero po kliknięciu tego linku."
         },
         "errors": {
           "emailInvalid": "Podaj poprawny adres e-mail.",
