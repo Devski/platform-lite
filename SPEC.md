@@ -244,18 +244,26 @@ export function ownerKey(
   the reset round trip and axe on a live profile — and needs `DATABASE_URL_TEST`, which the
   server's `DATABASE_URL` is taken from: without it a local run reports itself **skipped**,
   while CI fails rather than report a green suite that executed nothing.
-- CI (GitHub Actions): `pnpm check` + build on every PR; Postgres as a service container;
-  BOTH browser suites on every pull request and every push — the database-less `chromium`
-  project, and `chromium-db` against a throwaway PostgreSQL 17, two Playwright runs so each
-  project gets the server it needs. The full run depends on `check`, so the production build
-  is compiled before the browser ever opens.
-- The full journey runs **twice per change**, and that is deliberate (#40, 06.09.2026). On the
-  pull request it is the gate: a broken journey does not get merged. On `main` it is the
-  precondition for the dev deployment, which is the only place that can decide what the
-  instance receives. Usually the same code both times; what the second run buys is the window
-  where `main` moved in between. It used to fire only on a tag or on demand, and in that
-  arrangement two faults reached dev on 05.09.2026 and were found there by a person using the
-  product. Measured cost of the run: 227 seconds, in parallel with the rest.
+- CI (GitHub Actions): `pnpm check` + build on every pull request and on a manual dispatch;
+  Postgres as a service container. On a pull request, the database-less `chromium` project
+  (`e2e-smoke`) always, and BOTH browser suites (`e2e-full`) — `chromium`, then `chromium-db`
+  against a throwaway PostgreSQL 17, two Playwright runs so each project gets the server it
+  needs — whenever the pull request changes anything outside `docs/`, `tasks/`, `deploy/`,
+  `scripts/`, `SPEC.md`, `README.md` and `CLAUDE.md`. The full run depends on `check`, so the
+  production build is compiled before the browser ever opens. A dispatch runs `check` and the
+  full run: the whole path on demand.
+- **Pull requests test, `main` deploys** (decision of 14.09.2026, Dawid). A push to `main` or a
+  release tag runs no test: branch protection (§8) makes the tree on `main` the tree its pull
+  request tested, so testing it again bought nothing but minutes. This replaces "the full
+  journey runs twice per change" (#40, 06.09.2026), whose second run on `main` existed for the
+  window where `main` moved between the test and the merge — the window "up to date before
+  merging" now closes. The journey first moved onto pull requests because, while it ran only
+  on a tag or on demand, two faults reached dev on 05.09.2026; that part stands. **Do not
+  re-add tests on push without removing the protection that made them redundant, and do not
+  relax the protection while they are absent.**
+- **`e2e-full` skips docs-only pull requests** (14.09.2026, Dawid): the list above is a
+  skip-list, so a file nobody thought to name runs the suite. A skipped job reports success,
+  which is what the required check accepts.
 - A bug fix starts with a test that reproduces the bug.
 
 ---
@@ -307,12 +315,12 @@ export function ownerKey(
 
 ## 8. Environments and deployments
 
-| Environment | Where                                             | Database                                                                                                 | Deployment                                                                |
-| ----------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Local       | developer machine                                 | remote `waw` over an SSH tunnel (per developer: `platform_<github-handle>`, for Dawid `platform_devski`) | —                                                                         |
-| PR preview  | dev instance, `*.dev.architektow3d.pl`            | a copy of dev, taken when the preview starts and dropped with it (#113)                                  | automatic on PR open, deleted after merge; `*.dev.architektow3d.pl` (#31) |
-| Dev         | OVH `waw`, d2-2 (€7), `dev.architektow3d.pl`      | Postgres in a container                                                                                  | automatic from `main`                                                     |
-| Prod        | OVH `eu-west-par`, b3-8 (€35), `architektow3d.pl` | Managed PostgreSQL (€59)                                                                                 | **manual**: an approval gate in the deploy workflow, or a `vX.Y.Z` tag    |
+| Environment | Where                                             | Database                                                                                                 | Deployment                                                                 |
+| ----------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Local       | developer machine                                 | remote `waw` over an SSH tunnel (per developer: `platform_<github-handle>`, for Dawid `platform_devski`) | —                                                                          |
+| PR preview  | dev instance, `*.dev.architektow3d.pl`            | a copy of dev, taken when the preview starts and dropped with it (#113)                                  | on request — the `preview` label; removed with the label or on close (#31) |
+| Dev         | OVH `waw`, d2-2 (€7), `dev.architektow3d.pl`      | Postgres in a container                                                                                  | automatic from `main`                                                      |
+| Prod        | OVH `eu-west-par`, b3-8 (€35), `architektow3d.pl` | Managed PostgreSQL (€59)                                                                                 | **manual**: an approval gate in the deploy workflow, or a `vX.Y.Z` tag     |
 
 - Dev infrastructure is bootstrapped by script (`scripts/bootstrap-dev.sh`; manual console
   prerequisites and the full procedure in `docs/dev-environment.md`) — executing that
@@ -323,13 +331,29 @@ export function ownerKey(
   the container against the new tag. On the instance itself there is only Docker: the
   application container, a reverse proxy terminating TLS, and — on dev — the Postgres
   container. Nothing is compiled on the servers.
+- **Branch protection on `main` is part of the deployment** (decision of 14.09.2026, Dawid).
+  Required checks: `check`, `deploy-config`, `e2e-smoke`, `e2e-full`, `image`; branches must
+  be up to date before merging; squash merges only. Together they guarantee that the tree a
+  merge writes to `main` is the tree CI tested on the pull request — which is what lets a push
+  to `main` skip every test (§6) and deploy the image already built. Agents rebase on `main`,
+  push and wait for green before a merge, and resolve conflicts in the branch (CLAUDE.md).
+- **The image is built once, keyed by the tree** (decision of 14.09.2026, Dawid). A pull
+  request's `image` job builds, migrates a throwaway database, smoke-tests and publishes
+  `tree-<hash of the source tree>` alongside `:<sha>`. The push that merges it finds that tag
+  and only adds `:<sha>` and `:main` (or `:vX.Y.Z`); dev deploys `tree-<hash>`. A push whose
+  tree has no image — a push that bypassed a pull request — builds and checks it as before.
+  The safety argument is written in `.github/workflows/ci.yml` and holds only with the
+  protection above. Caches (the pnpm store, Playwright's Chromium, Docker layers) are GitHub
+  Actions caches, not registry storage: the package is private, and layers there would be
+  paid for. `main` refills them only when the lockfile, `package.json` or the `Dockerfile`
+  changed, because a pull request can read `main`'s caches but never another pull request's.
 - **A deployment migrates before it serves** (#53): between pulling the image and starting
   the new container, the deployment runs the migrations that shipped inside that image. It
   used to leave the schema to whoever remembered, and on 06.09.2026 that put dev on new
   code against an old schema — every profile page 500'd for ten minutes, with CI green and
   the container calling itself healthy. A migration that fails ends the deployment there:
   the previous container is still serving and the previous schema is untouched.
-- **Rolling back is redeploying an older tag — of the CODE.** A migration that has run has
+- **Rolling back is redeploying an older image — of the CODE.** A migration that has run has
   run; pulling an older image does not undo it. That is what makes the expand-then-contract
   shape of G6 load-bearing rather than a style: a migration that only ADDS is one an older
   image can still run against. One that drops or renames removes the ability to roll back
@@ -342,6 +366,12 @@ export function ownerKey(
   plain Docker image). The one line worth paying from day one is the managed database, and
   not for performance: prod holds real accounts and photos, so someone else's backups and
   patching is the product being bought. To settle with #24.
+- **Previews are opt-in** (decision of 14.09.2026, Dawid): a pull request gets one when it
+  carries the `preview` label — for a change to what a person sees, never for docs, scripts,
+  deploy or backend-only work. Adding the label starts it (`.github/workflows/preview.yml`,
+  once `check`, `deploy-config` and `image` have passed); a push to a labelled pull request
+  restarts it (`ci.yml`); removing the label or closing the pull request takes it down. It
+  used to start for every pull request, on an instance with one core and a cap of two.
 - **A preview runs on a copy of dev, not on dev** (#113, decided 09.09.2026): when a preview
   starts, `deploy/preview-up.sh` copies dev's database into `platform_pr_<n>` with `pg_dump`,
   runs the pull request's own migrator against the copy, and points the container at it;
@@ -368,9 +398,12 @@ export function ownerKey(
   answers, the nightly copy, preview copies nobody owns, the R360 collector's findings,
   database deadlines, server errors, the mail provider's failures and blocks — and mails
   `OPS_EMAIL` when something needs acting on, plus a report every morning either way, so an
-  empty inbox means "checked" and a missing report is itself the signal. Whether the site
-  answers from outside is `.github/workflows/watch.yml`, which opens and closes an `outage`
-  issue: a box cannot report its own death. Three tiers and no more. The reports carry counts,
+  empty inbox means "checked" and a missing report is itself the signal. Three tiers and no
+  more. **Nothing checks from outside whether dev answers** (decision of 14.09.2026, Dawid):
+  `.github/workflows/watch.yml` did, every thirty minutes, and was removed with the CI
+  changes of that day — on dev, a missing morning report already says the instance is gone.
+  The outside check returns at the production launch (#24) as an external uptime service,
+  not a workflow. The reports carry counts,
   never an address or a log line (§7). Application logs live in the host journal, capped,
   because a log inside the container's directory died with every deploy. No new provider and
   no new cost: the mail goes through the transactional provider the application already uses.

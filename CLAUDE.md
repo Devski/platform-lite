@@ -8,6 +8,10 @@ The source of truth is **SPEC.md** — read it before any work.
 - Decision documents (decision card, cost calculators): links in the SPEC.md header.
 - Task index: tasks/plan.md — tasks live in GitHub Issues.
 - Everything in the repository and on GitHub — in English; chat with Dawid — in Polish (§5).
+- Pull requests: add the `preview` label when the task changes what a person sees; never for
+  docs, scripts, deploy or backend-only changes (SPEC §8).
+- Before merging: `git rebase main`, push, wait for green. Resolve conflicts in the branch,
+  never on `main` — branch protection requires the branch to be up to date (SPEC §8).
 
 <!-- BEGIN:nextjs-agent-rules -->
 

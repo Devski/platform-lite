@@ -1,0 +1,89 @@
+name: Preview
+
+# Previews are opt-in since 14.09.2026 (SPEC §8): the `preview` label on a pull
+# request asks for one. Adding it starts the preview; removing it, or closing
+# the pull request, takes it down (#31).
+#
+# A workflow of its own, not triggers on ci.yml: a label event there would
+# re-run the whole gate to do one `docker run`, cancel the tests in flight, and
+# report its skipped jobs as passed checks on the pull request's commit.
+# A push to a pull request that already carries the label is ci.yml's `preview`
+# job, which waits for the image through `needs`.
+
+on:
+  pull_request:
+    types: [labeled, unlabeled, closed]
+
+permissions:
+  contents: read
+
+jobs:
+  up:
+    # Same boundary as every job that reaches the instance: a fork's pull
+    # request never does, in either direction.
+    if: >-
+      github.event.action == 'labeled' && github.event.label.name == 'preview' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    # One preview action per pull request at a time; removing the label cancels
+    # a start still waiting for CI. A start cancelled past that point takes
+    # itself down (preview-up.yml, its last step).
+    concurrency:
+      group: preview-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      packages: read
+      pull-requests: read
+      checks: read
+    uses: ./.github/workflows/preview-up.yml
+    with:
+      wait-for-ci: true
+    secrets: inherit
+
+  down:
+    # Closed: always, label or not — idempotent, and a preview from before the
+    # label existed must go too. Unlabelled: only for this label.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.event.action == 'closed' ||
+       (github.event.action == 'unlabeled' && github.event.label.name == 'preview'))
+    concurrency:
+      group: preview-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Is the instance wired up yet?
+        id: wired
+        env:
+          HOST: ${{ secrets.DEV_SSH_HOST }}
+        run: |
+          if [ -z "$HOST" ]; then
+            echo "::notice::No DEV_SSH_HOST secret yet — nothing to clean up."
+            echo "wired=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "wired=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Authorize this run against the instance
+        if: steps.wired.outputs.wired == 'true'
+        env:
+          KEY: ${{ secrets.DEV_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEV_SSH_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          echo "$KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          echo "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+      - name: Remove the preview
+        if: steps.wired.outputs.wired == 'true'
+        env:
+          HOST: ${{ secrets.DEV_SSH_HOST }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          # The script on the instance, not a copy from this branch: the
+          # branch may be closing, and its version of the teardown is the
+          # least trustworthy thing to run at that moment. It is idempotent,
+          # so a preview that never started is not an error.
+          ssh -i ~/.ssh/id_deploy "$HOST" \
+            "PR='$PR' bash /opt/platform-lite/preview-down.sh"
