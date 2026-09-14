@@ -1,0 +1,39 @@
+name: Chromium for Playwright
+description: >-
+  Playwright's Chromium from the cache when this Playwright version has
+  downloaded it before, and the system libraries it needs either way.
+  Expects the dependencies installed (pnpm install).
+
+runs:
+  using: composite
+  steps:
+    # The version installed IS the lockfile's: pnpm install --frozen-lockfile
+    # ran first. A new Playwright is a new key, so a stale browser is never
+    # restored for it.
+    - name: Which Playwright
+      id: version
+      shell: bash
+      run: echo "version=$(pnpm exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@v6
+      id: browsers
+      with:
+        path: ~/.cache/ms-playwright
+        key: playwright-chromium-${{ runner.os }}-${{ steps.version.outputs.version }}
+    # Installing the system libraries runs apt-get update, which fails when any
+    # configured source is broken: on 09.09.2026 the Google Chrome index on the
+    # runner image answered "Hash Sum mismatch" for hours. Playwright brings its
+    # own Chromium, so that source is dead weight here.
+    - shell: bash
+      run: sudo rm -f /etc/apt/sources.list.d/google-chrome*
+    # The libraries are not in the cache — they live in the runner's system —
+    # so a hit still installs them, and skips only the download.
+    - name: Install Chromium
+      shell: bash
+      env:
+        HIT: ${{ steps.browsers.outputs.cache-hit }}
+      run: |
+        if [ "$HIT" = true ]; then
+          pnpm exec playwright install-deps chromium
+        else
+          pnpm exec playwright install chromium --with-deps
+        fi

@@ -1,0 +1,25 @@
+name: Manual
+
+# The full path on demand (SPEC §6): every job of pr.yml, with e2e-full forced
+# on. Called, not copied, so the two cannot drift. Nothing is published — the
+# image is built and checked, but the registry login is for pull requests
+# from this repository only — and no preview starts, since there is no pull
+# request to carry the label.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  full:
+    # What pr.yml's jobs ask for; a called workflow gets no more than this.
+    # No secrets are passed: nothing that runs here needs the deploy key.
+    permissions:
+      contents: read
+      packages: write
+      pull-requests: read
+    uses: ./.github/workflows/pr.yml
+    with:
+      full: true

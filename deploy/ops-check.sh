@@ -20,8 +20,9 @@
 # The report goes to a mailbox that may well sit outside the EU (§7), so it
 # carries counts and the instance's own figures, nothing about anybody.
 #
-# What it cannot do: report this instance's death. That is
-# .github/workflows/watch.yml, from outside.
+# What it cannot do: report this instance's death. Nothing does on dev since
+# 14.09.2026, when the outside check (watch.yml) was removed: a missing
+# morning report is the signal. Prod gets an external uptime service at launch.
 #
 # Written for the moments it exists for. Docker hung, the disk full, the
 # journal unreadable, the mail provider down: each has to end in a line that
@@ -159,7 +160,7 @@ check_docker() {
 check_site() {
   # Through the proxy, as a visitor reaches it — but resolved to this machine,
   # so the answer does not depend on the network hairpinning back in. Whether
-  # the site answers from OUTSIDE is watch.yml's question.
+  # the site answers from OUTSIDE is not checked on dev (docs/operations.md).
   [ -n "$SITE_ADDRESS" ] || return 0
   local code
   code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \

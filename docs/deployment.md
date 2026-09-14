@@ -256,8 +256,13 @@ deployment that never became healthy takes no place on that list:
 
 ```
 cd /opt/platform-lite
-APP_IMAGE=ghcr.io/devski/platform-lite:<older sha> docker compose up --detach
+APP_IMAGE=<a line from deployed-images> docker compose up --detach
 ```
+
+Since 14.09.2026 dev pulls an image by the hash of its source tree
+(`ghcr.io/devski/platform-lite:tree-<hash>`), so that is what the list holds and
+what is on the disk. The same image carries its commit's `:<sha>` in the
+registry, for anything that has to find it from a commit.
 
 This command changes the container and leaves `.env` naming the version you rolled
 back from. That is fine: the next deployment records what the container is actually
@@ -290,12 +295,15 @@ deployment nobody can rescue.
 
 ## Pull request previews
 
-Opening a pull request starts a copy of that branch on the same instance, at
-`pr-<n>.dev.architektow3d.pl`. Closing or merging it removes the copy. Both
-happen in CI; the scripts live on the instance so either can be done by hand.
+Adding the `preview` label to a pull request starts a copy of that branch on
+the same instance, at `pr-<n>.dev.architektow3d.pl`, and every push to it while
+the label is on restarts it. Removing the label, closing or merging removes the
+copy. All of it happens in CI (the `preview` and `preview-down` jobs in
+`.github/workflows/pr.yml`, and `preview-cleanup.yml`); the scripts live on the
+instance so either can be done by hand.
 
 ```bash
-PR=7 APP_IMAGE=ghcr.io/devski/platform-lite:<sha> \
+PR=7 APP_IMAGE=ghcr.io/devski/platform-lite:tree-<hash> \
   GH_TOKEN=<token> GH_ACTOR=<user> bash /opt/platform-lite/preview-up.sh
 PR=7 bash /opt/platform-lite/preview-down.sh
 ```
