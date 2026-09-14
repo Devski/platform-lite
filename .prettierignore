@@ -11,3 +11,4 @@ next-env.d.ts
 # file by nearly 30%, all of it spaces the agent reads as tokens.
 docs/ui-specification.md
 design/docs/handoff/00-gap-map.md
+design/docs/handoff/00-gap-map-blocking.md

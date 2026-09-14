@@ -58,7 +58,7 @@ Where these sources disagree and the precedence does not settle it, the point is
 
 ### Open contradictions that block work
 
-Answer these first. The full list with sources is in section 6; the table in 7.4 shows which rulings each PR waits for.
+Answer these first. The full list with sources is in section 6; the table in 7.4 shows which rulings each PR waits for. The same items with their sources are also in a separate file, [`00-gap-map-blocking.md`](00-gap-map-blocking.md).
 
 | id | contradiction | decide before | weight |
 | --- | --- | --- | --- |
