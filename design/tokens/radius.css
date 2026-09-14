@@ -1,0 +1,6 @@
+/* Softer, more generous chamfer than the product's stock Tailwind radii —
+   controls 12px, cards 16px, panels 28px. Avatars stay fully round.
+   Pictures (covers, thumbnails, orbits, the hero/404 photo panel) are the
+   exception: 8px, half the card radius — a photograph is not a card (Dawid, 14.09.2026). */
+:root{--radius-xs:8px;--radius-sm:12px;--radius-md:16px;--radius-lg:20px;--radius-xl:28px;--radius-2xl:36px;--radius-full:999px;
+--radius-control:var(--radius-sm);--radius-card:var(--radius-md);--radius-panel:var(--radius-xl);--radius-avatar:var(--radius-full);--radius-picture:8px}

@@ -1,0 +1,34 @@
+<!DOCTYPE html><html lang="pl"><head><meta charset="utf-8"><title>Architektów 3d — zrzuty referencyjne (app)</title>
+<link rel="stylesheet" href="../../styles.css">
+<style>html,body{margin:0;background:#e6e9ec}
+.stage{position:relative;overflow:hidden;background:var(--surface-page)}
+.stage.desktop{width:1440px;height:900px}
+.stage.phone{width:390px;height:844px}
+.stage .scroll{position:absolute;inset:0;overflow:auto;transform:translateZ(0)}</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script></head>
+<body><div id="root"></div>
+<script type="text/babel" src="Auth.jsx"></script>
+<script type="text/babel" src="Onboarding.jsx"></script>
+<script type="text/babel" src="ProfileEditor.jsx"></script>
+<script type="text/babel" src="AccountSettings.jsx"></script>
+<script type="text/babel">
+// Deterministic stage for reference screenshots. window.__shot({ screen: "login"|"register"|"twofactor"|"onboarding"|"account", width: "desktop"|"phone", locale, method: "totp"|"otp", photo })
+function Shot({ s }) {
+  const noop = () => {};
+  const profile = { displayName: "XOSA Architekci", handle: "xosa", avatarUrl: s.photo ? "../../assets/xosa/xosa-logo.png" : null };
+  const screens = {
+    login: <window.Login onGo={noop} />,
+    register: <window.Register onGo={noop} />,
+    twofactor: <window.TwoFactor onGo={noop} method={s.method} />,
+    onboarding: <window.Onboarding onDone={noop} />,
+    account: <window.AccountSettings profile={profile} onNavigate={noop} locale={s.locale} />,
+  };
+  return <div className={"stage " + (s.width === "phone" ? "phone" : "desktop")} data-shot={JSON.stringify(s)}><div className="scroll">{screens[s.screen] || screens.login}</div></div>;
+}
+const root = ReactDOM.createRoot(document.getElementById("root"));
+window.__shot = (s) => { root.render(<Shot s={{ screen: "login", width: "desktop", locale: "pl", method: "otp", photo: true, ...s }} />); };
+window.__shot({});
+</script></body></html>

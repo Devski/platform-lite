@@ -1,0 +1,21 @@
+/* Monochrome, cool-slate neutrals. The interface is grey and white; the only
+   saturated colour in the system belongs to the brand plaque and to state. */
+:root{
+--n-0:#ffffff;--n-25:#fbfcfd;--n-50:#f6f8f9;--n-100:#eef1f3;--n-150:#e4e8eb;--n-200:#d7dce0;--n-300:#bcc4ca;--n-400:#97a2aa;--n-500:#6f7c85;--n-600:#55606a;--n-700:#3c4650;--n-800:#262e36;--n-900:#161c22;--n-950:#0c1116;
+
+/* Brand — stylised Warsaw MSI address plaque. Never used for interface chrome. */
+/* Sampled off a photograph of the real enamel: sunlit #1866de / shaded #063684
+   for the field, sunlit #fc1e18 / shaded #960c06 for the district band. */
+--plaque-navy:#0f4eb1;--plaque-navy-deep:#063684;--plaque-red:#c9150f;--plaque-hairline:#8fd4e6;--plaque-ink:#ffffff;
+
+/* State — desaturated to sit inside a grey interface. */
+--state-success:#1f6f4a;--state-success-bg:#eef5f1;--state-danger:#a83232;--state-danger-bg:#fbf0ef;--state-warning:#8a5a00;--state-warning-bg:#faf4e8;--state-info:#3c4650;--state-info-bg:#f1f4f6;
+
+/* Semantic aliases — always prefer these in components. */
+--text-strong:var(--n-950);--text-body:var(--n-800);--text-muted:var(--n-600);--text-subtle:var(--n-500);--text-inverse:var(--n-0);--text-on-photo:#ffffff;
+--surface-page:var(--n-50);--surface-card:var(--n-0);--surface-sunken:var(--n-100);--surface-inverse:var(--n-950);--surface-hover:var(--n-50);--surface-active:var(--n-100);
+--border-hairline:var(--n-150);--border-default:var(--n-200);--border-strong:var(--n-300);--border-inverse:rgba(255,255,255,.24);
+--action-solid:var(--n-950);--action-solid-hover:var(--n-800);--action-solid-active:var(--n-900);--action-solid-text:var(--n-0);
+--action-quiet-border:var(--n-300);--action-quiet-hover:var(--n-50);
+--focus-ring:var(--n-950);--focus-ring-inverse:#ffffff;
+--scrim-photo:rgba(12,17,22,.42);--scrim-photo-strong:rgba(12,17,22,.62)}
