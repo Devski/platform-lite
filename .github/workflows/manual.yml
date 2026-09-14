@@ -20,6 +20,8 @@ jobs:
       contents: read
       packages: write
       pull-requests: read
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/pr.yml
     with:
       full: true

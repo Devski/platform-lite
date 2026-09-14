@@ -1,0 +1,64 @@
+name: The image this tree's pull request checked
+description: >-
+  Finds the image published for the checked-out commit's tree and proves it is
+  the one pr.yml built from that tree: signed by pr.yml in this repository, by a
+  run whose commit has exactly this tree. Fails otherwise. Outputs the image
+  name and its digest; use the digest, since the tag can still be moved.
+  Expects the repository checked out.
+
+inputs:
+  token:
+    description: A token that can read the package and the repository (GITHUB_TOKEN with packages read).
+    required: true
+
+outputs:
+  image:
+    description: The image name, lowercase, without tag or digest.
+    value: ${{ steps.verify.outputs.image }}
+  digest:
+    description: The verified manifest digest (sha256:…).
+    value: ${{ steps.verify.outputs.digest }}
+
+runs:
+  using: composite
+  steps:
+    - id: verify
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+      run: |
+        image="ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+        tree=$(git rev-parse 'HEAD^{tree}')
+        echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin > /dev/null
+
+        # 1. An image under this tree's name. None: this commit did not come
+        # through a pull request that published one.
+        if ! digest=$(docker buildx imagetools inspect "$image:tree-$tree" --format '{{json .Manifest}}' | jq -r .digest) ||
+          [[ "$digest" != sha256:* ]]; then
+          echo "::error::No image for tree-$tree. This commit did not come through a pull request that passed CI (a direct push, or a merge of a branch that was not up to date). Nothing was deployed. Fix: open a pull request with the change, let ci-ok pass, and merge it."
+          exit 1
+        fi
+
+        # 2. Signed by pr.yml in this repository. By digest from here on: the
+        # tag can be moved, the digest cannot.
+        if ! sources=$(gh attestation verify "oci://$image@$digest" \
+          --repo "$GITHUB_REPOSITORY" \
+          --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/pr.yml" \
+          --format json --jq '.[].verificationResult.signature.certificate.sourceRepositoryDigest'); then
+          echo "::error::tree-$tree ($digest) carries no valid signature from this repository's pr.yml. It was not published by a pull request run — refusing it. Fix: push to the pull request again so CI republishes and signs it."
+          exit 1
+        fi
+
+        # 3. By a run whose commit has THIS tree. The signature says which
+        # commit the signing run checked out; a branch that published a forged
+        # image under this tag ran from a commit with another tree.
+        for commit in $(sort -u <<< "$sources"); do
+          if [ "$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$commit" --jq .tree.sha 2> /dev/null)" = "$tree" ]; then
+            echo "::notice::tree-$tree is $digest, signed by pr.yml running on $commit, which has this tree."
+            echo "image=$image" >> "$GITHUB_OUTPUT"
+            echo "digest=$digest" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+        done
+        echo "::error::tree-$tree ($digest) is signed, but by runs on other trees (commits: $(echo $sources)). Someone published an image under this tree's name from different code — refusing it. Fix: push to the pull request again so CI republishes the real one."
+        exit 1

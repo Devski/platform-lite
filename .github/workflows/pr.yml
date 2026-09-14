@@ -133,10 +133,16 @@ jobs:
   # would refuse it. Without `ci-ok` required, the tag could name a tree whose
   # tests failed: the image is published before the browser suites finish.
   #
-  # The trust this adds: a pull request runs this file as its branch wrote it,
-  # so anyone who can push a branch here could publish a different image under
-  # a tree's tag. That is the set of people who can push to the repository at
-  # all; a fork never gets the registry credential (the guard on the login).
+  # A tag is only a name: a pull request runs this file as its branch wrote it,
+  # so any branch here could publish a different image under another tree's
+  # tag. What closes that is the signature at the end of this job. Each
+  # published image is attested by this workflow, and the attestation records
+  # the commit the run checked out. deploy.yml deploys an image only if one of
+  # its attestations names a commit whose tree IS the tree being deployed. A
+  # branch that pushed a forged image under that tag ran from a different
+  # commit, so its signature names a different tree. And a commit with that
+  # exact tree ran exactly the reviewed code, this file included. A fork never
+  # gets the registry credential or an identity to sign with.
   image:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -145,6 +151,10 @@ jobs:
       # Only this job publishes, and only to this repository's own registry
       # namespace. The package is private.
       packages: write
+      # To sign what it published (below): a short-lived OIDC identity for
+      # Sigstore, and the attestation stored in this repository.
+      id-token: write
+      attestations: write
     # #53: the deployment migrates before it serves, so the image has to be
     # able to. A throwaway database is the only way to prove that the migrator
     # and the migration files actually survived into the runtime layer —
@@ -271,10 +281,31 @@ jobs:
       # After the smoke check, never before it: an image that does not serve
       # must not become something a deployment can reach for.
       - name: Publish to the registry
+        id: publish
         if: steps.login.outcome == 'success'
         run: |
           docker push "$IMAGE:$GITHUB_SHA"
           docker push "$IMAGE:tree-$TREE"
+          digest=$(docker buildx imagetools inspect "$IMAGE:tree-$TREE" --format '{{json .Manifest}}' | jq -r .digest)
+          case "$digest" in
+            sha256:*) echo "digest=$digest" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::Could not read the digest just published: '$digest'"; exit 1 ;;
+          esac
+      # Signed with this run's identity — this repository, pr.yml, the commit
+      # checked out — and bound to the image's digest, not to a tag.
+      - name: Sign what was published
+        if: steps.login.outcome == 'success'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
+      # deploy.yml's own check, run against what was just signed. A check that
+      # only ever ran on `main` would find its first bug at a deployment.
+      - name: The image passes the check deploy.yml will make
+        if: steps.login.outcome == 'success'
+        uses: ./.github/actions/verified-image
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
   # deploy/ is configuration that nothing else exercises: it is read by the
   # instance, not by the application, so a typo there surfaces as a failed
