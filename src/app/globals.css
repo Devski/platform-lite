@@ -308,3 +308,10 @@
     text-transform: uppercase;
   }
 }
+
+/* design/ is the design system export (#204): a reference, never product
+   code. Tailwind's automatic source detection would otherwise read its docs
+   as class candidates — the gap map quotes `[font:var(--type-*)]`, which
+   compiles to invalid CSS and turns every page into a 500. Kept at the end
+   of the file so the line numbers the handoff documents cite stay valid. */
+@source not "../../design";
