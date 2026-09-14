@@ -1,0 +1,13 @@
+/* Borders carry structure; shadows are a whisper. Nothing in the interface
+   floats except an overlay. */
+:root{
+--shadow-none:none;
+--shadow-xs:0 1px 1px rgba(12,17,22,.03);
+--shadow-sm:0 1px 2px rgba(12,17,22,.05),0 1px 1px rgba(12,17,22,.03);
+--shadow-md:0 2px 8px rgba(12,17,22,.06),0 1px 2px rgba(12,17,22,.04);
+--shadow-lift:0 8px 24px rgba(12,17,22,.09),0 2px 6px rgba(12,17,22,.05);
+--shadow-plaque:0 10px 30px rgba(12,17,22,.28);
+--shadow-inset-hairline:inset 0 -1px 0 var(--border-hairline);
+--ring-focus:0 0 0 2px var(--surface-card),0 0 0 4px var(--focus-ring);
+--ring-focus-inverse:0 0 0 2px rgba(12,17,22,.6),0 0 0 4px var(--focus-ring-inverse);
+--blur-panel:saturate(120%) blur(14px) /* @kind other */}

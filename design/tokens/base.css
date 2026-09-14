@@ -1,0 +1,8 @@
+/* Minimal element defaults so a bare page already looks like the product. */
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;background:var(--surface-page);color:var(--text-body);font:var(--type-body);letter-spacing:var(--ls-body);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+h1,h2,h3,h4,p{margin:0}
+a{color:var(--text-strong);text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1px;transition:var(--transition-control)}
+a:hover{text-decoration:none;color:var(--n-700)}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px}
+::selection{background:var(--n-900);color:var(--n-0)}

@@ -1,0 +1,41 @@
+:root{
+--fs-hero:clamp(2.5rem,5.4vw,4.25rem); /* @kind font */
+--fs-display:clamp(2rem,3.4vw,3rem); /* @kind font */
+--fs-h1:2rem; /* @kind font */
+--fs-h2:1.375rem; /* @kind font */
+--fs-h3:1.125rem; /* @kind font */
+--fs-h4:1rem; /* @kind font */
+--fs-lead:1.1875rem; /* @kind font */
+--fs-body:1rem; /* @kind font */
+--fs-sm:.875rem; /* @kind font */
+--fs-xs:.8125rem; /* @kind font */
+--fs-micro:.6875rem; /* @kind font */
+--lh-tight:1.05; /* @kind other */
+--lh-snug:1.2; /* @kind other */
+--lh-heading:1.28; /* @kind other */
+--lh-body:1.6; /* @kind other */
+--lh-relaxed:1.75; /* @kind other */
+--ls-hero:-.032em; /* @kind other */
+--ls-display:-.026em; /* @kind other */
+--ls-heading:-.018em; /* @kind other */
+--ls-body:-.005em; /* @kind other */
+--ls-caps:.09em; /* @kind other */
+--fw-light:350; /* @kind other */
+--fw-regular:450; /* @kind other */
+--fw-medium:550; /* @kind other */
+--fw-semibold:650; /* @kind other */
+--fw-bold:750; /* @kind other */
+--fw-black:850; /* @kind other */
+--type-hero:var(--fw-black) var(--fs-hero)/var(--lh-tight) var(--font-sans); /* @kind font */
+--type-display:var(--fw-bold) var(--fs-display)/var(--lh-snug) var(--font-sans); /* @kind font */
+--type-h1:var(--fw-bold) var(--fs-h1)/var(--lh-heading) var(--font-sans); /* @kind font */
+--type-h2:var(--fw-bold) var(--fs-h2)/var(--lh-heading) var(--font-sans); /* @kind font */
+--type-h3:var(--fw-bold) var(--fs-h3)/var(--lh-heading) var(--font-sans); /* @kind font */
+--type-h4:var(--fw-semibold) var(--fs-h4)/var(--lh-heading) var(--font-sans); /* @kind font */
+--type-lead:var(--fw-medium) var(--fs-lead)/var(--lh-body) var(--font-sans); /* @kind font */
+--type-body:var(--fw-regular) var(--fs-body)/var(--lh-body) var(--font-sans); /* @kind font */
+--type-sm:var(--fw-regular) var(--fs-sm)/var(--lh-body) var(--font-sans); /* @kind font */
+--type-label:var(--fw-semibold) var(--fs-sm)/1.4 var(--font-sans); /* @kind font */
+--type-mono:var(--fw-regular) var(--fs-sm)/1.5 var(--font-mono); /* @kind font */
+--type-eyebrow:var(--fw-bold) var(--fs-micro)/1.2 var(--font-sans) /* @kind font */
+}

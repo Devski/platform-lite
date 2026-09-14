@@ -1,0 +1,39 @@
+<!DOCTYPE html><html lang="pl"><head><meta charset="utf-8"><title>Architektów 3d — zrzuty referencyjne</title>
+<link rel="stylesheet" href="../../styles.css">
+<style>html,body{margin:0;background:#e6e9ec}#root{}
+.stage{position:relative;overflow:hidden;background:var(--surface-page)}
+.stage.desktop{width:1440px;height:900px}
+.stage.phone{width:390px;height:844px}
+.stage .scroll{position:absolute;inset:0;overflow:auto;transform:translateZ(0)}</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<script src="data.js"></script></head>
+<body><div id="root"></div>
+<script type="text/babel" src="Hero.jsx"></script>
+<script type="text/babel" src="PublicProfile.jsx"></script>
+<script type="text/babel" src="WorkPage.jsx"></script>
+<script type="text/babel" src="NotFound.jsx"></script>
+<script type="text/babel">
+// Deterministic stage for reference screenshots. Drive it with window.__shot({...}):
+// { page: "profile"|"work"|"hero"|"notfound", viewer, screen: "desktop"|"phone", locale, about, workId, edit, cover, photo }
+const D = window.A3D_DATA;
+function Shot({ s }) {
+  const phone = s.screen === "phone";
+  const rootRef = React.useRef(null);
+  const p = { ...D.profile, cover: s.cover === false ? null : D.profile.cover, avatarUrl: s.photo === false ? null : D.profile.avatarUrl, avatarShape: s.shape || D.profile.avatarShape };
+  const NEW_WORK = { id: "new", isNew: true, slug: "nowa-realizacja", name: "", investor: "", developer: "", description: "", cover: null, thumbs: [], pictures: [], orbit: null, layout: "cover" };
+  const work = s.workId === "new" ? NEW_WORK : (D.works.find((w) => w.id === s.workId) || D.works[0]);
+  const noop = () => {};
+  let page;
+  if (s.page === "hero") page = <window.Hero onGo={noop} locale={s.locale} onLocale={noop} phone={phone} />;
+  else if (s.page === "notfound") page = <window.NotFound onGo={noop} locale={s.locale} phone={phone} />;
+  else if (s.page === "work") page = <window.WorkPage key={s.workId + String(s.edit)} profile={p} work={work} viewer={s.viewer} locale={s.locale} phone={phone} editing={!!s.edit} onBack={noop} onSave={noop} onDelete={noop} onEnlarge={noop} onGo={noop} />;
+  else page = <window.PublicProfile key={s.viewer + s.screen + s.about} profile={p} works={D.works} viewer={s.viewer} locale={s.locale} onLocale={noop} phone={phone} rootRef={rootRef} aboutDefault={!!s.about} onOpenWork={noop} onEditWork={noop} onEnlarge={noop} onChangeProfile={noop} onGo={noop} />;
+  return <div className={"stage " + (phone ? "phone" : "desktop")} data-shot={JSON.stringify(s)}><div className="scroll" ref={rootRef}>{page}{s.lightbox ? <window.Lightbox work={work} index={s.lightbox.index || 0} onClose={noop} /> : null}</div></div>;
+}
+const root = ReactDOM.createRoot(document.getElementById("root"));
+window.__shot = (s) => { root.render(<Shot s={{ page: "profile", viewer: "owner", screen: "desktop", locale: "pl", about: true, ...s }} />); };
+window.__shot({});
+</script></body></html>

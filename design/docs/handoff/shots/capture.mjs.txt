@@ -1,0 +1,60 @@
+// Zrzuty referencyjne z kitu — prawdziwy Chromium (Playwright), więc fonty,
+// ikony (mask-image) i wymiary są 1:1 z tym, co widać w przeglądarce.
+//
+//   node design/docs/handoff/shots/capture.mjs            → design/docs/handoff/shots/out/*.png
+//   node design/docs/handoff/shots/capture.mjs --only profil_   (filtr po prefiksie id)
+//
+// Wymaga: `pnpm add -D playwright && pnpm exec playwright install chromium`
+// (repo już ma Playwright do e2e — wystarczy chromium). Zero innych zależności:
+// statyczny serwer jest w środku, bo Babel standalone nie wczyta .jsx z file://.
+import http from "node:http";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { chromium } from "playwright";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const designRoot = path.resolve(here, "../../.."); // design/
+const outDir = path.join(here, "out");
+const only = process.argv.includes("--only") ? process.argv[process.argv.indexOf("--only") + 1] : "";
+const matrix = JSON.parse(fs.readFileSync(path.join(here, "matrix.json"), "utf8")).shots.filter((s) => s.id.startsWith(only));
+
+const MIME = { ".html": "text/html", ".js": "text/javascript", ".jsx": "text/javascript", ".css": "text/css", ".json": "application/json", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".svg": "image/svg+xml", ".woff2": "font/woff2" };
+const server = http.createServer((req, res) => {
+  const p = path.join(designRoot, decodeURIComponent(new URL(req.url, "http://x").pathname));
+  if (!p.startsWith(designRoot) || !fs.existsSync(p) || fs.statSync(p).isDirectory()) { res.writeHead(404); res.end(); return; }
+  res.writeHead(200, { "content-type": MIME[path.extname(p)] || "application/octet-stream" });
+  fs.createReadStream(p).pipe(res);
+});
+await new Promise((r) => server.listen(0, r));
+const base = `http://127.0.0.1:${server.address().port}`;
+const KIT = { public: "/ui_kits/public-web/shots.html", app: "/ui_kits/app/shots.html" };
+
+fs.mkdirSync(outDir, { recursive: true });
+const browser = await chromium.launch();
+const pages = {};
+for (const kit of Object.keys(KIT)) {
+  const page = await browser.newPage({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 2, locale: "pl-PL" });
+  await page.goto(base + KIT[kit]);
+  await page.waitForSelector(".stage");
+  await page.evaluate(() => document.fonts.ready);
+  pages[kit] = page;
+}
+for (const s of matrix) {
+  const page = pages[s.kit];
+  await page.evaluate((shot) => window.__shot(shot), s.shot);
+  await page.waitForTimeout(700);
+  for (const a of s.actions || []) {
+    if (a.click) await page.locator(a.click).first().click();
+    if (a.hover) await page.locator(a.hover).first().hover();
+    if (a.fill) await page.locator(a.fill.selector).first().fill(a.fill.text);
+    if (a.press) await page.keyboard.press(a.press);
+    if (a.wait) await page.waitForTimeout(a.wait);
+  }
+  await page.evaluate(() => document.fonts.ready);
+  await page.waitForTimeout(150);
+  await page.locator(".stage").screenshot({ path: path.join(outDir, s.id + ".png"), animations: "disabled" });
+  console.log("✓", s.id);
+}
+await browser.close();
+server.close();

@@ -1,0 +1,17 @@
+/* 4-px base. The brief asks for a breathing layout: sections use 14–20,
+   cards 8–10, controls 3–5. */
+:root{
+--sp-0:0px; /* @kind spacing */
+--sp-1:2px;--sp-2:4px;--sp-3:8px;--sp-4:12px;--sp-5:16px;--sp-6:20px;--sp-7:24px;--sp-8:32px;--sp-9:40px;--sp-10:48px;--sp-11:56px;--sp-12:64px;--sp-14:80px;--sp-16:96px;--sp-20:128px;--sp-24:160px;
+--card-pad:var(--sp-8);--card-pad-lg:var(--sp-10);--field-gap:var(--sp-2);--stack-gap:var(--sp-6);--section-gap:var(--sp-14);
+--measure-form:28rem; /* @kind spacing */
+--measure-prose:40rem; /* @kind spacing */
+--measure-page:68rem; /* @kind spacing */
+--measure-wide:78rem; /* @kind spacing */
+--measure-works:100rem; /* @kind spacing */
+--control-h:40px; /* @kind spacing */
+--control-h-lg:48px; /* @kind spacing */
+--field-h:48px; /* @kind spacing */
+--field-h-lg:56px; /* @kind spacing */
+--control-pad-x:var(--sp-5) /* @kind spacing */
+}

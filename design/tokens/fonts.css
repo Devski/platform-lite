@@ -1,0 +1,9 @@
+/* Webfonts are served from Google Fonts. The product's own code ships no font
+   binaries (it renders in the Tailwind default stack), so these are the
+   documented substitutions: Figtree stands in for the Wise-style geometric
+   humanist sans the brief asks for, IBM Plex Mono for profile addresses. */
+@import url("https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,300..900;1,300..900&family=Fira+Sans+Condensed:wght@400;500&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
+:root{--font-sans:"Figtree","Helvetica Neue",Helvetica,Arial,sans-serif;--font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+/* The Warsaw MSI signs are lettered in a Frutiger-class humanist sans. Fira Sans
+   is the closest free match — same open apertures, same straight terminals. */
+--font-plaque:"Fira Sans Condensed","Frutiger Condensed","Segoe UI",sans-serif}

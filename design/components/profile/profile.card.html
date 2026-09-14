@@ -1,0 +1,29 @@
+<!-- @dsCard group="Components" viewport="1100x900" name="Profile — bar, about panel, work card, orbit" subtitle="The wall of work: sticky bar over cover, slide-in about panel, full-width work cards" -->
+<!DOCTYPE html><html lang="pl"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>html,body{margin:0}body{background:var(--surface-page)}.cap{font:var(--type-mono);font-size:var(--fs-micro);color:var(--text-subtle);margin:0 0 var(--sp-3)}</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script></head><body><div id="root"></div>
+<script type="text/babel">
+const { ProfileBar, AboutPanel, WorkCard, OrbitTile, Button } = window.ArchitektW3dDesignSystem_1d311d;
+const IMG = "../../assets/hero-facade-plaque.jpeg";
+const P = { displayName: "Studio Praga", handle: "studio-praga", headline: "Pracownia architektury i wizualizacji 3D", bio: "Projektujemy domy i wnętrza na prawym brzegu Wisły.\nRenderujemy własne i cudze.", places: ["Warszawa", "Mazowieckie"] };
+const W = { name: "Dom na skarpie", investor: "Prywatny", developer: "—", description: "Dom jednorodzinny nad Wisłą; elewacja z cegły rozbiórkowej, dach zielony.", cover: IMG, thumbs: [IMG, IMG], orbit: { poster: IMG, autorotate: true } };
+function Demo(){
+  const [open,setOpen]=React.useState(true);
+  return (<div>
+    <div style={{position:"relative",height:160,background:"url("+IMG+") center/cover",borderRadius:"0 0 var(--radius-picture) var(--radius-picture)"}}>
+      <div style={{position:"absolute",inset:0,background:"linear-gradient(to bottom, rgba(12,17,22,.45), transparent 60%)"}}></div>
+      <ProfileBar profile={P} aboutOpen={open} onToggleAbout={()=>setOpen(o=>!o)} style={{position:"absolute"}} actions={<React.Fragment><Button variant="onPhotoQuiet">Zaloguj się</Button><Button variant="onPhoto">Załóż konto</Button></React.Fragment>} />
+    </div>
+    <div style={{padding:"var(--sp-8) var(--sp-7)",display:"flex",flexDirection:"column",gap:"var(--sp-10)",maxWidth:1000,margin:"0 auto"}}>
+      <div><p className="cap">WorkCard · cover-thumbs (default) · owner</p><WorkCard work={W} owner /></div>
+      <div><p className="cap">WorkCard · cover-text</p><WorkCard work={{...W, orbit:null}} layout="cover-text" /></div>
+      <div><p className="cap">OrbitTile · cues · autorotate</p><OrbitTile poster={IMG} name="Dom na skarpie" cues={["Wejście","Ogród","Taras"]} autorotate onOpen={()=>{}} style={{maxWidth:520}} /></div>
+    </div>
+    <div style={{display:"flex",gap:"var(--sp-8)",padding:"0 var(--sp-7) var(--sp-8)",maxWidth:1000,margin:"0 auto"}}><div><p className="cap">AboutPanel · owner · desktop</p><AboutPanel profile={P} open={open} onClose={()=>setOpen(false)} owner style={{position:"relative",top:"auto",bottom:"auto",height:620,width:380,boxShadow:"var(--shadow-md)",borderRadius:"var(--radius-card)",border:"1px solid var(--border-hairline)"}} /></div></div>
+  </div>);
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+</script></body></html>

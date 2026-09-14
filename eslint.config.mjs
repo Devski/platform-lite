@@ -65,6 +65,8 @@ const eslintConfig = defineConfig([
     "coverage/**",
     "playwright-report/**",
     "test-results/**",
+    // Reference design system (browser JSX, not production code):
+    "design/**",
   ]),
 ]);
 
