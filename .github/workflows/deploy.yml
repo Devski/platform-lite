@@ -1,15 +1,17 @@
 name: Deploy
 
 # Pull requests test, `main` deploys (decision of 14.09.2026, SPEC §8). Nothing
-# here tests or builds: it deploys the image pr.yml built and checked for the
-# tree that landed.
+# here tests or builds an image: it deploys the one pr.yml built and checked
+# for the tree that landed.
 #
 # Branch protection is the guarantee, not a `needs:`. `ci-ok` is required,
-# branches must be up to date before merging, and merges are squashed — so the
-# tree of a commit on `main` is a tree pr.yml tested on refs/pull/N/merge (the
-# argument in full is above pr.yml's `image` job). A tree with no image never
-# went through a pull request, and is refused rather than built: building it
-# here would deploy code no test has seen.
+# admins included; branches must be up to date before merging; merges are
+# squashed. So the tree of a commit on `main` is a tree pr.yml tested on
+# refs/pull/N/merge (the full argument sits above pr.yml's `image` job). The
+# image is taken only if its signature proves pr.yml built it from that tree
+# (.github/actions/verified-image). A tree with no such image never went
+# through a pull request, and is refused rather than built: building it here
+# would deploy code no test has seen.
 
 on:
   push:
@@ -43,24 +45,25 @@ jobs:
       # To add `:<sha>` and `:main` to the image; handed to the instance for
       # the length of this run so it can pull.
       packages: write
+      # To read the image's signature.
+      attestations: read
     steps:
       - uses: actions/checkout@v7
-      - name: Find the image this tree's pull request checked
+      - name: Find the image this tree's pull request checked, and prove it
         id: image
+        uses: ./.github/actions/verified-image
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tag the verified image for this commit
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE: ${{ steps.image.outputs.image }}
+          DIGEST: ${{ steps.image.outputs.digest }}
         run: |
-          image="ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
-          tree=$(git rev-parse 'HEAD^{tree}')
-          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          if ! docker buildx imagetools inspect "$image:tree-$tree" > /dev/null; then
-            echo "::error::No image for tree-$tree. This commit did not come through a pull request that passed CI (a direct push, or a merge of a branch that was not up to date). Nothing was deployed. Fix: open a pull request with the change, let ci-ok pass, and merge it."
-            exit 1
-          fi
-          # The commit SHA and `main` name the same image, for anything that
-          # finds a build from a commit. Manifests only — no layer is copied.
-          docker buildx imagetools create --tag "$image:$GITHUB_SHA" --tag "$image:main" "$image:tree-$tree"
-          echo "ref=$image:tree-$tree" >> "$GITHUB_OUTPUT"
+          # From the digest that was verified, not from the tree tag, which
+          # anyone publishing can move. The commit's own tag is what dev pulls:
+          # no pull request run can have published it ahead of time, since the
+          # squash commit's SHA does not exist until the merge.
+          docker buildx imagetools create --tag "$IMAGE:$GITHUB_SHA" --tag "$IMAGE:main" "$IMAGE@$DIGEST"
       - name: Is the instance wired up yet?
         id: wired
         env:
@@ -104,16 +107,17 @@ jobs:
           # credential of its own (G9).
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_ACTOR: ${{ github.actor }}
-          # By tree. /opt/platform-lite/deployed-images lists these names, and
-          # a rollback runs one of them (docs/deployment.md).
-          APP_IMAGE: ${{ steps.image.outputs.ref }}
+          # The commit SHA is what a deployment pins, so rolling back is
+          # re-running this against an older one (SPEC §8).
+          APP_IMAGE: ${{ steps.image.outputs.image }}:${{ github.sha }}
         run: |
           ssh -i ~/.ssh/id_deploy "$HOST" \
             "APP_IMAGE='$APP_IMAGE' GH_TOKEN='$GH_TOKEN' GH_ACTOR='$GH_ACTOR' \
              bash /opt/platform-lite/remote-deploy.sh"
 
-  # A vX.Y.Z tag names a release: the same image, one more tag. Production
-  # deploys from it by hand (SPEC §8) — nothing here reaches an instance.
+  # A vX.Y.Z tag names a release: the same verified image, one more tag.
+  # Production deploys from it by hand (SPEC §8) — nothing here reaches an
+  # instance.
   release-tag:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
@@ -121,17 +125,66 @@ jobs:
     permissions:
       contents: read
       packages: write
+      attestations: read
     steps:
       - uses: actions/checkout@v7
-      - name: Tag the image this tree's pull request checked
+      - name: Find the image this tree's pull request checked, and prove it
+        id: image
+        uses: ./.github/actions/verified-image
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tag the verified image with the version
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE: ${{ steps.image.outputs.image }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: docker buildx imagetools create --tag "$IMAGE:$GITHUB_REF_NAME" "$IMAGE@$DIGEST"
+
+  # Caches are scoped: a pull request restores what its own earlier runs
+  # saved, or what `main` saved — never another pull request's. `main` no
+  # longer installs or builds anything, so after a dependency change every
+  # new pull request would start cold, for good. This refills `main`'s copy,
+  # by itself and only when the push changed what the caches are keyed on:
+  # the lockfile and workspace file (the pnpm store, the Docker dependency
+  # layer), package.json (the Playwright version) or the Dockerfile.
+  #
+  # Beside the deployment, never in front of it: a cache that failed to fill
+  # costs the next pull request a minute, not dev its update.
+  cache-warm:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2 # a squash merge is one commit: HEAD^ is main before it
+      - name: Did this push change what the caches are keyed on?
+        id: keys
         run: |
-          image="ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
-          tree=$(git rev-parse 'HEAD^{tree}')
-          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          if ! docker buildx imagetools inspect "$image:tree-$tree" > /dev/null; then
-            echo "::error::No image for tree-$tree: $GITHUB_REF_NAME does not point at a commit that came through a pull request. Tag a commit on main instead."
-            exit 1
+          # A diff that cannot be read (no parent) counts as a change.
+          if git diff --quiet HEAD^ HEAD -- pnpm-lock.yaml pnpm-workspace.yaml package.json Dockerfile 2> /dev/null; then
+            echo "::notice::No dependency change — the caches main holds still fit."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
-          docker buildx imagetools create --tag "$image:$GITHUB_REF_NAME" "$image:tree-$tree"
+      - uses: pnpm/action-setup@v6
+        if: steps.keys.outputs.changed == 'true'
+      - uses: actions/setup-node@v7
+        if: steps.keys.outputs.changed == 'true'
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        if: steps.keys.outputs.changed == 'true'
+      - uses: ./.github/actions/chromium
+        if: steps.keys.outputs.changed == 'true'
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        if: steps.keys.outputs.changed == 'true'
+      - name: Build the image into the cache only
+        if: steps.keys.outputs.changed == 'true'
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          outputs: type=cacheonly
+          cache-from: type=gha,scope=image
+          cache-to: type=gha,scope=image,mode=max

@@ -259,10 +259,10 @@ cd /opt/platform-lite
 APP_IMAGE=<a line from deployed-images> docker compose up --detach
 ```
 
-Since 14.09.2026 dev pulls an image by the hash of its source tree
-(`ghcr.io/devski/platform-lite:tree-<hash>`), so that is what the list holds and
-what is on the disk. The same image carries its commit's `:<sha>` in the
-registry, for anything that has to find it from a commit.
+Each line is `ghcr.io/devski/platform-lite:<commit sha>`. Since 14.09.2026 that
+tag is added at merge time to the image the pull request built and signed —
+the same image, not a rebuild. (The one deployment of that day before the
+signature check went in is listed by its tree, `:tree-<hash>`.)
 
 This command changes the container and leaves `.env` naming the version you rolled
 back from. That is fine: the next deployment records what the container is actually

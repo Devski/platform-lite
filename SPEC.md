@@ -339,24 +339,39 @@ export function ownerKey(
   container. Nothing is compiled on the servers.
 - **Branch protection on `main` is part of the deployment** (decision of 14.09.2026, Dawid).
   Required status check: `ci-ok` alone; branches must be up to date before merging; squash
-  merges only. Together they guarantee that the tree a
-  merge writes to `main` is the tree CI tested on the pull request — which is what lets a push
-  to `main` skip every test (§6) and deploy the image already built. Agents rebase on `main`,
-  push and wait for green before a merge, and resolve conflicts in the branch (CLAUDE.md).
+  merges only; **enforced for admins too** (Dawid, 14.09.2026 — an admin merge past a red
+  `ci-ok` would otherwise deploy code no test passed, now that `main` runs none). Together
+  they guarantee that the tree a merge writes to `main` is the tree CI tested on the pull
+  request — which is what lets a push to `main` skip every test (§6) and deploy the image
+  already built. Agents rebase on `main`, push and wait for green before a merge, and resolve
+  conflicts in the branch (CLAUDE.md). In an emergency, protection is switched off in the
+  repository settings, on purpose and visibly, never bypassed with a checkbox.
 - **The image is built once, keyed by the tree** (decision of 14.09.2026, Dawid). A pull
   request's `image` job builds, migrates a throwaway database, smoke-tests and publishes
   `tree-<hash of the source tree>` alongside `:<sha>`. The push that merges it finds that tag
-  and adds `:<sha>` and `:main` (`deploy-dev`) or `:vX.Y.Z` (`release-tag`); dev deploys
-  `tree-<hash>`. A commit whose tree has no image did not come through a pull request that
+  and adds `:<sha>` and `:main` (`deploy-dev`, which deploys `:<sha>`) or `:vX.Y.Z`
+  (`release-tag`). A commit whose tree has no image did not come through a pull request that
   passed, and `deploy.yml` refuses it, naming the fix: open a pull request. Nothing builds on
   a push. The safety argument is written above `pr.yml`'s `image` job and holds only with
-  the protection above. Known limit, accepted for now: a tree tag is a name, and anyone who
-  can push a branch here can publish under any tree's name; signed build provenance checked
-  at deploy time would close it. Caches (the pnpm store, Playwright's Chromium, Docker
-  layers) are GitHub Actions caches, not registry storage: the package is private, and layers
+  the protection above.
+- **The image is signed, and a deployment checks the signature** (decision of 14.09.2026,
+  Dawid). A tag is only a name, and any branch in this repository runs its own copy of
+  `pr.yml` — so a branch could publish a different image under another pull request's tree
+  tag, and a merge would deploy it. Every published image is therefore attested
+  (`actions/attest-build-provenance`, Sigstore, bound to the digest). Before tagging or
+  deploying, `.github/actions/verified-image` requires a signature from this repository's
+  `pr.yml`, by a run whose commit has exactly the tree being deployed. It then works from
+  the verified digest, never from the tag. A forged image was signed by a run on other code,
+  so its signature names another tree; a commit with this tree ran the reviewed workflow.
+  `pr.yml` runs the same check on what it just signed, so the check is exercised on every
+  pull request, not first at a deployment. No new provider and no cost: attestations are
+  GitHub's, free in a public repository.
+- **Caches warm themselves** (14.09.2026). The pnpm store, Playwright's Chromium and Docker
+  layers are GitHub Actions caches, not registry storage: the package is private, and layers
   there would be paid for. A pull request can read `main`'s caches but never another pull
-  request's, and `main` no longer installs anything — so after a dependency change, run
-  `manual.yml` on `main` once to give new pull requests a warm start.
+  request's, and `main` no longer installs anything, so `deploy.yml`'s `cache-warm` refills
+  `main`'s copy after a push that changed `pnpm-lock.yaml`, `pnpm-workspace.yaml`,
+  `package.json` or the `Dockerfile` — beside the deployment, never gating it.
 - **A deployment migrates before it serves** (#53): between pulling the image and starting
   the new container, the deployment runs the migrations that shipped inside that image. It
   used to leave the schema to whoever remembered, and on 06.09.2026 that put dev on new
