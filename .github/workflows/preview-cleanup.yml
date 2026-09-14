@@ -1,0 +1,56 @@
+name: Preview cleanup
+
+# Closing or merging a pull request must leave nothing running (#31). This is
+# a workflow of its own rather than another job in ci.yml, because reacting to
+# `closed` there would mean running the whole gate — build, tests, the lot —
+# every time a pull request is closed, to do one `docker rm`.
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+
+jobs:
+  remove-preview:
+    # Same boundary as the job that creates it: a fork's pull request never
+    # reaches the instance, in either direction.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Is the instance wired up yet?
+        id: wired
+        env:
+          HOST: ${{ secrets.DEV_SSH_HOST }}
+        run: |
+          if [ -z "$HOST" ]; then
+            echo "::notice::No DEV_SSH_HOST secret yet — nothing to clean up."
+            echo "wired=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "wired=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Authorize this run against the instance
+        if: steps.wired.outputs.wired == 'true'
+        env:
+          KEY: ${{ secrets.DEV_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEV_SSH_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          echo "$KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          echo "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+      - name: Remove the preview
+        if: steps.wired.outputs.wired == 'true'
+        env:
+          HOST: ${{ secrets.DEV_SSH_HOST }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          # The script on the instance, not a copy from this branch: the
+          # branch is being closed, and its version of the teardown is the
+          # least trustworthy thing to run at that moment. It is idempotent,
+          # so a preview that never started is not an error.
+          ssh -i ~/.ssh/id_deploy "$HOST" \
+            "PR='$PR' bash /opt/platform-lite/preview-down.sh"

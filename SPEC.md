@@ -244,14 +244,16 @@ export function ownerKey(
   the reset round trip and axe on a live profile — and needs `DATABASE_URL_TEST`, which the
   server's `DATABASE_URL` is taken from: without it a local run reports itself **skipped**,
   while CI fails rather than report a green suite that executed nothing.
-- CI (GitHub Actions): `pnpm check` + build on every pull request and on a manual dispatch;
-  Postgres as a service container. On a pull request, the database-less `chromium` project
-  (`e2e-smoke`) always, and BOTH browser suites (`e2e-full`) — `chromium`, then `chromium-db`
-  against a throwaway PostgreSQL 17, two Playwright runs so each project gets the server it
-  needs — whenever the pull request changes anything outside `docs/`, `tasks/`, `deploy/`,
-  `scripts/`, `SPEC.md`, `README.md` and `CLAUDE.md`. The full run depends on `check`, so the
-  production build is compiled before the browser ever opens. A dispatch runs `check` and the
-  full run: the whole path on demand.
+- CI (GitHub Actions), one workflow per event (14.09.2026): `pr.yml` on every pull request —
+  `pnpm check` + build with Postgres as a service container, `deploy-config`, the image, the
+  database-less `chromium` project (`e2e-smoke`) always, and BOTH browser suites (`e2e-full`:
+  `chromium`, then `chromium-db` against a throwaway PostgreSQL 17, two Playwright runs so
+  each project gets the server it needs) when the change touches code. The full run depends
+  on `check`, so the production build is compiled before the browser ever opens. `manual.yml`
+  calls `pr.yml` with `e2e-full` forced on: the whole path on demand. `deploy.yml` tests
+  nothing. The one required status check is `ci-ok`, which fails unless every job it needs
+  passed or was skipped — so a job can be added or skipped without touching branch
+  protection, and a red job whose dependants are skipped still blocks the merge.
 - **Pull requests test, `main` deploys** (decision of 14.09.2026, Dawid). A push to `main` or a
   release tag runs no test: branch protection (§8) makes the tree on `main` the tree its pull
   request tested, so testing it again bought nothing but minutes. This replaces "the full
@@ -261,9 +263,13 @@ export function ownerKey(
   on a tag or on demand, two faults reached dev on 05.09.2026; that part stands. **Do not
   re-add tests on push without removing the protection that made them redundant, and do not
   relax the protection while they are absent.**
-- **`e2e-full` skips docs-only pull requests** (14.09.2026, Dawid): the list above is a
-  skip-list, so a file nobody thought to name runs the suite. A skipped job reports success,
-  which is what the required check accepts.
+- **`e2e-full` runs only when code changed** (14.09.2026, Dawid): `src/`, `e2e/`, `drizzle/`,
+  `messages/`, `public/`, `.github/workflows/`, `.github/actions/`, `package.json`,
+  `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `next.config.ts`, `playwright.config.ts`,
+  `vitest.config.mts`, `tsconfig.json`, `Dockerfile` (`dorny/paths-filter` in `pr.yml`). A
+  pull request limited to `docs/`, `tasks/`, `deploy/`, `scripts/` or the top-level Markdown
+  skips it; `ci-ok` accepts the skip. A new file that changes what the browser runs belongs
+  on that list.
 - A bug fix starts with a test that reproduces the bug.
 
 ---
@@ -326,27 +332,31 @@ export function ownerKey(
   prerequisites and the full procedure in `docs/dev-environment.md`) — executing that
   document verbatim doubles as the G10 drill for dev. The database container binds to
   `127.0.0.1` and is reachable only through the SSH tunnel — never exposed publicly.
-- **How a deployment happens** (decision of 05.09.2026): a push builds the image in CI,
-  publishes it to a container registry, then connects to the instance over SSH and restarts
-  the container against the new tag. On the instance itself there is only Docker: the
+- **How a deployment happens** (decision of 05.09.2026): CI builds the image and publishes it
+  to a container registry — on the pull request since 14.09.2026 — and a push to `main` then
+  connects to the instance over SSH and restarts the container against that image. On the instance itself there is only Docker: the
   application container, a reverse proxy terminating TLS, and — on dev — the Postgres
   container. Nothing is compiled on the servers.
 - **Branch protection on `main` is part of the deployment** (decision of 14.09.2026, Dawid).
-  Required checks: `check`, `deploy-config`, `e2e-smoke`, `e2e-full`, `image`; branches must
-  be up to date before merging; squash merges only. Together they guarantee that the tree a
+  Required status check: `ci-ok` alone; branches must be up to date before merging; squash
+  merges only. Together they guarantee that the tree a
   merge writes to `main` is the tree CI tested on the pull request — which is what lets a push
   to `main` skip every test (§6) and deploy the image already built. Agents rebase on `main`,
   push and wait for green before a merge, and resolve conflicts in the branch (CLAUDE.md).
 - **The image is built once, keyed by the tree** (decision of 14.09.2026, Dawid). A pull
   request's `image` job builds, migrates a throwaway database, smoke-tests and publishes
   `tree-<hash of the source tree>` alongside `:<sha>`. The push that merges it finds that tag
-  and only adds `:<sha>` and `:main` (or `:vX.Y.Z`); dev deploys `tree-<hash>`. A push whose
-  tree has no image — a push that bypassed a pull request — builds and checks it as before.
-  The safety argument is written in `.github/workflows/ci.yml` and holds only with the
-  protection above. Caches (the pnpm store, Playwright's Chromium, Docker layers) are GitHub
-  Actions caches, not registry storage: the package is private, and layers there would be
-  paid for. `main` refills them only when the lockfile, `package.json` or the `Dockerfile`
-  changed, because a pull request can read `main`'s caches but never another pull request's.
+  and adds `:<sha>` and `:main` (`deploy-dev`) or `:vX.Y.Z` (`release-tag`); dev deploys
+  `tree-<hash>`. A commit whose tree has no image did not come through a pull request that
+  passed, and `deploy.yml` refuses it, naming the fix: open a pull request. Nothing builds on
+  a push. The safety argument is written above `pr.yml`'s `image` job and holds only with
+  the protection above. Known limit, accepted for now: a tree tag is a name, and anyone who
+  can push a branch here can publish under any tree's name; signed build provenance checked
+  at deploy time would close it. Caches (the pnpm store, Playwright's Chromium, Docker
+  layers) are GitHub Actions caches, not registry storage: the package is private, and layers
+  there would be paid for. A pull request can read `main`'s caches but never another pull
+  request's, and `main` no longer installs anything — so after a dependency change, run
+  `manual.yml` on `main` once to give new pull requests a warm start.
 - **A deployment migrates before it serves** (#53): between pulling the image and starting
   the new container, the deployment runs the migrations that shipped inside that image. It
   used to leave the schema to whoever remembered, and on 06.09.2026 that put dev on new
@@ -368,10 +378,12 @@ export function ownerKey(
   patching is the product being bought. To settle with #24.
 - **Previews are opt-in** (decision of 14.09.2026, Dawid): a pull request gets one when it
   carries the `preview` label — for a change to what a person sees, never for docs, scripts,
-  deploy or backend-only work. Adding the label starts it (`.github/workflows/preview.yml`,
-  once `check`, `deploy-config` and `image` have passed); a push to a labelled pull request
-  restarts it (`ci.yml`); removing the label or closing the pull request takes it down. It
-  used to start for every pull request, on an instance with one core and a cap of two.
+  deploy or backend-only work. `pr.yml` runs on `labeled` and `unlabeled` too: adding the
+  label starts the preview once `check`, `deploy-config` and `image` pass, every push while it
+  is on restarts it, and removing it takes the preview down (`preview-down`); closing the pull
+  request is `preview-cleanup.yml`, as before. A label event re-runs the tests with it — a run
+  that skipped them would report `ci-ok` green whatever they said. It used to start for every
+  pull request, on an instance with one core and a cap of two.
 - **A preview runs on a copy of dev, not on dev** (#113, decided 09.09.2026): when a preview
   starts, `deploy/preview-up.sh` copies dev's database into `platform_pr_<n>` with `pg_dump`,
   runs the pull request's own migrator against the copy, and points the container at it;

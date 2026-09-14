@@ -298,8 +298,8 @@ deployment nobody can rescue.
 Adding the `preview` label to a pull request starts a copy of that branch on
 the same instance, at `pr-<n>.dev.architektow3d.pl`, and every push to it while
 the label is on restarts it. Removing the label, closing or merging removes the
-copy. All of it happens in CI (`.github/workflows/preview.yml`,
-`preview-up.yml`, the `preview` job in `ci.yml`); the scripts live on the
+copy. All of it happens in CI (the `preview` and `preview-down` jobs in
+`.github/workflows/pr.yml`, and `preview-cleanup.yml`); the scripts live on the
 instance so either can be done by hand.
 
 ```bash

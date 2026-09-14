@@ -1,53 +1,45 @@
-name: CI
+name: Pull request
+
+# Pull requests test, `main` deploys (decision of 14.09.2026, SPEC §8). Every
+# test lives here; deploy.yml runs none and manual.yml calls this file.
+#
+# One required status check: `ci-ok`, at the bottom. Branch protection names
+# it and nothing else, so a job can be added, renamed or skipped here without
+# touching the settings — and a job that must pass cannot be forgotten there.
+#
+# What makes deploy.yml safe is here plus the protection on `main`: `ci-ok`
+# required, branches up to date before merging, squash merges only. Do not
+# relax one without the other.
+
+on:
+  # labeled/unlabeled: the `preview` label starts and removes a preview. A label
+  # event re-runs the whole file — deliberately: a run that skipped the tests
+  # would report `ci-ok` green for the commit, whatever the tests said before.
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  # manual.yml: the same path on demand (SPEC §6), with `full` set.
+  workflow_call:
+    inputs:
+      full:
+        description: Run e2e-full whatever the change touches.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
-# Pull requests test, `main` deploys (decision of 14.09.2026, SPEC §8).
-#
-# The tests run on the pull request and on a manual dispatch — the full path on
-# demand stays (SPEC §6). A push to `main` or a release tag runs no test at all:
-# it retags the image its pull request already built and checked, and dev
-# deploys it. That is only as safe as the branch protection on `main` (SPEC §8):
-# the required checks, "up to date before merging" and squash merges are what
-# make the tree on `main` the tree the pull request tested. Without them this
-# file deploys untested code — do not relax one without the other.
-on:
-  push:
-    branches: [main]
-    # SPEC §8 deploys prod manually, from an approval gate or a vX.Y.Z tag.
-    # A branches filter excludes tags, so without this line tagging a release
-    # ran no workflow at all.
-    tags: ["v*.*.*"]
-  # The default types only. The `preview` label is NOT a trigger here: a
-  # label run would cancel the tests in flight, and its skipped jobs would
-  # report `check` or `e2e-full` as passed for the pull request's commit —
-  # a label could turn a red pull request green. Labels are preview.yml's.
-  pull_request:
-  workflow_dispatch: # the full path, on demand (SPEC §6)
-
+# A newer event on the same pull request cancels the run it replaces. The run
+# id stands in for a manual call, which has no pull request: every dispatch is
+# its own group, never cancelled by another.
 concurrency:
-  # A newer push to a pull request cancels the run it replaces. Anything else
-  # — a push to main, a tag, a dispatch — is a group of its own and is never
-  # cancelled, nor queued behind another: each one retags or deploys, and a
-  # queued run is REPLACED by the next one to arrive. Deployments to dev are
-  # serialised on the deploy-dev job instead, where replacing a stale one by a
-  # newer one is exactly right.
-  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: pr-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
-  # The only job that runs `pnpm build`. Pull requests and dispatch only.
+  # The only job that runs `pnpm build`.
   check:
-    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions:
-      contents: read
-      # To list the pull request's files for the e2e-full filter. Read only.
-      pull-requests: read
-    outputs:
-      e2e-full: ${{ steps.paths.outputs.e2e-full }}
     services:
       postgres:
         image: postgres:17
@@ -66,45 +58,10 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/platform_test_ci
       DATABASE_URL_TEST: postgresql://postgres:postgres@localhost:5432/platform_test_ci
     steps:
-      # Decided here, in a job that always runs on a pull request and is itself
-      # required: if this step broke, `check` is red and nothing merges. In a
-      # job of its own, a failure would SKIP e2e-full — and a skipped required
-      # check counts as passed.
-      #
-      # A skip-list, not a run-list: e2e-full stands down only when EVERY file
-      # is one of these. Anything else — a config file nobody thought to list,
-      # pnpm-workspace.yaml, .github/actions — runs it. deploy/ and scripts/ are
-      # not what the browser suites exercise; deploy-config checks the former.
-      - name: Does this change reach the browser suites?
-        id: paths
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR: ${{ github.event.pull_request.number }}
-        run: |
-          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
-            echo "e2e-full=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # A rename counts from both ends: a file moved out of src/ changed src/.
-          if ! files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" \
-            --jq '.[] | .filename, (.previous_filename // empty)'); then
-            echo "::warning::Could not list the changed files — running e2e-full."
-            echo "e2e-full=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          run=false
-          while IFS= read -r file; do
-            case "$file" in
-              docs/* | tasks/* | deploy/* | scripts/* | SPEC.md | README.md | CLAUDE.md) ;;
-              *) run=true; echo "e2e-full runs: $file"; break ;;
-            esac
-          done <<<"$files"
-          [ "$run" = true ] || echo "::notice::Only docs, tasks, deploy or scripts changed — e2e-full stands down."
-          echo "e2e-full=$run" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6 # version comes from packageManager in package.json
       # `cache: pnpm` is actions/cache on the pnpm store, keyed on the hash of
-      # pnpm-lock.yaml. Every job that installs uses it; cache-warm fills it.
+      # pnpm-lock.yaml — in every job that installs.
       - uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -117,34 +74,69 @@ jobs:
       - run: pnpm check
       - run: pnpm build
 
+  # Whether the change reaches what the browser suites exercise. A job of its
+  # own, and needed by `ci-ok`: if it fails, e2e-full is skipped — and a
+  # skipped e2e-full is accepted — so its failure must fail the gate by itself.
+  changes:
+    # A manual run wants the whole path; there is no pull request to diff.
+    if: ${{ !inputs.full }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      # paths-filter lists a pull request's files through the API. Read only.
+      pull-requests: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          # Two beyond Dawid's list, both of which change what the suites run:
+          # the composite action that installs their browser, and the pnpm
+          # workspace file, which decides which dependencies may build.
+          filters: |
+            code:
+              - 'src/**'
+              - 'e2e/**'
+              - 'drizzle/**'
+              - 'messages/**'
+              - 'public/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'next.config.ts'
+              - 'playwright.config.ts'
+              - 'vitest.config.mts'
+              - 'tsconfig.json'
+              - 'Dockerfile'
+              - '.github/workflows/**'
+              - '.github/actions/**'
+
   # #21: the image is built HERE and never on the machine it deploys to. A
   # Next.js build wants more CPU and memory than the dev instance has (1 vCPU,
   # 1.9 GB, Postgres already resident), while the running app is one Node
   # process of ~200 MB — so the box that comfortably runs the application
   # cannot build it, and does not have to (SPEC §3).
   #
-  # Built once per TREE (14.09.2026). A pull request builds, migrates a
-  # throwaway database with it, smoke-tests it and publishes it as
-  # `tree-<hash of the source tree>`. The push that merges it asks the registry
-  # for that tag first and, when it is there, only adds `:<sha>` and `:main`
-  # (or `:vX.Y.Z`) to the image that was checked — no build, no migrate, no
-  # smoke.
+  # Built once per TREE (14.09.2026). The image is published as `:<sha>` and as
+  # `tree-<hash of the source tree>`, and deploy.yml deploys the tree tag of the
+  # commit that lands on `main` — it never builds.
   #
-  # Why that is the same image, and why ONLY together with the branch
-  # protection on `main`: a pull request's run checks out refs/pull/N/merge,
-  # the branch merged into the current `main`. Required to be up to date, the
+  # Why that is the image this run checked, and why ONLY together with the
+  # branch protection on `main`: this run checks out refs/pull/N/merge, the
+  # branch merged into the current `main`. Required to be up to date, the
   # branch already contains `main`, so that merge's tree is the branch's own
   # tree — and a squash merge of it writes exactly that tree to `main`. Same
   # tree, same hash, same tag. Without "up to date", `main` could move between
-  # the test and the merge, the merged tree would be new, and the lookup would
-  # miss and rebuild (safe, but untested by the browser suites). Without
-  # required checks, the tag could name a tree whose tests failed.
+  # this run and the merge, the merged tree would have no image, and deploy.yml
+  # would refuse it. Without `ci-ok` required, the tag could name a tree whose
+  # tests failed: the image is published before the browser suites finish.
   #
-  # The trust this adds: a tree tag is published by a pull request's own run,
-  # and a pull request runs the workflow as its branch wrote it. Anyone who can
-  # push a branch here could publish a different image under a tree's tag. That
-  # is the same set of people who can push to the repository at all, and a fork
-  # never gets the registry credential (the guard on the login below).
+  # The trust this adds: a pull request runs this file as its branch wrote it,
+  # so anyone who can push a branch here could publish a different image under
+  # a tree's tag. That is the set of people who can push to the repository at
+  # all; a fork never gets the registry credential (the guard on the login).
   image:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -172,11 +164,9 @@ jobs:
           --health-retries 10
     env:
       REGISTRY: ghcr.io
-    # Published as job outputs, and every deployment reads them from here.
-    # Spelling the name a second time is what broke: the owner was renamed to
-    # `Devski`, this job lowercased it and the two deploy jobs did not, so they
-    # asked Docker for `ghcr.io/Devski/platform-lite` and got "repository name
-    # must be lowercase".
+    # Published as job outputs, and the preview reads them from here. Spelling
+    # the name a second time is what broke once: the owner was renamed to
+    # `Devski`, this job lowercased it and the deploy jobs did not.
     outputs:
       name: ${{ steps.image-name.outputs.name }}
       tree: ${{ steps.image-name.outputs.tree }}
@@ -197,46 +187,18 @@ jobs:
         # Only from a branch in THIS repository: a fork's pull request gets no
         # registry credential, and must not — publishing an image built from
         # someone else's branch under our name is how a supply chain is
-        # compromised. A manual dispatch does not publish either.
-        if: >-
-          github.event_name == 'push' ||
-          (github.event_name == 'pull_request' &&
-           github.event.pull_request.head.repo.full_name == github.repository)
+        # compromised. A manual run has no pull request, and publishes nothing.
+        if: github.event.pull_request.head.repo.full_name == github.repository
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: echo "$GH_TOKEN" | docker login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
-      - name: Was this tree built and checked already?
-        id: reuse
-        if: github.event_name == 'push'
-        run: |
-          # Any failure to read — not only "no such tag" — builds: a lookup
-          # that errs must cost minutes, never skip the checks.
-          if docker buildx imagetools inspect "$IMAGE:tree-$TREE" > /dev/null 2>&1; then
-            echo "::notice::tree-$TREE was built and checked by its pull request — retagging, not rebuilding."
-            echo "reuse=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::notice::No image for tree-$TREE (a dispatch, or a push that bypassed a pull request) — building it."
-            echo "reuse=false" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Tag the checked image for this push
-        if: steps.reuse.outputs.reuse == 'true'
-        run: |
-          # The commit SHA is what a rollback names (SPEC §8); `main` and the
-          # version tag move as they always did. Manifests only — no layer is
-          # copied.
-          tags=(--tag "$IMAGE:$GITHUB_SHA")
-          case "$GITHUB_REF" in
-            refs/heads/main) tags+=(--tag "$IMAGE:main") ;;
-            refs/tags/v*) tags+=(--tag "$IMAGE:$GITHUB_REF_NAME") ;;
-          esac
-          docker buildx imagetools create "${tags[@]}" "$IMAGE:tree-$TREE"
-
-      # Everything from here to the publish step runs only when the image is
-      # being built: a reused one passed all of it on its pull request.
+      # Built by every run, never taken from an earlier one — even for a tree
+      # that already has a tag. Anyone who can push a branch can publish under
+      # any tree's name, so a tag this run did not write proves nothing about
+      # what this run checked. Rebuilding overwrites it with the image checked
+      # below.
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
-        if: steps.reuse.outputs.reuse != 'true'
       - name: Build the production image
-        if: steps.reuse.outputs.reuse != 'true'
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
@@ -246,8 +208,7 @@ jobs:
             ${{ env.IMAGE }}:${{ github.sha }}
             ${{ env.IMAGE }}:tree-${{ env.TREE }}
           # GitHub's own cache, not the registry: the package is private, and
-          # layers stored there would be storage paid for. A pull request reads
-          # what its earlier runs and `main` (cache-warm) wrote.
+          # layers stored there would be storage paid for.
           cache-from: type=gha,scope=image
           cache-to: type=gha,scope=image,mode=max
       # The deployment runs exactly this, between `pull` and `up`
@@ -256,7 +217,6 @@ jobs:
       # instance — and a deployment that cannot migrate is one that would
       # leave an environment on new code and an old schema, which is #53.
       - name: The image can migrate a database
-        if: steps.reuse.outputs.reuse != 'true'
         run: |
           docker run --rm --network host             --env DATABASE_URL=postgresql://postgres:postgres@localhost:5432/platform_image_ci             --entrypoint node "$IMAGE:$GITHUB_SHA" /app/migrate.mjs
           # Idempotent by contract: every deploy runs it, most change nothing.
@@ -271,7 +231,6 @@ jobs:
       # relies on, checked here against the production compile instead of the
       # dev server.
       - name: The image starts and serves the landing page
-        if: steps.reuse.outputs.reuse != 'true'
         run: |
           docker run --detach --name smoke --publish 3000:3000             --env APP_ENV=ci             --env APP_URL=https://ci.invalid             "$IMAGE:$GITHUB_SHA"
           for i in $(seq 1 30); do
@@ -307,36 +266,20 @@ jobs:
             exit 1
           fi
       - name: Container log
-        if: always() && steps.reuse.outputs.reuse != 'true'
+        if: always()
         run: docker logs smoke || true
       # After the smoke check, never before it: an image that does not serve
-      # must not become something a deployment can reach for — and the tree
-      # tag must not name one, since a push to main deploys it unchecked.
-      # Also for a pull request: its preview (#31) runs this exact image, and
-      # its merge reuses it.
+      # must not become something a deployment can reach for.
       - name: Publish to the registry
-        if: steps.login.outcome == 'success' && steps.reuse.outputs.reuse != 'true'
+        if: steps.login.outcome == 'success'
         run: |
-          # The commit SHA is the real identity of a build, and what a rollback
-          # names (SPEC §8); the tree tag is what a merge looks up.
           docker push "$IMAGE:$GITHUB_SHA"
           docker push "$IMAGE:tree-$TREE"
-          case "$GITHUB_REF" in
-            refs/heads/main)
-              docker tag "$IMAGE:$GITHUB_SHA" "$IMAGE:main"
-              docker push "$IMAGE:main"
-              ;;
-            refs/tags/v*)
-              docker tag "$IMAGE:$GITHUB_SHA" "$IMAGE:$GITHUB_REF_NAME"
-              docker push "$IMAGE:$GITHUB_REF_NAME"
-              ;;
-          esac
 
   # deploy/ is configuration that nothing else exercises: it is read by the
   # instance, not by the application, so a typo there surfaces as a failed
   # deployment at the worst moment. Both files are checkable without a server.
   deploy-config:
-    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -440,20 +383,18 @@ jobs:
       - name: The operations check is shipped and installed
         run: |
           # Anchored to the scp line's indentation, so this line cannot satisfy itself.
-          grep -qE '^ +deploy/backup-db.sh deploy/ops-check.sh' .github/workflows/ci.yml
+          grep -qE '^ +deploy/backup-db.sh deploy/ops-check.sh' .github/workflows/deploy.yml
           grep -q 'ExecStart=/bin/bash /opt/platform-lite/ops-check.sh' deploy/remote-deploy.sh
           # Defined is not called: the installer has to be invoked on a line of its own.
           grep -qxE 'install_ops_timer' deploy/remote-deploy.sh
           bash -n deploy/ops-check.sh
 
-  # Smoke on every pull request (SPEC §6): the database-less project only. No
-  # DATABASE_URL_TEST here on purpose — that is what makes this job prove the
-  # fail-closed behaviour (401s, redirects to /login, 404s) with no database at
-  # all. The e2e/db specs are not skipped here, they are never collected: the
-  # project's testIgnore keeps them out entirely. A dispatch stands it down:
-  # e2e-full runs the same project there.
+  # Smoke (SPEC §6): the database-less project only. No DATABASE_URL_TEST here
+  # on purpose — that is what makes this job prove the fail-closed behaviour
+  # (401s, redirects to /login, 404s) with no database at all. The e2e/db specs
+  # are not skipped here, they are never collected: the project's testIgnore
+  # keeps them out entirely.
   e2e-smoke:
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -498,22 +439,22 @@ jobs:
   # set per step, never on the job — a job-level value would reach the
   # database-less server too.
   e2e-full:
-    # On every pull request that changes code (#40), and on a dispatch. It ran
-    # by hand until 06.09.2026, and in that arrangement two faults reached dev
-    # and were found there by a person using the product.
+    # On every pull request that changes code (#40), and on every manual run.
+    # It ran by hand until 06.09.2026, and in that arrangement two faults
+    # reached dev and were found there by a person using the product.
     #
     # Once per change since 14.09.2026, not twice: the run on `main` that used
     # to gate the deployment is gone, because branch protection makes the tree
-    # on `main` the tree tested here (SPEC §8). A pull request that touches
-    # only docs, tasks, deploy or scripts skips it — `check` decides, see its
-    # first step. A job skipped by its `if` reports success, which is what a
-    # required check accepts; a skipped STEP would too, but would still pay for
-    # the runner, the database container and the install.
+    # on `main` the tree tested here (SPEC §8). A pull request that changes none
+    # of the paths in `changes` skips it, and `ci-ok` accepts the skip.
     #
     # The gate has to carry the build verdict for the same commit, not just the
-    # browser one — and a push leaves `check` skipped, which skips this too.
-    needs: [check]
-    if: needs.check.outputs.e2e-full == 'true'
+    # browser one: `check` must have passed. `always()` because `changes` is
+    # itself skipped on a manual run, which would otherwise skip this too.
+    needs: [check, changes]
+    if: >-
+      always() && needs.check.result == 'success' &&
+      (inputs.full || needs.changes.outputs.code == 'true')
     runs-on: ubuntu-latest
     # Two cold `next dev` boots, a browser install and up to two attempts per
     # database spec do not fit 30 minutes on a bad run.
@@ -578,78 +519,55 @@ jobs:
             test-results/
           retention-days: 7
 
-  # Caches are scoped: a pull request restores what its own earlier runs saved,
-  # or what `main` saved — never another pull request's. Since `main` stopped
-  # installing and building (14.09.2026) nothing else writes main's copy, so
-  # after a dependency change every new pull request would start cold for good.
-  # This refills it, and only when the push changed what the caches are keyed
-  # on: the lockfile (pnpm store, the Docker dependency layer), package.json
-  # (the Playwright version) or the Dockerfile.
-  cache-warm:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 2 # a squash merge is one commit: HEAD^ is main before it
-      - name: Did this push change what the caches are keyed on?
-        id: keys
-        run: |
-          # A diff that cannot be read (no parent) counts as a change.
-          if git diff --quiet HEAD^ HEAD -- pnpm-lock.yaml pnpm-workspace.yaml package.json Dockerfile 2> /dev/null; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          fi
-      - uses: pnpm/action-setup@v6
-        if: steps.keys.outputs.changed == 'true'
-      - uses: actions/setup-node@v7
-        if: steps.keys.outputs.changed == 'true'
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-        if: steps.keys.outputs.changed == 'true'
-      - uses: ./.github/actions/chromium
-        if: steps.keys.outputs.changed == 'true'
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
-        if: steps.keys.outputs.changed == 'true'
-      - name: Build the image into the cache only
-        if: steps.keys.outputs.changed == 'true'
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: .
-          outputs: type=cacheonly
-          cache-from: type=gha,scope=image
-          cache-to: type=gha,scope=image,mode=max
-
-  # SPEC §8: dev deploys automatically from `main`. Tags are the production
-  # path and stay manual, so this job deliberately does not run on them.
+  # The one required status check. Every job above that must not fail is
+  # needed here; `preview` is not — a preview exists to be looked at, and it
+  # failing to start is no verdict on the change.
   #
-  # Until the instance side of #21 is wired — secrets, open ports, the
-  # /opt/platform-lite directory — this reports itself skipped rather than
-  # failing every push. A red gate everyone learns to ignore is worse than no
-  # gate at all.
-  deploy-dev:
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-    # Nothing reaches the instance that has not passed the gate, built a
-    # serving image and cleared BOTH browser suites (#40) — on its pull
-    # request, required by branch protection, since 14.09.2026. The push
-    # itself runs no test; `image` is the one job left to wait for, and a
-    # skipped job would fail `needs` anyway.
-    needs: [image]
-    # One deployment at a time. A newer push waiting here replaces an older
-    # one still waiting, which is right: it carries that change too.
-    concurrency:
-      group: deploy-dev
-      cancel-in-progress: false
+  # `always()`, because a job whose needs failed is itself skipped, and a
+  # skipped required check counts as passed: without it, a red `check` would
+  # skip this job and let the pull request merge. `skipped` is accepted from
+  # the needed jobs — e2e-full on a docs change, `changes` on a manual run —
+  # while `cancelled` is not.
+  ci-ok:
+    if: always()
+    needs: [check, changes, image, deploy-config, e2e-smoke, e2e-full]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Every needed job passed or was skipped
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "$RESULTS"
+          if jq -e 'all(.[]; . == "success" or . == "skipped")' <<<"$RESULTS" > /dev/null; then
+            exit 0
+          fi
+          echo "::error::A job this pull request needs did not pass."
+          exit 1
+
+  preview:
+    # #31: a pull request gets its own running copy, at its own hostname, so a
+    # change can be looked at before it is merged — on request since
+    # 14.09.2026: only while it carries the `preview` label (SPEC §8).
+    #
+    # Only for branches in THIS repository — a fork's pull request has no
+    # access to the deploy key, and giving it one would hand the instance to
+    # anyone who can open a PR. A manual run has no pull request, so no label.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(github.event.pull_request.labels.*.name, 'preview')
+    # The gate and a serving image, same bar as dev. Not e2e-smoke: a preview
+    # exists to be looked at, and a browser test failing is often the reason
+    # you want to look. `deploy-config` IS required — it validates the proxy
+    # configuration that previews are now part of.
+    needs: [check, image, deploy-config]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
-      # Handed to the instance for the length of this run so it can pull.
       packages: read
+      # #111: to ask whether the pull request is still open. Read only.
+      pull-requests: read
     steps:
       - name: Is the instance wired up yet?
         id: wired
@@ -657,13 +575,134 @@ jobs:
           HOST: ${{ secrets.DEV_SSH_HOST }}
         run: |
           if [ -z "$HOST" ]; then
-            echo "::notice::No DEV_SSH_HOST secret yet — nothing to deploy to. See docs/deployment.md."
+            echo "::notice::No DEV_SSH_HOST secret yet — no instance to preview on."
             echo "wired=false" >> "$GITHUB_OUTPUT"
           else
             echo "wired=true" >> "$GITHUB_OUTPUT"
           fi
-      - uses: actions/checkout@v7
+      # #111: a preview that comes up after its pull request has closed stays
+      # until someone removes it by hand — the cleanup (preview-cleanup.yml) ran
+      # on `closed`, before there was anything to remove — and two of those
+      # block every later preview at the cap. Found on 09.09.2026: `pr-77` up for
+      # eight hours after its merge. The same holds for a label removed while a
+      # run that saw it is still starting (14.09.2026): preview-down below runs
+      # on `unlabeled`, before there is anything to remove.
+      #
+      # A failed read counts as open and labelled: previews then behave as they
+      # did before this check, rather than stopping because the API hiccuped.
+      - name: Is the pull request still open, and still asking for a preview?
+        id: open
         if: steps.wired.outputs.wired == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          state=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" \
+            --jq 'if .state == "closed" then "closed" elif ([.labels[].name] | index("preview")) then "open" else "unlabelled" end') ||
+            state=unknown
+          if [ "$state" = closed ] || [ "$state" = unlabelled ]; then
+            echo "::notice::Pull request #$PR is $state — no preview for it (#111)."
+            echo "open=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "open=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v7
+        if: steps.wired.outputs.wired == 'true' && steps.open.outputs.open == 'true'
+      - name: Authorize this run against the instance
+        if: steps.wired.outputs.wired == 'true' && steps.open.outputs.open == 'true'
+        env:
+          KEY: ${{ secrets.DEV_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEV_SSH_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          echo "$KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          echo "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+      - name: Ship the preview scripts
+        if: steps.wired.outputs.wired == 'true' && steps.open.outputs.open == 'true'
+        env:
+          HOST: ${{ secrets.DEV_SSH_HOST }}
+        run: |
+          # ONLY the preview scripts. Not the Caddyfile and not compose.yaml:
+          # those describe DEV, and copying a pull request's version of them
+          # would let an unmerged change reconfigure the environment it is
+          # supposed to be previewed alongside. They reach the instance from
+          # `main`, through deploy-dev.
+          scp -i ~/.ssh/id_deploy             deploy/preview-up.sh deploy/preview-down.sh             "$HOST:/opt/platform-lite/"
+      - name: Start the preview
+        if: steps.wired.outputs.wired == 'true' && steps.open.outputs.open == 'true'
+        env:
+          HOST: ${{ secrets.DEV_SSH_HOST }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_ACTOR: ${{ github.actor }}
+          PR: ${{ github.event.pull_request.number }}
+          # By tree, as dev deploys it.
+          APP_IMAGE: ${{ needs.image.outputs.name }}:tree-${{ needs.image.outputs.tree }}
+        run: |
+          # NOT `ssh ... | tee`: a pipeline reports the exit status of its LAST
+          # command, and tee always succeeds. This job's first run passed green
+          # while the remote script had failed and started nothing at all.
+          if ssh -i ~/.ssh/id_deploy "$HOST" "PR='$PR' APP_IMAGE='$APP_IMAGE' GH_TOKEN='$GH_TOKEN' GH_ACTOR='$GH_ACTOR' bash /opt/platform-lite/preview-up.sh" > preview.log 2>&1; then
+            cat preview.log
+            echo "### Preview" >> "$GITHUB_STEP_SUMMARY"
+            tail -1 preview.log >> "$GITHUB_STEP_SUMMARY"
+          else
+            cat preview.log
+            exit 1
+          fi
+      # The other half of the race. Closed — or unlabelled — while the preview
+      # was starting, the pull request has had its cleanup already, before
+      # there was anything to remove, so nothing else will ever take this
+      # preview down. Looked at again once it is up; a change after this line
+      # is safe, because the cleanup then runs after the preview exists. Not
+      # skipped when the start failed, nor when the run was cancelled or timed
+      # out mid-start: by the health wait at the end of preview-up.sh the
+      # container is already running, its trap does not remove it, and a
+      # half-started preview nobody asked for is the same orphan (review).
+      # preview-down.sh is safe to run for anything; a run cancelled by a newer
+      # push reads `open` here and does nothing.
+      - name: Take the preview down if the pull request closed or lost its label meanwhile
+        if: >-
+          always() &&
+          steps.wired.outputs.wired == 'true' && steps.open.outputs.open == 'true'
+        env:
+          HOST: ${{ secrets.DEV_SSH_HOST }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          state=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" \
+            --jq 'if .state == "closed" then "closed" elif ([.labels[].name] | index("preview")) then "open" else "unlabelled" end') ||
+            state=unknown
+          if [ "$state" = closed ] || [ "$state" = unlabelled ]; then
+            echo "::notice::Pull request #$PR became $state while its preview was starting — removing it (#111)."
+            ssh -i ~/.ssh/id_deploy "$HOST" "PR='$PR' bash /opt/platform-lite/preview-down.sh"
+          elif [ "$state" = unknown ]; then
+            # Not a failure — the preview is up and may well be wanted — but this
+            # is the one read a missed orphan would hide behind, so say it (review).
+            echo "::warning::Could not read whether pull request #$PR is still open and labelled (#111). If not, remove its preview by hand: PR=$PR bash /opt/platform-lite/preview-down.sh"
+          fi
+
+  # Removing the label takes the preview down; closing the pull request is
+  # preview-cleanup.yml, as before. Not needed by `ci-ok`, like `preview`.
+  preview-down:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.action == 'unlabeled' && github.event.label.name == 'preview'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Is the instance wired up yet?
+        id: wired
+        env:
+          HOST: ${{ secrets.DEV_SSH_HOST }}
+        run: |
+          if [ -z "$HOST" ]; then
+            echo "::notice::No DEV_SSH_HOST secret yet — nothing to clean up."
+            echo "wired=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "wired=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Authorize this run against the instance
         if: steps.wired.outputs.wired == 'true'
         env:
@@ -673,67 +712,16 @@ jobs:
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           echo "$KEY" > ~/.ssh/id_deploy
           chmod 600 ~/.ssh/id_deploy
-          # Pinned, never StrictHostKeyChecking=no: a deploy that trusts
-          # whatever answers at that address is a deploy anyone on the path
-          # can take over.
           echo "$KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
-      - name: Ship the deployment files
+      - name: Remove the preview
         if: steps.wired.outputs.wired == 'true'
         env:
           HOST: ${{ secrets.DEV_SSH_HOST }}
+          PR: ${{ github.event.pull_request.number }}
         run: |
-          scp -i ~/.ssh/id_deploy \
-            deploy/compose.yaml deploy/Caddyfile deploy/remote-deploy.sh \
-            deploy/backup-db.sh deploy/ops-check.sh \
-            "$HOST:/opt/platform-lite/"
-      - name: Pull the image and restart the container
-        if: steps.wired.outputs.wired == 'true'
-        env:
-          HOST: ${{ secrets.DEV_SSH_HOST }}
-          # Short-lived and scoped to this run. The instance is granted a pull
-          # for the length of the deployment and keeps no standing registry
-          # credential of its own (G9).
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_ACTOR: ${{ github.actor }}
-          # By tree: the image its pull request checked, whether this push
-          # rebuilt it or only retagged it. /opt/platform-lite/deployed-images
-          # lists these names, and a rollback runs one of them (SPEC §8).
-          APP_IMAGE: ${{ needs.image.outputs.name }}:tree-${{ needs.image.outputs.tree }}
-        run: |
+          # The script on the instance, as preview-cleanup.yml does: the
+          # branch's copy is the pull request's own, and removing its preview
+          # must not depend on what the branch changed. Idempotent.
           ssh -i ~/.ssh/id_deploy "$HOST" \
-            "APP_IMAGE='$APP_IMAGE' GH_TOKEN='$GH_TOKEN' GH_ACTOR='$GH_ACTOR' \
-             bash /opt/platform-lite/remote-deploy.sh"
-
-  preview:
-    # #31: a pull request gets its own running copy, at its own hostname, so a
-    # change can be looked at before it is merged — on request since
-    # 14.09.2026, by the `preview` label (SPEC §8). This job starts it for a
-    # push to a pull request that already carries the label; preview.yml
-    # starts it when the label is added, and takes it down when the label is
-    # removed or the pull request closes.
-    #
-    # Only for branches in THIS repository — a fork's pull request has no
-    # access to the deploy key, and giving it one would hand the instance to
-    # anyone who can open a PR.
-    if: >-
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      contains(github.event.pull_request.labels.*.name, 'preview')
-    # The gate and a serving image, same bar as dev. Not e2e-smoke: a preview
-    # exists to be looked at, and a browser test failing is often the reason
-    # you want to look. `deploy-config` IS required — it validates the proxy
-    # configuration that previews are now part of.
-    needs: [check, image, deploy-config]
-    # Shared with preview.yml: removing the label cancels a start in flight.
-    concurrency:
-      group: preview-${{ github.event.pull_request.number }}
-      cancel-in-progress: true
-    # What preview-up.yml asks for; a called workflow gets no more than this.
-    permissions:
-      contents: read
-      packages: read
-      pull-requests: read
-      checks: read
-    uses: ./.github/workflows/preview-up.yml
-    secrets: inherit
+            "PR='$PR' bash /opt/platform-lite/preview-down.sh"

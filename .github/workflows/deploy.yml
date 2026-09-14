@@ -1,0 +1,137 @@
+name: Deploy
+
+# Pull requests test, `main` deploys (decision of 14.09.2026, SPEC §8). Nothing
+# here tests or builds: it deploys the image pr.yml built and checked for the
+# tree that landed.
+#
+# Branch protection is the guarantee, not a `needs:`. `ci-ok` is required,
+# branches must be up to date before merging, and merges are squashed — so the
+# tree of a commit on `main` is a tree pr.yml tested on refs/pull/N/merge (the
+# argument in full is above pr.yml's `image` job). A tree with no image never
+# went through a pull request, and is refused rather than built: building it
+# here would deploy code no test has seen.
+
+on:
+  push:
+    branches: [main]
+    # SPEC §8 deploys prod manually, from an approval gate or a vX.Y.Z tag.
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+# Never cancelled: every push is a deployment or a release. One at a time per
+# ref; a push still waiting is replaced by a newer one, which carries its
+# change too.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # SPEC §8: dev deploys automatically from `main`.
+  #
+  # Until the instance side of #21 is wired — secrets, open ports, the
+  # /opt/platform-lite directory — this reports itself skipped rather than
+  # failing every push. A red gate everyone learns to ignore is worse than no
+  # gate at all.
+  deploy-dev:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # To add `:<sha>` and `:main` to the image; handed to the instance for
+      # the length of this run so it can pull.
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Find the image this tree's pull request checked
+        id: image
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          image="ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+          tree=$(git rev-parse 'HEAD^{tree}')
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          if ! docker buildx imagetools inspect "$image:tree-$tree" > /dev/null; then
+            echo "::error::No image for tree-$tree. This commit did not come through a pull request that passed CI (a direct push, or a merge of a branch that was not up to date). Nothing was deployed. Fix: open a pull request with the change, let ci-ok pass, and merge it."
+            exit 1
+          fi
+          # The commit SHA and `main` name the same image, for anything that
+          # finds a build from a commit. Manifests only — no layer is copied.
+          docker buildx imagetools create --tag "$image:$GITHUB_SHA" --tag "$image:main" "$image:tree-$tree"
+          echo "ref=$image:tree-$tree" >> "$GITHUB_OUTPUT"
+      - name: Is the instance wired up yet?
+        id: wired
+        env:
+          HOST: ${{ secrets.DEV_SSH_HOST }}
+        run: |
+          if [ -z "$HOST" ]; then
+            echo "::notice::No DEV_SSH_HOST secret yet — nothing to deploy to. See docs/deployment.md."
+            echo "wired=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "wired=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Authorize this run against the instance
+        if: steps.wired.outputs.wired == 'true'
+        env:
+          KEY: ${{ secrets.DEV_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEV_SSH_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          echo "$KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          # Pinned, never StrictHostKeyChecking=no: a deploy that trusts
+          # whatever answers at that address is a deploy anyone on the path
+          # can take over.
+          echo "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+      - name: Ship the deployment files
+        if: steps.wired.outputs.wired == 'true'
+        env:
+          HOST: ${{ secrets.DEV_SSH_HOST }}
+        run: |
+          scp -i ~/.ssh/id_deploy \
+            deploy/compose.yaml deploy/Caddyfile deploy/remote-deploy.sh \
+            deploy/backup-db.sh deploy/ops-check.sh \
+            "$HOST:/opt/platform-lite/"
+      - name: Pull the image and restart the container
+        if: steps.wired.outputs.wired == 'true'
+        env:
+          HOST: ${{ secrets.DEV_SSH_HOST }}
+          # Short-lived and scoped to this run. The instance is granted a pull
+          # for the length of the deployment and keeps no standing registry
+          # credential of its own (G9).
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_ACTOR: ${{ github.actor }}
+          # By tree. /opt/platform-lite/deployed-images lists these names, and
+          # a rollback runs one of them (docs/deployment.md).
+          APP_IMAGE: ${{ steps.image.outputs.ref }}
+        run: |
+          ssh -i ~/.ssh/id_deploy "$HOST" \
+            "APP_IMAGE='$APP_IMAGE' GH_TOKEN='$GH_TOKEN' GH_ACTOR='$GH_ACTOR' \
+             bash /opt/platform-lite/remote-deploy.sh"
+
+  # A vX.Y.Z tag names a release: the same image, one more tag. Production
+  # deploys from it by hand (SPEC §8) — nothing here reaches an instance.
+  release-tag:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Tag the image this tree's pull request checked
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          image="ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+          tree=$(git rev-parse 'HEAD^{tree}')
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          if ! docker buildx imagetools inspect "$image:tree-$tree" > /dev/null; then
+            echo "::error::No image for tree-$tree: $GITHUB_REF_NAME does not point at a commit that came through a pull request. Tag a commit on main instead."
+            exit 1
+          fi
+          docker buildx imagetools create --tag "$image:$GITHUB_REF_NAME" "$image:tree-$tree"
